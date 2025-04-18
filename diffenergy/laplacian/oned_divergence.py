@@ -1,0 +1,47 @@
+import torch
+import numpy as np
+from torch.autograd.functional import jacobian
+
+# --------------------------------------------------------------------------
+# Translation divergence calculation
+
+def divergence_eval(sample, score_model, time_steps, epsilon):
+  # Compute the divergence of the score-based model with Skilling-Hutchinson estimator
+
+  with torch.enable_grad():
+    sample.requires_grad_(True)
+    score = score_model(sample, time_steps)
+    grad_score = torch.autograd.grad(score, sample, retain_graph=True, create_graph=False)[0]
+    trace = torch.sum(grad_score, dim=1)
+
+  return trace
+
+def score_eval_wrapper(sample, score_model, time_steps, requires_grad, device="cuda"):
+  # A wrapper for evaluating the score-based model for the black-box ODE solver
+  
+  sample = torch.tensor(sample, device = device, dtype = torch.float32)
+  time_steps = torch.tensor(time_steps, device = device, dtype = torch.float32).reshape((1,))
+  
+  if requires_grad == 'False':
+    with torch.no_grad():
+      score = score_model(sample, time_steps)
+  elif requires_grad == 'True':
+    score = score_model(sample, time_steps)
+    
+  return score.reshape((-1))
+
+def divergence_eval_wrapper(sample, score_model, time_steps, device="cuda"):
+  # A wrapper for evaluating the divergence of score for the black-box ODE solver
+
+  # Draw the random Gaussian sample for Skilling-Hutchinson's estimator.
+  epsilon = torch.randn_like(sample)
+
+  with torch.no_grad():
+    # Obtain x(t) by solving the probability flow ODE
+    sample = torch.tensor(sample, device = device, dtype = torch.float32)
+    time_steps = torch.tensor(time_steps, device = device, dtype = torch.float32).reshape((1,))
+    epsilon = torch.tensor(epsilon, device=device, dtype=torch.float32)
+    # Compute likelihood
+    div = divergence_eval(sample, score_model, time_steps, epsilon)
+
+  return div.reshape((-1,))
