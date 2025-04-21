@@ -1,0 +1,9 @@
+out_dir: ./sample_results
+wt_file: ../weights/1d_trinormal_20.ckpt
+sample_file: trinormal_20.csv
+sample_num: 10000
+tr_type: non_conservative
+num_steps: 1000
+sigma_min: 0.1
+sigma_max: 30
+save_trajectory: True
