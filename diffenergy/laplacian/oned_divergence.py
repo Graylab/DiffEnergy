@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from torch.autograd.functional import jacobian
+from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
 
 # --------------------------------------------------------------------------
 # Translation divergence calculation
@@ -16,24 +16,30 @@ def divergence_eval(sample, score_model, time_steps, epsilon):
 
   return trace
 
-def score_eval_wrapper(sample, score_model, time_steps, requires_grad, device="cuda"):
+def score_eval_wrapper(batch, score_model, device="cuda"):
   # A wrapper for evaluating the score-based model for the black-box ODE solver
   
+  sample = batch['sample']
+  time_steps = batch['time_steps']
   sample = torch.tensor(sample, device = device, dtype = torch.float32)
   time_steps = torch.tensor(time_steps, device = device, dtype = torch.float32).reshape((1,))
   
-  if requires_grad == 'False':
+  if isinstance(score_model, ScoreNetMLP):
     with torch.no_grad():
       score = score_model(sample, time_steps)
-  elif requires_grad == 'True':
+  elif isinstance(score_model, NegativeGradientMLP):
     score = score_model(sample, time_steps)
+  else:
+    raise ValueError("Unknown score model type")
     
   return score.reshape((-1))
 
-def divergence_eval_wrapper(sample, score_model, time_steps, device="cuda"):
+def divergence_eval_wrapper(batch, score_model, device="cuda"):
   # A wrapper for evaluating the divergence of score for the black-box ODE solver
 
   # Draw the random Gaussian sample for Skilling-Hutchinson's estimator.
+  sample = batch['sample']
+  time_steps = batch['time_steps']
   epsilon = torch.randn_like(sample)
 
   with torch.no_grad():

@@ -87,7 +87,7 @@ class FlowTimeIntegral:
 class DiffSpaceIntegral:
 
     def __init__(self,
-                dataloader,
+                dataloaders,
                 score_model,
                 diffusion_coeff_fn,
                 prior_likelihood_fn,
@@ -96,7 +96,7 @@ class DiffSpaceIntegral:
                 diffusion_steps=100,
                 device='cuda'):
 
-        self.dataloader = dataloader
+        self.dataloaders = dataloaders
         self.score_model = score_model
         self.diffusion_coeff_fn = diffusion_coeff_fn
         self.prior_likelihood_fn = prior_likelihood_fn
@@ -127,7 +127,7 @@ class DiffSpaceIntegral:
         
         data_list = []
     
-        for i, single_traj in enumerate(self.dataloader):
+        for i, single_traj in enumerate(self.dataloaders):
 
             integral_list = []
             prev_sample = None
@@ -169,7 +169,7 @@ class DiffSpaceIntegral:
 class DiffTimeIntegral:
 
     def __init__(self,
-                dataloader,
+                dataloaders,
                 score_model,
                 diffusion_coeff_fn,
                 prior_likelihood_fn,
@@ -177,7 +177,7 @@ class DiffTimeIntegral:
                 diffusion_steps=100,
                 device='cuda'):
 
-        self.dataloader = dataloader
+        self.dataloaders = dataloaders
         self.score_model = score_model
         self.diffusion_coeff_fn = diffusion_coeff_fn
         self.prior_likelihood_fn = prior_likelihood_fn
@@ -202,7 +202,7 @@ class DiffTimeIntegral:
 
         data_list = []
 
-        for i, single_traj in enumerate(self.dataloader):
+        for i, single_traj in enumerate(self.dataloaders):
 
             integral_list = []
 
