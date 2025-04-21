@@ -1,4 +1,4 @@
-out_dir: ./results
+out_dir: ./train_results
 sigma_min: 0.1
 sigma_max: 20
 sigma_noise: 0.2
