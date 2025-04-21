@@ -17,7 +17,7 @@ def marginal_prob_std(t, sigma_min, sigma_max):
   """    
   return sigma_min * (sigma_max / sigma_min) ** t
 
-def diffusion_coeff(t, sigma_min, sigma_max, device = 'cuda'):
+def diffusion_coeff(t, sigma_min, sigma_max, clamp = False):
   r"""
   Compute the diffusion coefficient of our SDE.
 
@@ -30,7 +30,10 @@ def diffusion_coeff(t, sigma_min, sigma_max, device = 'cuda'):
   """
   t = t.clone().detach()
   std = sigma_min * (sigma_max / sigma_min) ** t
-  return std * torch.sqrt(torch.tensor(2 * (np.log(sigma_max/sigma_min)), device=t.device))
+  diff_coeff = std * torch.sqrt(torch.tensor(2 * (np.log(sigma_max/sigma_min)), device=t.device))
+  if clamp:
+    diff_coeff = torch.clamp(diff_coeff, min=1e-5)
+  return diff_coeff
 
 def prior_likelihood(z, sigma):
   """The likelihood of a Gaussian distribution with mean zero and 
