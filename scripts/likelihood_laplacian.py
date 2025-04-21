@@ -1,0 +1,163 @@
+
+import os
+import csv
+import functools
+from omegaconf import DictConfig, OmegaConf
+import pandas as pd
+import torch
+from torch.utils.data import DataLoader, Dataset
+import hydra
+
+from diffenergy.likelihood import FlowTimeIntegral, DiffSpaceIntegral, DiffTimeIntegral
+from diffenergy.laplacian.helper_gpu import marginal_prob_std, diffusion_coeff, prior_laplace
+from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
+from diffenergy.laplacian.oned_divergence import score_eval_wrapper, divergence_eval_wrapper
+
+def del_sample_fn(sample, prev_sample):
+    if prev_sample is not None:
+        del_sample = sample - prev_sample
+    else:
+        del_sample = torch.zeros_like(sample)
+    return del_sample
+
+def laplacian_dataset(Dataset):
+    def __init__(self, ids, samples):
+        self.ids = ids
+        self.samples = samples
+
+    def __len__(self):
+        return len(self.ids)
+
+    def __getitem__(self, idx):
+        return {'id': self.ids[idx], 'sample': self.samples[idx]}
+
+def load_test_data(data_path, batch_size, device="cuda"):
+    """Loads dataset from a CSV file and returns a DataLoader."""
+
+    df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
+    ids = df.iloc[:, 0].values  # Extract the first column as ids
+    samples = df.iloc[:, 1].values  # Extract the second column as samples
+
+    # Convert to tensors
+    ids = torch.tensor(ids, dtype=torch.int64)  # ids as integers
+    samples = torch.tensor(samples, dtype=torch.float32)  # samples as integers 
+
+    dataset = laplacian_dataset(ids, samples)  # Create a dataset
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+
+    return dataloader
+
+@hydra.main(version_base=None, config_path="../configs", config_name="likelihood_1d")
+def main(config: DictConfig):
+
+    # Print the entire configuration
+    print(OmegaConf.to_yaml(config))
+    file_name = config.out_file
+
+    # Check if the file exists to determine whether to write the header
+    file_exists = os.path.isfile(file_name)
+
+    inference_type = config.inference
+
+    # set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # set sigma_values
+    sigma_min = config.sigma_min
+    sigma_max = config.sigma_max
+
+    # set marginal probability distribution and diffusion coefficient distribution
+    marginal_prob_std_fn = functools.partial(
+      marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
+
+    diffusion_coeff_fn = functools.partial(
+        diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = False)
+    if inference_type == 'FlowTimeIntegral':
+        diffusion_coeff_fn = functools.partial(
+            diffusion_coeff_fn, clamp = True)
+
+    # set models
+    weights_path = config.checkpoint
+    ckpt = torch.load(weights_path, map_location = device)
+
+    # Remove "module." prefix if necessary
+    if any(key.startswith("module.") for key in ckpt.keys()):
+        ckpt = {key.replace("module.", ""): value for key, value in ckpt.items()}
+
+    tr_type = config.tr_type
+
+    # Initialize score model
+    if tr_type == 'non_conservative':
+        score_model = ScoreNetMLP(
+            input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
+    elif tr_type == 'conservative':
+        score_model = NegativeGradientMLP(
+            input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
+
+    # Load the checkpoint weights into the model    
+    score_model.load_state_dict(ckpt)
+
+    # batch size
+    batch_size = config.batch_size
+
+    # load dataset
+    if inference_type == 'FlowTimeIntegral':
+        dataloader = load_test_data(config.data_samples, batch_size, device)
+    else:
+        with open(config.data_samples, 'r') as f:
+            data_lists = f.read().split('\n')
+        dataloaders = [
+            load_test_data(data_list, batch_size, device) 
+            for data_list in data_lists]
+    
+    prior_likelihood_fn = functools.partial(prior_laplace, sigma = sigma_max)
+
+    if inference_type == 'FlowTimeIntegral':
+        likelihood = FlowTimeIntegral(dataloader=dataloader,
+                                      score_model=score_model,
+                                      diffusion_coeff_fn=diffusion_coeff_fn,
+                                      prior_likelihood_fn=prior_likelihood_fn,
+                                      score_eval_wrapper=score_eval_wrapper,
+                                      divergence_eval_wrapper=divergence_eval_wrapper,
+                                      diffusion_steps=config.diffusion_steps,
+                                      device=device)
+        data_list = likelihood.run_likelihood()
+
+    elif inference_type == 'DiffSpaceIntegral':
+        likelihood = DiffSpaceIntegral(dataloaders=dataloaders,
+                                       score_model=score_model,
+                                       diffusion_coeff_fn=diffusion_coeff_fn,
+                                       prior_likelihood_fn=prior_likelihood_fn,
+                                       score_eval_wrapper=score_eval_wrapper,
+                                       del_sample_fn=del_sample_fn,
+                                       diffusion_steps=config.diffusion_steps,
+                                       device=device)
+        data_list = likelihood.run_likelihood()
+
+    elif inference_type == 'DiffTimeIntegral':
+        likelihood = DiffTimeIntegral(dataloaders=dataloaders,
+                                      score_model=score_model,
+                                      diffusion_coeff_fn=diffusion_coeff_fn,
+                                      prior_likelihood_fn=prior_likelihood_fn,
+                                      divergence_eval_wrapper=divergence_eval_wrapper,
+                                      diffusion_steps=config.diffusion_steps,
+                                      device=device)
+        data_list = likelihood.run_likelihood()
+
+    # Write the data_list to a CSV file
+    if data_list:
+
+        with open(file_name, 'a', newline='') as f:
+
+            writer = csv.DictWriter(f, fieldnames=data_list[0].keys())
+
+            # Write the header only if the file doesn't exist
+            if not file_exists:
+                writer.writeheader()
+
+            # Write each dictionary in the list as a row
+            for data in data_list:
+                writer.writerow(data)
+
+if __name__ == '__main__':
+    main()
