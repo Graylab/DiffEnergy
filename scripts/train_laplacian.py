@@ -133,4 +133,4 @@ def main(config: DictConfig):
 	plt.savefig(outpath / 'loss_curve.png')
 
 if __name__ == '__main__':
-		main()
+	main()
