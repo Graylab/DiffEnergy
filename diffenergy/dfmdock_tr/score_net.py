@@ -1,12 +1,11 @@
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from dataclasses import dataclass
 from einops import repeat
-from src.models.egnn import E_GCL
-from src.utils.coords6d import get_coords6d
+from diffenergy.dfmdock_tr.egnn import E_GCL
+from diffenergy.dfmdock_tr.utils.coords6d import get_coords6d
 
 #----------------------------------------------------------------------------
 # Data class for model config
