@@ -1,5 +1,5 @@
 
-import os
+from pathlib import Path
 import csv
 import functools
 from omegaconf import DictConfig, OmegaConf
@@ -18,9 +18,12 @@ def del_sample_fn(sample, prev_sample):
         del_sample = sample - prev_sample
     else:
         del_sample = torch.zeros_like(sample)
+
+    del_sample = del_sample.reshape(-1)
+
     return del_sample
 
-def laplacian_dataset(Dataset):
+class laplacian_dataset(Dataset):
     def __init__(self, ids, samples):
         self.ids = ids
         self.samples = samples
@@ -31,7 +34,7 @@ def laplacian_dataset(Dataset):
     def __getitem__(self, idx):
         return {'id': self.ids[idx], 'sample': self.samples[idx]}
 
-def load_test_data(data_path, batch_size, device="cuda"):
+def load_test_data(data_path, batch_size):
     """Loads dataset from a CSV file and returns a DataLoader."""
 
     df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
@@ -52,10 +55,13 @@ def main(config: DictConfig):
 
     # Print the entire configuration
     print(OmegaConf.to_yaml(config))
-    file_name = config.out_file
+    file_name = Path(config.out_file)
 
+    parent_folder = file_name.parent()
+    if not parent_folder.exists():
+        parent_folder.mkdir()
     # Check if the file exists to determine whether to write the header
-    file_exists = os.path.isfile(file_name)
+    file_exists = file_name.exists()
 
     inference_type = config.inference
 
@@ -68,7 +74,7 @@ def main(config: DictConfig):
 
     # set marginal probability distribution and diffusion coefficient distribution
     marginal_prob_std_fn = functools.partial(
-      marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
+        marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
 
     diffusion_coeff_fn = functools.partial(
         diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = False)
@@ -102,12 +108,12 @@ def main(config: DictConfig):
 
     # load dataset
     if inference_type == 'FlowTimeIntegral':
-        dataloader = load_test_data(config.data_samples, batch_size, device)
+        dataloader = load_test_data(config.data_samples, batch_size)
     else:
         with open(config.data_samples, 'r') as f:
             data_lists = f.read().split('\n')
         dataloaders = [
-            load_test_data(data_list, batch_size, device) 
+            load_test_data(data_list, batch_size) 
             for data_list in data_lists]
     
     prior_likelihood_fn = functools.partial(prior_laplace, sigma = sigma_max)
