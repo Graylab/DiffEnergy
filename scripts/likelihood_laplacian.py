@@ -49,7 +49,7 @@ def load_test_data(data_path, batch_size):
 
     return dataloader
 
-@hydra.main(version_base=None, config_path="../configs", config_name="likelihood_1d")
+@hydra.main(version_base=None, config_path="../configs", config_name="likelihood_laplacian")
 def main(config: DictConfig):
 
     # Print the entire configuration

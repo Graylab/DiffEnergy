@@ -82,7 +82,7 @@ def Euler_Maruyama_sampler(score_model,
 
 # ----------------------------------------------------------------------------------
 # Main
-@hydra.main(version_base=None, config_path="../configs", config_name="sample_1d")
+@hydra.main(version_base=None, config_path="../configs", config_name="sample_laplacian")
 def main(config: DictConfig):
 
     # Print the entire configuration

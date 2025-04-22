@@ -30,7 +30,7 @@ from diffenergy.helper_gpu import marginal_prob_std, diffusion_coeff
 # ----------------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------------
-@hydra.main(version_base=None, config_path="../configs", config_name="train_1d")
+@hydra.main(version_base=None, config_path="../configs", config_name="train_laplacian")
 def main(config: DictConfig):
   
   # Print the entire configuration
