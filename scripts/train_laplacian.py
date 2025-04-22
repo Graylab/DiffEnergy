@@ -2,24 +2,20 @@
 # author Sudeep Sarma
 # minimal diffusion model using MLP for a laplacian distribution training
 # --------------------------------------------------------------------------
-import torch
 import functools
 import numpy as np
-from torch.optim import Adam
-import torchvision.transforms as transforms
 from pathlib import Path
 import tqdm
 import matplotlib.pyplot as plt
-import pandas as pd
-from laplacian_network import ScoreNetMLP, NegativeGradientMLP
-from torch.utils.data import Dataset, DataLoader, random_split
-from sklearn.model_selection import train_test_split
+import torch
+from torch.utils.data import DataLoader
 from omegaconf import DictConfig, OmegaConf
 import hydra
 
 from diffenergy.laplacian.dataset import TrimodalGaussianSampler, TrimodalGaussianDataset
 from diffenergy.laplacian.loss import loss_fn
-from diffenergy.helper_gpu import marginal_prob_std, diffusion_coeff
+from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
+from diffenergy.helper_gpu import marginal_prob_std
 
 
 # --------------------------------------------------------------------------------
@@ -45,7 +41,7 @@ def main(config: DictConfig):
 	sigma_min = config.sigma_min
 	sigma_max = config.sigma_max
 	marginal_prob_std_fn = functools.partial(marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
-	diffusion_coeff_fn = functools.partial(diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max)
+	# diffusion_coeff_fn = functools.partial(diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max)
 
 	# noise
 	sigma_noise = config.sigma_noise
@@ -53,10 +49,10 @@ def main(config: DictConfig):
 	n_epochs = config.n_epochs
 	# size of a mini-batch
 	batch_size = config.batch_size
-	# percentage of data to use as the test set
-	test_size = config.test_size
-	# percentage of data to use as the validation set
-	val_size = config.val_size
+	# # percentage of data to use as the test set
+	# test_size = config.test_size
+	# # percentage of data to use as the validation set
+	# val_size = config.val_size
 	# type of training data
 	tr_data = config.tr_data
 

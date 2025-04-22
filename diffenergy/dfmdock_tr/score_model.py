@@ -1,17 +1,14 @@
 import hydra
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import pytorch_lightning as pl
 import numpy as np
-import random
 from torch.utils import data
 from torch_geometric.loader import DataLoader
 from omegaconf import DictConfig
-from src.models.score_net_base import Score_Net
-from src.utils.so3_diffuser import SO3Diffuser 
-from src.utils.r3_diffuser import R3Diffuser 
-from src.utils.geometry import axis_angle_to_matrix
+from diffenergy.dfmdock_tr.score_net import Score_Net
+# from src.utils.so3_diffuser import SO3Diffuser 
+from diffenergy.dfmdock_tr.utils.r3_diffuser import R3Diffuser 
+from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
 
 #----------------------------------------------------------------------------
 # Main wrapper for training the model
@@ -44,7 +41,8 @@ class Score_Model(pl.LightningModule):
         if self.perturb_tr:
             self.r3_diffuser = R3Diffuser(diffuser.r3)
         if self.perturb_rot:
-            self.so3_diffuser = SO3Diffuser(diffuser.so3)
+            # self.so3_diffuser = SO3Diffuser(diffuser.so3)
+            raise NotImplementedError("rotation is not implemented yet")
 
         # net
         self.net = Score_Net(model)
@@ -84,10 +82,11 @@ class Score_Model(pl.LightningModule):
                 tr_update = torch.from_numpy(tr_update).float().to(self.device)
 
             if self.perturb_rot:
-                rot_score_scale = self.so3_diffuser.score_scaling(t.item())
-                rot_update, rot_score_gt = self.so3_diffuser.forward_marginal(t.item())
-                rot_update = torch.from_numpy(rot_update).float().to(self.device)
-                rot_score_gt = torch.from_numpy(rot_score_gt).float().to(self.device)
+                # rot_score_scale = self.so3_diffuser.score_scaling(t.item())
+                # rot_update, rot_score_gt = self.so3_diffuser.forward_marginal(t.item())
+                # rot_update = torch.from_numpy(rot_update).float().to(self.device)
+                # rot_score_gt = torch.from_numpy(rot_score_gt).float().to(self.device)
+                raise NotImplementedError("rotation is not implemented yet")
             else:
                 rot_update = np.zeros(3)
                 rot_update = torch.from_numpy(rot_update).float().to(self.device)
@@ -158,19 +157,20 @@ class Score_Model(pl.LightningModule):
             tr_loss = torch.tensor(0.0, device=self.device)
 
         if self.perturb_rot:
-            if self.separate_rot_loss:
-                gt_rot_angle = torch.norm(rot_score_gt, dim=-1, keepdim=True)
-                gt_rot_axis = rot_score_gt / (gt_rot_angle + 1e-6)
+            # if self.separate_rot_loss:
+            #     gt_rot_angle = torch.norm(rot_score_gt, dim=-1, keepdim=True)
+            #     gt_rot_axis = rot_score_gt / (gt_rot_angle + 1e-6)
 
-                pred_rot_angle = torch.norm(rot_score, dim=-1, keepdim=True)
-                pred_rot_axis = rot_score / (pred_rot_angle + 1e-6)
+            #     pred_rot_angle = torch.norm(rot_score, dim=-1, keepdim=True)
+            #     pred_rot_axis = rot_score / (pred_rot_angle + 1e-6)
 
-                rot_axis_loss = torch.mean((pred_rot_axis - gt_rot_axis)**2)
-                rot_angle_loss = torch.mean((pred_rot_angle - gt_rot_angle)**2 / rot_score_scale**2)
-                rot_loss = 0.5 * (rot_axis_loss + rot_angle_loss)
+            #     rot_axis_loss = torch.mean((pred_rot_axis - gt_rot_axis)**2)
+            #     rot_angle_loss = torch.mean((pred_rot_angle - gt_rot_angle)**2 / rot_score_scale**2)
+            #     rot_loss = 0.5 * (rot_axis_loss + rot_angle_loss)
 
-            else:
-                rot_loss = torch.mean((rot_score - rot_score_gt)**2 / rot_score_scale**2)
+            # else:
+            #     rot_loss = torch.mean((rot_score - rot_score_gt)**2 / rot_score_scale**2)
+            raise NotImplementedError("rotation is not implemented yet")
         else:
             rot_loss = torch.tensor(0.0, device=self.device)
 

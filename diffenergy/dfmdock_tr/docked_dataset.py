@@ -1,20 +1,13 @@
 ### inspired from Leeshin Chu's dips_dataset.py
 import esm
-import time
 import torch
 import torch.nn.functional as F
 import os.path as path
-import math
-import random
-import numpy as np
-from tqdm import tqdm
-from os import listdir
 from torch.utils import data
-from einops import rearrange, repeat
-from src.utils.esm_utils import load_coords # Utils file from ESM https://github.com/facebookresearch/esm/blob/main/esm/inverse_folding/util.py
-from src.utils.pdb import save_PDB, place_fourth_atom
-from src.components.esm_model import ESMLanguageModel 
-from openfold.np import residue_constants
+from diffenergy.dfmdock_tr.utils.esm_utils import load_coords # Utils file from ESM https://github.com/facebookresearch/esm/blob/main/esm/inverse_folding/util.py
+from diffenergy.dfmdock_tr.utils.pdb import save_PDB, place_fourth_atom
+from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel 
+from diffenergy.dfmdock_tr.utils import residue_constants
 
 #----------------------------------------------------------------------------
 class DockingDataset(data.Dataset):
@@ -208,7 +201,7 @@ class DockingDataset(data.Dataset):
 if __name__ == '__main__':
     data_dir = "/scratch4/jgray21/ssarma4/pdbs"
     data_list = "/scratch4/jgray21/ssarma4/pdbs/filenames.txt"
-    dataset = DipsDataset(
+    dataset = DockingDataset(
         data_dir=data_dir, 
         data_list=data_list, 
         out_pdb=False,
