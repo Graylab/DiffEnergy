@@ -136,7 +136,7 @@ class DiffSpaceIntegral:
                 _id = batch['id']
                 # Call diff_likelihood with the previous ligand position
                 batch = utils.squeeze_batch(batch)
-                sample = batch['sample']
+                sample = batch['sample'].clone().detach()
                 force_del_sample = self.diff_likelihood(batch, prev_sample, num_steps)
 
                 if prev_sample is None:
@@ -210,7 +210,7 @@ class DiffTimeIntegral:
                 _id = batch['id']
                 # Call ode_diff_likelihood
                 batch = utils.squeeze_batch(batch)
-                sample = batch['sample']
+                sample = batch['sample'].clone().detach()
                 logp_grad_t = self.ode_diff_likelihood(sample, num_steps)
 
                 if num_steps == 0:

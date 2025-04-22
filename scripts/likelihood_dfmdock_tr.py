@@ -1,55 +1,43 @@
 from pathlib import Path
 import csv
 import functools
-from omegaconf import DictConfig, OmegaConf
-import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
+from omegaconf import DictConfig, OmegaConf
 import hydra
 
 from diffenergy.likelihood import FlowTimeIntegral, DiffSpaceIntegral, DiffTimeIntegral
-from diffenergy.helper_gpu import marginal_prob_std, diffusion_coeff, prior_laplace
-from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.laplacian.divergence import score_eval_wrapper, divergence_eval_wrapper
+from diffenergy.dfmdock_tr.docked_dataset import DockingDataset
+from diffenergy.dfmdock_tr.score_model import Score_Model
+from diffenergy.dfmdock_tr.divergence import score_eval_wrapper_tr, divergence_eval_wrapper_tr
+from diffenergy.helper_gpu import diffusion_coeff, prior_likelihood
 
 def del_sample_fn(sample, prev_sample):
+    # Compute del_position as the difference between current and previous lig_pos
     if prev_sample is not None:
-        del_sample = sample - prev_sample
+        center_lig_pos = sample[...,1,:].mean(dim=0)
+        center_prev_lig_pos = prev_sample[...,1,:].mean(dim=0)
+        center_del_pos = center_lig_pos - center_prev_lig_pos
     else:
-        del_sample = torch.zeros_like(sample)
+        center_del_pos = torch.zeros_like(sample)
+        center_del_pos = center_del_pos[...,1,:].mean(dim=0)
+    
+    return center_del_pos
 
-    del_sample = del_sample.reshape(-1)
-
-    return del_sample
-
-class laplacian_dataset(Dataset):
-    def __init__(self, ids, samples):
-        self.ids = ids
-        self.samples = samples
+class DockingDatasetWrapper(Dataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
 
     def __len__(self):
-        return len(self.ids)
+        return len(self.dataset)
 
     def __getitem__(self, idx):
-        return {'id': self.ids[idx], 'sample': self.samples[idx]}
+        item = self.dataset[idx]
+        item['sample'] = item['ligand_pos']
+        
+        return item
 
-def load_test_data(data_path, batch_size):
-    """Loads dataset from a CSV file and returns a DataLoader."""
-
-    df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
-    ids = df.iloc[:, 0].values  # Extract the first column as ids
-    samples = df.iloc[:, 1].values  # Extract the second column as samples
-
-    # Convert to tensors
-    ids = torch.tensor(ids, dtype=torch.int64)  # ids as integers
-    samples = torch.tensor(samples, dtype=torch.float32)  # samples as integers 
-
-    dataset = laplacian_dataset(ids, samples)  # Create a dataset
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-
-    return dataloader
-
-@hydra.main(version_base=None, config_path="../configs", config_name="likelihood_1d")
+@hydra.main(version_base=None, config_path="../configs", config_name="likelihood_dfmdock_tr")
 def main(config: DictConfig):
 
     # Print the entire configuration
@@ -71,59 +59,40 @@ def main(config: DictConfig):
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
 
-    # set marginal probability distribution and diffusion coefficient distribution
-    marginal_prob_std_fn = functools.partial(
-        marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
-
     diffusion_coeff_fn = functools.partial(
         diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = False)
-    if inference_type == 'FlowTimeIntegral':
-        diffusion_coeff_fn = functools.partial(
-            diffusion_coeff_fn, clamp = True)
 
     # set models
-    weights_path = config.checkpoint
-    ckpt = torch.load(weights_path, map_location = device)
-
-    # Remove "module." prefix if necessary
-    if any(key.startswith("module.") for key in ckpt.keys()):
-        ckpt = {key.replace("module.", ""): value for key, value in ckpt.items()}
-
-    tr_type = config.tr_type
-
-    # Initialize score model
-    if tr_type == 'non_conservative':
-        score_model = ScoreNetMLP(
-            input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
-    elif tr_type == 'conservative':
-        score_model = NegativeGradientMLP(
-            input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
-
-    # Load the checkpoint weights into the model    
-    score_model.load_state_dict(ckpt)
+    score_model = Score_Model.load_from_checkpoint(config.ckpt)
+    score_model.freeze()
+    score_model.to(device)
 
     # batch size
     batch_size = config.batch_size
 
+    data_dir = config.data_directory
+
     # load dataset
     if inference_type == 'FlowTimeIntegral':
-        dataloader = load_test_data(config.data_samples, batch_size)
+        testset = DockingDataset(data_dir=data_dir, data_list=config.data_listpdb)
+        testset = DockingDatasetWrapper(testset)
+        dataloader = DataLoader(testset, batch_size=batch_size, num_workers=6)
     else:
-        with open(config.data_samples, 'r') as f:
+        with open(config.data_listpdb, 'r') as f:
             data_lists = f.read().split('\n')
-        dataloaders = [
-            load_test_data(data_list, batch_size) 
-            for data_list in data_lists]
+        testsets = [DockingDataset(data_dir=data_dir, data_list=data_list) for data_list in data_lists]
+        testsets = [DockingDatasetWrapper(testset) for testset in testsets]
+        dataloaders = [DataLoader(testset, batch_size=batch_size, num_workers=6) for testset in testsets]
     
-    prior_likelihood_fn = functools.partial(prior_laplace, sigma = sigma_max)
+    prior_likelihood_fn = functools.partial(prior_likelihood, sigma = sigma_max)
 
     if inference_type == 'FlowTimeIntegral':
         likelihood = FlowTimeIntegral(dataloader=dataloader,
                                       score_model=score_model,
                                       diffusion_coeff_fn=diffusion_coeff_fn,
                                       prior_likelihood_fn=prior_likelihood_fn,
-                                      score_eval_wrapper=score_eval_wrapper,
-                                      divergence_eval_wrapper=divergence_eval_wrapper,
+                                      score_eval_wrapper=score_eval_wrapper_tr,
+                                      divergence_eval_wrapper=divergence_eval_wrapper_tr,
                                       diffusion_steps=config.diffusion_steps,
                                       device=device)
         data_list = likelihood.run_likelihood()
@@ -133,7 +102,7 @@ def main(config: DictConfig):
                                        score_model=score_model,
                                        diffusion_coeff_fn=diffusion_coeff_fn,
                                        prior_likelihood_fn=prior_likelihood_fn,
-                                       score_eval_wrapper=score_eval_wrapper,
+                                       score_eval_wrapper=score_eval_wrapper_tr,
                                        del_sample_fn=del_sample_fn,
                                        diffusion_steps=config.diffusion_steps,
                                        device=device)
@@ -144,7 +113,7 @@ def main(config: DictConfig):
                                       score_model=score_model,
                                       diffusion_coeff_fn=diffusion_coeff_fn,
                                       prior_likelihood_fn=prior_likelihood_fn,
-                                      divergence_eval_wrapper=divergence_eval_wrapper,
+                                      divergence_eval_wrapper=divergence_eval_wrapper_tr,
                                       diffusion_steps=config.diffusion_steps,
                                       device=device)
         data_list = likelihood.run_likelihood()

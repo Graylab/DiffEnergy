@@ -19,7 +19,7 @@ import hydra
 
 from diffenergy.laplacian.dataset import TrimodalGaussianSampler, TrimodalGaussianDataset
 from diffenergy.laplacian.loss import loss_fn
-from diffenergy.laplacian.helper_gpu import marginal_prob_std, diffusion_coeff
+from diffenergy.helper_gpu import marginal_prob_std, diffusion_coeff
 
 
 # --------------------------------------------------------------------------------
