@@ -3,8 +3,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import json
-import math
+# import json
+# import math
 
 import biotite.structure
 from biotite.structure.io import pdbx, pdb
@@ -13,12 +13,12 @@ from biotite.structure import filter_backbone
 from biotite.structure import get_chains
 from biotite.sequence import ProteinSequence
 import numpy as np
-from scipy.spatial import transform
-from scipy.stats import special_ortho_group
+# from scipy.spatial import transform
+# from scipy.stats import special_ortho_group
 import torch
-import torch.nn as nn
+# import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.data as data
+# import torch.utils.data as data
 from typing import Sequence, Tuple, List
 
 from esm.data import BatchConverter

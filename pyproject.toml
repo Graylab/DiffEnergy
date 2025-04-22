@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diffenergy"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "omegaconf",
+    "hydra",
+    "tqdm",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "torchdiffeq",
+    "fair-esm",
+    "torch-geometric",
+    "pytorch-lightning",
+    "einops",
+    "biopython",
+    "dm-tree",
+]
