@@ -1,0 +1,9 @@
+checkpoint: /scratch4/jgray21/ssarma4/repos/DiffEnergy/src/weights/trans_epochs_200.ckpt
+batch_size: 1
+out_file: ./results/flowtimeDock2_1.csv
+sigma_min: 0.1
+sigma_max: 30
+data_directory: ../data/pdbs
+data_listpdb: ../data/pdb_list.txt
+inference: FlowTimeIntegral
+diffusion_steps: 40

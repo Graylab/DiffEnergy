@@ -108,7 +108,7 @@ class DiffSpaceIntegral:
     def diff_likelihood(self, batch, prev_sample = None, num_steps = 0):
 
         # grab some input
-        sample = batch['sample']
+        sample = batch['sample'].clone().detach()
         t_step = torch.tensor([1.0 / self.tot_steps], device = self.device)
         t_final = torch.tensor([1.0], device = self.device)
         time_steps = t_final - t_step * num_steps
