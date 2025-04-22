@@ -22,3 +22,6 @@ dependencies = [
     "biopython",
     "dm-tree",
 ]
+
+[tool.setuptools]
+packages = ["diffenergy"]
