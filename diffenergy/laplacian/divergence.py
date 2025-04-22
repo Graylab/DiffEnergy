@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
 
 # --------------------------------------------------------------------------
