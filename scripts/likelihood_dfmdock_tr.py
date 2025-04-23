@@ -24,6 +24,27 @@ def del_sample_fn(sample, prev_sample):
     
     return center_del_pos
 
+def batch_process_fn(batch, device):
+    # Get batch from testset loader
+    _id = batch['id'][0]
+    rec_x = batch['rec_x'].squeeze(0)
+    lig_x = batch['lig_x'].squeeze(0)
+    rec_pos = batch['rec_pos'].squeeze(0)
+    lig_pos = batch['lig_pos'].squeeze(0)
+    position_matrix = batch['position_matrix'].squeeze(0)
+
+    # Wrap to a batch
+    batch = {
+        "id": _id,
+        "rec_x": rec_x.to(device),
+        "lig_x": lig_x.to(device),
+        "rec_pos": rec_pos.to(device),
+        "lig_pos": lig_pos.to(device),
+        "position_matrix": position_matrix.to(device),
+    }
+    batch['sample'] = batch['lig_pos']
+    return batch
+
 class DockingDatasetWrapper(Dataset):
     def __init__(self, dataset):
         self.dataset = dataset
@@ -33,7 +54,7 @@ class DockingDatasetWrapper(Dataset):
 
     def __getitem__(self, idx):
         item = self.dataset[idx]
-        item['sample'] = item['ligand_pos']
+        item['sample'] = item['lig_pos']
         
         return item
 
@@ -67,28 +88,26 @@ def main(config: DictConfig):
     score_model.freeze()
     score_model.to(device)
 
-    # batch size
-    batch_size = config.batch_size
-
     data_dir = config.data_directory
 
     # load dataset
     if inference_type == 'FlowTimeIntegral':
         testset = DockingDataset(data_dir=data_dir, data_list=config.data_listpdb)
         testset = DockingDatasetWrapper(testset)
-        dataloader = DataLoader(testset, batch_size=batch_size, num_workers=6)
+        dataloader = DataLoader(testset, batch_size=1, num_workers=6)
     else:
         with open(config.data_listpdb, 'r') as f:
             data_lists = f.read().splitlines()
         testsets = [DockingDataset(data_dir=data_dir, data_list=data_list) for data_list in data_lists]
         testsets = [DockingDatasetWrapper(testset) for testset in testsets]
-        dataloaders = {data_list: DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=6) 
+        dataloaders = {data_list: DataLoader(testset, batch_size=1, shuffle=False, num_workers=6) 
                        for data_list, testset in zip(data_list, testsets)}
     
     prior_likelihood_fn = functools.partial(prior_likelihood, sigma = sigma_max)
 
     if inference_type == 'FlowTimeIntegral':
         likelihood = FlowTimeIntegral(dataloader=dataloader,
+                                      batch_process_fn=batch_process_fn,
                                       score_model=score_model,
                                       diffusion_coeff_fn=diffusion_coeff_fn,
                                       prior_likelihood_fn=prior_likelihood_fn,
@@ -99,6 +118,7 @@ def main(config: DictConfig):
         data_list = likelihood.run_likelihood()
     elif inference_type == 'DiffSpaceIntegral':
         likelihood = DiffSpaceIntegral(dataloaders=dataloaders,
+                                       batch_process_fn=batch_process_fn,
                                        score_model=score_model,
                                        diffusion_coeff_fn=diffusion_coeff_fn,
                                        prior_likelihood_fn=prior_likelihood_fn,
@@ -109,6 +129,7 @@ def main(config: DictConfig):
         data_list = likelihood.run_likelihood()
     elif inference_type == 'DiffTimeIntegral':
         likelihood = DiffTimeIntegral(dataloaders=dataloaders,
+                                      batch_process_fn=batch_process_fn,
                                       score_model=score_model,
                                       diffusion_coeff_fn=diffusion_coeff_fn,
                                       prior_likelihood_fn=prior_likelihood_fn,
