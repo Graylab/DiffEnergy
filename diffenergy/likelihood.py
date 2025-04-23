@@ -64,7 +64,7 @@ class FlowTimeIntegral:
         zp = res[-1]
         z = zp[:-1].reshape(sample_shape)
         delta_logp = zp[-1:].reshape(1)
-        prior_logp = self.prior_likelihoo_fn(z)
+        prior_logp = self.prior_likelihood_fn(z)
         bpd = - (prior_logp + delta_logp)
         bpd = bpd / N
 
@@ -75,7 +75,8 @@ class FlowTimeIntegral:
         data_list = []
 
         for batch in tqdm(self.dataloader):
-            batch = utils.squeeze_batch(batch)
+            for key in batch:
+                batch[key] = batch[key].to(self.device)
             out = self.ode_likelihood(batch)
             out.update({'id': batch['id'].item()}) 
             data_list.append(out)
@@ -135,7 +136,8 @@ class DiffSpaceIntegral:
             for num_steps, batch in enumerate(tqdm(single_traj)):
                 _id = batch['id']
                 # Call diff_likelihood with the previous ligand position
-                batch = utils.squeeze_batch(batch)
+                for key in batch:
+                    batch[key] = batch[key].to(self.device)
                 sample = batch['sample'].clone().detach()
                 force_del_sample = self.diff_likelihood(batch, prev_sample, num_steps)
 
@@ -209,7 +211,8 @@ class DiffTimeIntegral:
             for num_steps, batch in enumerate(tqdm(single_traj)):
                 _id = batch['id']
                 # Call ode_diff_likelihood
-                batch = utils.squeeze_batch(batch)
+                for key in batch:
+                    batch[key] = batch[key].to(self.device)
                 sample = batch['sample'].clone().detach()
                 logp_grad_t = self.ode_diff_likelihood(sample, num_steps)
 

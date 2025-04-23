@@ -31,10 +31,7 @@ def score_eval_wrapper_tr(batch, score_model, device="cuda"):
 	
 	# grab some input
 	lig_pos = batch["lig_pos"]
-	time_steps = batch["time_steps"]
-
-	lig_pos = torch.tensor(lig_pos, device=device, dtype=torch.float32)
-	time_steps = torch.tensor(time_steps, device=device, dtype=torch.float32).reshape((1,)) 
+	time_steps = batch["time_steps"].reshape((1,)) 
 
 	# prepare for input
 	batch["lig_pos"] = lig_pos
@@ -51,10 +48,7 @@ def divergence_eval_wrapper_tr(batch, score_model, device="cuda"):
 
 	# grab some input
 	lig_pos = batch["lig_pos"]
-	time_steps = batch["time_steps"]
-
-	lig_pos = torch.tensor(lig_pos, device=device, dtype=torch.float32)
-	time_steps = torch.tensor(time_steps, device=device, dtype=torch.float32).reshape((1,)) 
+	time_steps = batch["time_steps"].reshape((1,)) 
 
 	# prepare for input
 	batch["lig_pos"] = lig_pos
