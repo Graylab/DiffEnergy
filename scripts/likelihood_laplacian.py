@@ -22,6 +22,11 @@ def del_sample_fn(sample, prev_sample):
 
     return del_sample
 
+def batch_process_fn(batch, device):
+    for key in batch:
+        batch[key] = batch[key].to(device)
+    return batch
+
 class laplacian_dataset(Dataset):
     def __init__(self, ids, samples):
         self.ids = ids
@@ -102,21 +107,19 @@ def main(config: DictConfig):
     # Load the checkpoint weights into the model    
     score_model.load_state_dict(ckpt)
 
-    # batch size
-    batch_size = config.batch_size
-
     # load dataset
     if inference_type == 'FlowTimeIntegral':
-        dataloader = load_test_data(config.data_samples, batch_size)
+        dataloader = load_test_data(config.data_samples, batch_size=1)
     else:
         with open(config.data_samples, 'r') as f:
             data_lists = f.read().splitlines()
-        dataloaders = {data_list: load_test_data(data_list, batch_size) for data_list in data_lists}
+        dataloaders = {data_list: load_test_data(data_list, batch_size=1) for data_list in data_lists}
     
     prior_likelihood_fn = functools.partial(prior_laplace, sigma = sigma_max)
 
     if inference_type == 'FlowTimeIntegral':
         likelihood = FlowTimeIntegral(dataloader=dataloader,
+                                      batch_process_fn=batch_process_fn,
                                       score_model=score_model,
                                       diffusion_coeff_fn=diffusion_coeff_fn,
                                       prior_likelihood_fn=prior_likelihood_fn,
@@ -127,6 +130,7 @@ def main(config: DictConfig):
         data_list = likelihood.run_likelihood()
     elif inference_type == 'DiffSpaceIntegral':
         likelihood = DiffSpaceIntegral(dataloaders=dataloaders,
+                                       batch_process_fn=batch_process_fn,
                                        score_model=score_model,
                                        diffusion_coeff_fn=diffusion_coeff_fn,
                                        prior_likelihood_fn=prior_likelihood_fn,
@@ -137,6 +141,7 @@ def main(config: DictConfig):
         data_list = likelihood.run_likelihood()
     elif inference_type == 'DiffTimeIntegral':
         likelihood = DiffTimeIntegral(dataloaders=dataloaders,
+                                      batch_process_fn=batch_process_fn,
                                       score_model=score_model,
                                       diffusion_coeff_fn=diffusion_coeff_fn,
                                       prior_likelihood_fn=prior_likelihood_fn,

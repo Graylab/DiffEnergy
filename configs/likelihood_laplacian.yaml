@@ -1,5 +1,4 @@
 checkpoint: ../weights/1d_trinormal.ckpt
-batch_size: 1
 out_file: ./results/mps.csv
 sigma_min: 0.1
 sigma_max: 30

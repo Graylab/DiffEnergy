@@ -12,6 +12,7 @@ class FlowTimeIntegral:
 
     def __init__(self,
                 dataloader,
+                batch_process_fn,
                 score_model,
                 diffusion_coeff_fn,
                 prior_likelihood_fn,
@@ -24,6 +25,7 @@ class FlowTimeIntegral:
                 device='cuda'):
 
         self.dataloader = dataloader
+        self.batch_process_fn = batch_process_fn
         self.score_model = score_model
         self.diffusion_coeff_fn = diffusion_coeff_fn
         self.prior_likelihood_fn = prior_likelihood_fn
@@ -74,10 +76,10 @@ class FlowTimeIntegral:
         data_list = []
 
         for batch in tqdm(self.dataloader):
-            for key in batch:
-                batch[key] = batch[key].to(self.device)
+            batch = self.batch_process_fn(batch, self.device)
             out = self.ode_likelihood(batch)
-            out.update({'id': batch['id'].item()}) 
+            _id = batch['id'].item() if isinstance(batch['id'], torch.Tensor) else batch['id']
+            out.update({'id': _id}) 
             data_list.append(out)
 
         return data_list
@@ -88,6 +90,7 @@ class DiffSpaceIntegral:
 
     def __init__(self,
                 dataloaders,
+                batch_process_fn,
                 score_model,
                 diffusion_coeff_fn,
                 prior_likelihood_fn,
@@ -97,6 +100,7 @@ class DiffSpaceIntegral:
                 device='cuda'):
 
         self.dataloaders = dataloaders
+        self.batch_process_fn = batch_process_fn
         self.score_model = score_model
         self.diffusion_coeff_fn = diffusion_coeff_fn
         self.prior_likelihood_fn = prior_likelihood_fn
@@ -133,9 +137,8 @@ class DiffSpaceIntegral:
             prev_sample = None
 
             for num_steps, batch in enumerate(single_traj):
+                batch = self.batch_process_fn(batch, self.device)
                 # Call diff_likelihood with the previous ligand position
-                for key in batch:
-                    batch[key] = batch[key].to(self.device)
                 sample = batch['sample'].clone().detach()
                 force_del_sample = self.diff_likelihood(batch, prev_sample, num_steps)
 
@@ -170,6 +173,7 @@ class DiffTimeIntegral:
 
     def __init__(self,
                 dataloaders,
+                batch_process_fn,
                 score_model,
                 diffusion_coeff_fn,
                 prior_likelihood_fn,
@@ -178,6 +182,7 @@ class DiffTimeIntegral:
                 device='cuda'):
 
         self.dataloaders = dataloaders
+        self.batch_process_fn = batch_process_fn
         self.score_model = score_model
         self.diffusion_coeff_fn = diffusion_coeff_fn
         self.prior_likelihood_fn = prior_likelihood_fn
@@ -208,9 +213,8 @@ class DiffTimeIntegral:
             integral_list = []
 
             for num_steps, batch in enumerate(single_traj):
+                batch = self.batch_process_fn(batch, self.device)
                 # Call ode_diff_likelihood
-                for key in batch:
-                    batch[key] = batch[key].to(self.device)
                 sample = batch['sample'].clone().detach()
                 logp_grad_t = self.ode_diff_likelihood(batch, num_steps)
 

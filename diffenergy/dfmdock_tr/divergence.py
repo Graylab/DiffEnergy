@@ -34,7 +34,6 @@ def score_eval_wrapper_tr(batch, score_model, device="cuda"):
     time_steps = batch["time_steps"].reshape((1,)) 
 
     # prepare for input
-    batch["lig_pos"] = lig_pos
     batch["t"] = time_steps
 
     with torch.no_grad():    
@@ -47,11 +46,9 @@ def divergence_eval_wrapper_tr(batch, score_model, device="cuda"):
     #A wrapper for evaluating the divergence of score for the black-box ODE solver
 
     # grab some input
-    lig_pos = batch["lig_pos"]
     time_steps = batch["time_steps"].reshape((1,)) 
 
     # prepare for input
-    batch["lig_pos"] = lig_pos
     batch["t"] = time_steps
     
     # compute divergence
