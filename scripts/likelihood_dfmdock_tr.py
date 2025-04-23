@@ -79,10 +79,11 @@ def main(config: DictConfig):
         dataloader = DataLoader(testset, batch_size=batch_size, num_workers=6)
     else:
         with open(config.data_listpdb, 'r') as f:
-            data_lists = f.read().split('\n')
+            data_lists = f.read().splitlines()
         testsets = [DockingDataset(data_dir=data_dir, data_list=data_list) for data_list in data_lists]
         testsets = [DockingDatasetWrapper(testset) for testset in testsets]
-        dataloaders = [DataLoader(testset, batch_size=batch_size, num_workers=6) for testset in testsets]
+        dataloaders = {data_list: DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=6) 
+                       for data_list, testset in zip(data_list, testsets)}
     
     prior_likelihood_fn = functools.partial(prior_likelihood, sigma = sigma_max)
 

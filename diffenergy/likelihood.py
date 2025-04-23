@@ -5,7 +5,6 @@
 from tqdm import tqdm
 import torch
 from torchdiffeq import odeint
-from diffenergy import utils
 
 # -----------------------------------------------------------------------------------
 # FlowTime likelihood calculation
@@ -128,13 +127,12 @@ class DiffSpaceIntegral:
         
         data_list = []
     
-        for i, single_traj in enumerate(self.dataloaders):
+        for i, (_id, single_traj) in enumerate(tqdm(self.dataloaders.items())):
 
             integral_list = []
             prev_sample = None
 
-            for num_steps, batch in enumerate(tqdm(single_traj)):
-                _id = batch['id']
+            for num_steps, batch in enumerate(single_traj):
                 # Call diff_likelihood with the previous ligand position
                 for key in batch:
                     batch[key] = batch[key].to(self.device)
@@ -158,7 +156,7 @@ class DiffSpaceIntegral:
 
             # Define and update out_2
             out = {
-                "id": _id.item(),
+                "id": _id,
                 "bpd": bpd.item(),
             }
 
@@ -192,6 +190,7 @@ class DiffTimeIntegral:
         t_step = torch.tensor([1.0 / self.tot_steps], device = self.device)
         t_final = torch.tensor([1.0], device = self.device)
         time_steps = t_final - t_step * num_steps
+        batch['time_steps'] = time_steps
 
         g = self.diffusion_coeff_fn(time_steps)
         logp_grad = -0.5 * g**2 * self.divergence_eval_wrapper(batch, self.score_model, device = self.device)
@@ -204,17 +203,16 @@ class DiffTimeIntegral:
 
         data_list = []
 
-        for i, single_traj in enumerate(self.dataloaders):
+        for i, (_id, single_traj) in enumerate(tqdm(self.dataloaders.items())):
 
             integral_list = []
 
-            for num_steps, batch in enumerate(tqdm(single_traj)):
-                _id = batch['id']
+            for num_steps, batch in enumerate(single_traj):
                 # Call ode_diff_likelihood
                 for key in batch:
                     batch[key] = batch[key].to(self.device)
                 sample = batch['sample'].clone().detach()
-                logp_grad_t = self.ode_diff_likelihood(sample, num_steps)
+                logp_grad_t = self.ode_diff_likelihood(batch, num_steps)
 
                 if num_steps == 0:
                     prior_logp = self.prior_likelihood_fn(sample)
@@ -231,7 +229,7 @@ class DiffTimeIntegral:
 
             # Define and update out_2
             out = {
-                "id": _id.item(),
+                "id": _id,
                 "bpd": bpd.item(),
             }
 

@@ -110,10 +110,8 @@ def main(config: DictConfig):
         dataloader = load_test_data(config.data_samples, batch_size)
     else:
         with open(config.data_samples, 'r') as f:
-            data_lists = f.read().split('\n')
-        dataloaders = [
-            load_test_data(data_list, batch_size) 
-            for data_list in data_lists]
+            data_lists = f.read().splitlines()
+        dataloaders = {data_list: load_test_data(data_list, batch_size) for data_list in data_lists}
     
     prior_likelihood_fn = functools.partial(prior_laplace, sigma = sigma_max)
 
