@@ -18,10 +18,8 @@ def divergence_eval(sample, score_model, time_steps, epsilon):
 def score_eval_wrapper(batch, score_model, device="cuda"):
 	# A wrapper for evaluating the score-based model for the black-box ODE solver
 	
-	sample = batch['sample']
-	time_steps = batch['time_steps']
-	sample = torch.tensor(sample, device = device, dtype = torch.float32)
-	time_steps = torch.tensor(time_steps, device = device, dtype = torch.float32).reshape((1,))
+	sample = batch['sample'].unsqueeze(1)
+	time_steps = batch['time_steps'].reshape((1,))
 	
 	if isinstance(score_model, ScoreNetMLP):
 		with torch.no_grad():
@@ -37,15 +35,12 @@ def divergence_eval_wrapper(batch, score_model, device="cuda"):
 	# A wrapper for evaluating the divergence of score for the black-box ODE solver
 
 	# Draw the random Gaussian sample for Skilling-Hutchinson's estimator.
-	sample = batch['sample']
-	time_steps = batch['time_steps']
-	epsilon = torch.randn_like(sample)
+	sample = batch['sample'].unsqueeze(1)
+	time_steps = batch['time_steps'].reshape((1,))
+	epsilon = torch.randn_like(sample).to(device=device, dtype=torch.float32)
 
 	with torch.no_grad():
 		# Obtain x(t) by solving the probability flow ODE
-		sample = torch.tensor(sample, device = device, dtype = torch.float32)
-		time_steps = torch.tensor(time_steps, device = device, dtype = torch.float32).reshape((1,))
-		epsilon = torch.tensor(epsilon, device=device, dtype=torch.float32)
 		# Compute likelihood
 		div = divergence_eval(sample, score_model, time_steps, epsilon)
 

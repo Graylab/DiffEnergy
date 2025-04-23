@@ -44,13 +44,13 @@ def main(config: DictConfig):
     print(OmegaConf.to_yaml(config))
     file_name = Path(config.out_file)
 
-    parent_folder = file_name.parent()
+    parent_folder = file_name.parent
     if not parent_folder.exists():
         parent_folder.mkdir()
     # Check if the file exists to determine whether to write the header
     file_exists = file_name.exists()
 
-    inference_type = config.inference
+    inference_type = config.inference_type
 
     # set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -96,7 +96,6 @@ def main(config: DictConfig):
                                       diffusion_steps=config.diffusion_steps,
                                       device=device)
         data_list = likelihood.run_likelihood()
-
     elif inference_type == 'DiffSpaceIntegral':
         likelihood = DiffSpaceIntegral(dataloaders=dataloaders,
                                        score_model=score_model,
@@ -107,7 +106,6 @@ def main(config: DictConfig):
                                        diffusion_steps=config.diffusion_steps,
                                        device=device)
         data_list = likelihood.run_likelihood()
-
     elif inference_type == 'DiffTimeIntegral':
         likelihood = DiffTimeIntegral(dataloaders=dataloaders,
                                       score_model=score_model,
@@ -117,6 +115,8 @@ def main(config: DictConfig):
                                       diffusion_steps=config.diffusion_steps,
                                       device=device)
         data_list = likelihood.run_likelihood()
+    else:
+        raise ValueError(f"Unknown inference type: {inference_type}")
 
     # Write the data_list to a CSV file
     if data_list:
