@@ -125,7 +125,10 @@ def main(config: DictConfig):
                                       prior_likelihood_fn=prior_likelihood_fn,
                                       score_eval_wrapper=score_eval_wrapper,
                                       divergence_eval_wrapper=divergence_eval_wrapper,
-                                      diffusion_steps=config.diffusion_steps,
+                                      ode_steps=config.ode_steps,
+                                      odeint_rtol=config.odeint_rtol,
+                                      odeint_atol=config.odeint_atol,
+                                      odeint_method=config.odeint_method,
                                       device=device)
         data_list = likelihood.run_likelihood()
     elif inference_type == 'DiffSpaceIntegral':

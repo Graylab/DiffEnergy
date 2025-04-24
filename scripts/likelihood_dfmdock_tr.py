@@ -8,8 +8,13 @@ import hydra
 
 from diffenergy.likelihood import FlowTimeIntegral, DiffSpaceIntegral, DiffTimeIntegral
 from diffenergy.dfmdock_tr.docked_dataset import DockingDataset
+from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel 
 from diffenergy.dfmdock_tr.score_model import Score_Model
-from diffenergy.dfmdock_tr.divergence import score_eval_wrapper_tr, divergence_eval_wrapper_tr
+from diffenergy.dfmdock_tr.divergence import (
+    score_eval_wrapper_tr_ode, 
+    score_eval_wrapper_tr_diffspace, 
+    divergence_eval_wrapper_tr
+)
 from diffenergy.helper_gpu import diffusion_coeff, prior_likelihood
 
 def del_sample_fn(sample, prev_sample):
@@ -89,19 +94,22 @@ def main(config: DictConfig):
     score_model.to(device)
 
     data_dir = config.data_directory
+    
+    esm_model = ESMLanguageModel()
 
     # load dataset
     if inference_type == 'FlowTimeIntegral':
-        testset = DockingDataset(data_dir=data_dir, data_list=config.data_listpdb)
+        testset = DockingDataset(data_dir=data_dir, data_list=config.data_listpdb, esm_model=esm_model, esm_alphabet=esm_model.alphabet)
         testset = DockingDatasetWrapper(testset)
         dataloader = DataLoader(testset, batch_size=1, num_workers=6)
     else:
         with open(config.data_listpdb, 'r') as f:
             data_lists = f.read().splitlines()
-        testsets = [DockingDataset(data_dir=data_dir, data_list=data_list) for data_list in data_lists]
+        testsets = [DockingDataset(data_dir=data_dir, data_list=data_list, esm_model=esm_model, esm_alphabet=esm_model.alphabet) 
+                    for data_list in data_lists]
         testsets = [DockingDatasetWrapper(testset) for testset in testsets]
         dataloaders = {data_list: DataLoader(testset, batch_size=1, shuffle=False, num_workers=6) 
-                       for data_list, testset in zip(data_list, testsets)}
+                       for data_list, testset in zip(data_lists, testsets)}
     
     prior_likelihood_fn = functools.partial(prior_likelihood, sigma = sigma_max)
 
@@ -111,9 +119,12 @@ def main(config: DictConfig):
                                       score_model=score_model,
                                       diffusion_coeff_fn=diffusion_coeff_fn,
                                       prior_likelihood_fn=prior_likelihood_fn,
-                                      score_eval_wrapper=score_eval_wrapper_tr,
+                                      score_eval_wrapper=score_eval_wrapper_tr_ode,
                                       divergence_eval_wrapper=divergence_eval_wrapper_tr,
-                                      diffusion_steps=config.diffusion_steps,
+                                      ode_steps=config.ode_steps,
+                                      odeint_rtol=config.odeint_rtol,
+                                      odeint_atol=config.odeint_atol,
+                                      odeint_method=config.odeint_method,
                                       device=device)
         data_list = likelihood.run_likelihood()
     elif inference_type == 'DiffSpaceIntegral':
@@ -122,7 +133,7 @@ def main(config: DictConfig):
                                        score_model=score_model,
                                        diffusion_coeff_fn=diffusion_coeff_fn,
                                        prior_likelihood_fn=prior_likelihood_fn,
-                                       score_eval_wrapper=score_eval_wrapper_tr,
+                                       score_eval_wrapper=score_eval_wrapper_tr_diffspace,
                                        del_sample_fn=del_sample_fn,
                                        diffusion_steps=config.diffusion_steps,
                                        device=device)

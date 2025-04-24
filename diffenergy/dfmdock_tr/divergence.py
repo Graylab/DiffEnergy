@@ -26,7 +26,21 @@ def divergence_eval_tr(batch, score_model):
 
     return trace
 
-def score_eval_wrapper_tr(batch, score_model, device="cuda"):
+def score_eval_wrapper_tr_diffspace(batch, score_model, device="cuda"):
+    #A wrapper for evaluating the score-based model for the black-box ODE solver
+    
+    # grab some input
+    time_steps = batch["time_steps"].reshape((1,)) 
+
+    # prepare for input
+    batch["t"] = time_steps
+
+    with torch.no_grad():    
+        tr_score= score_model(batch)["tr_score"]
+
+    return tr_score.reshape((-1,))
+
+def score_eval_wrapper_tr_ode(batch, score_model, device="cuda"):
     #A wrapper for evaluating the score-based model for the black-box ODE solver
     
     # grab some input

@@ -1,8 +1,12 @@
 checkpoint: ../weights/trans_epochs_200.ckpt
-out_file: ./results/flowtimeDock2_1.csv
+out_file: ../../results/flowtimeDock2_1.csv
 sigma_min: 0.1
 sigma_max: 30
 data_directory: ../data/pdbs
 data_listpdb: ../data/pdb_list.txt
 inference_type: FlowTimeIntegral
-diffusion_steps: 100
+diffusion_steps: 40
+odeint_rtol: 1e-4
+odeint_atol: 1e-4
+odeint_method: rk4
+ode_steps: 100

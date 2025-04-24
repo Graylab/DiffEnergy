@@ -18,7 +18,7 @@ class FlowTimeIntegral:
                 prior_likelihood_fn,
                 score_eval_wrapper,
                 divergence_eval_wrapper,
-                diffusion_steps=100,
+                ode_steps=100,
                 odeint_rtol=1e-5,
                 odeint_atol=1e-5,
                 odeint_method='rk4',
@@ -31,7 +31,7 @@ class FlowTimeIntegral:
         self.prior_likelihood_fn = prior_likelihood_fn
         self.score_eval_wrapper = score_eval_wrapper
         self.divergence_eval_wrapper = divergence_eval_wrapper
-        self.diffusion_steps = diffusion_steps
+        self.ode_steps = ode_steps
         self.odeint_rtol = odeint_rtol
         self.odeint_atol = odeint_atol
         self.odeint_method = odeint_method
@@ -58,7 +58,7 @@ class FlowTimeIntegral:
         init = torch.cat([sample.reshape((-1,)), torch.zeros((1,), device = self.device)]) 
         N = sample.numel()
         eps = 1e-2
-        t_eval = torch.linspace(eps, 1.0, steps=self.diffusion_steps, device=self.device)
+        t_eval = torch.linspace(eps, 1.0, steps=self.ode_steps, device=self.device)
 
         # Black-box ODE solver
         res = odeint(ode_func, init, t_eval, rtol=self.odeint_rtol, atol=self.odeint_atol, method=self.odeint_method)

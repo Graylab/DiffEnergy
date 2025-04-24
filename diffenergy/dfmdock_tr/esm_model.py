@@ -6,12 +6,12 @@ import esm
 class ESMLanguageModel(nn.Module):
     def __init__(
         self, 
-        version: str = 'ESM2',
+        model_name: str = 'esm2_t33_650M_UR50D',
         rep_layer: int = 33,
         ):
         super().__init__()
         self.rep_layer = rep_layer
-        self.model, alphabet = esm.pretrained.load_model_and_alphabet('esm2_t33_650M_UR50D')
+        self.model, self.alphabet = esm.pretrained.load_model_and_alphabet(model_name)
         self.model.eval()
         
     def forward(self, x):

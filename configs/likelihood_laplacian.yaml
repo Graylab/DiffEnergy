@@ -5,4 +5,8 @@ sigma_max: 30
 data_samples: ../data/trinormal_mps.csv
 inference_type: FlowTimeIntegral
 tr_type: non_conservative
-diffusion_steps: 10
+diffusion_steps: 1000
+odeint_rtol: 1e-5
+odeint_atol: 1e-5
+odeint_method: rk4
+ode_steps: 100
