@@ -1,12 +1,10 @@
 ### inspired from Leeshin Chu's dips_dataset.py
-import esm
 import torch
 import torch.nn.functional as F
 import os.path as path
 from torch.utils import data
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords # Utils file from ESM https://github.com/facebookresearch/esm/blob/main/esm/inverse_folding/util.py
 from diffenergy.dfmdock_tr.utils.pdb import save_PDB, place_fourth_atom
-from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel 
 from diffenergy.dfmdock_tr.utils import residue_constants
 
 #----------------------------------------------------------------------------
@@ -16,6 +14,8 @@ class DockingDataset(data.Dataset):
         data_dir: str,
         data_list: str,
         out_pdb: bool = False,
+        esm_model = None,
+        esm_alphabet = None,
     ):
         # Path to the data directory 
         self.data_dir = data_dir
@@ -24,10 +24,12 @@ class DockingDataset(data.Dataset):
         with open(self.data_list, 'r') as f:
             lines = f.readlines()
         self.file_list = [line.strip() for line in lines] 
+        self.esm_model = esm_model
+        self.batch_converter = esm_alphabet.get_batch_converter()
 
-        # Load esm
-        model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
-        self.batch_converter = alphabet.get_batch_converter()
+        # # Load esm
+        # model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
+        # self.batch_converter = alphabet.get_batch_converter()
 
     def __getitem__(self, idx: int):
         # Get info from pdb_files and pt files
@@ -56,11 +58,11 @@ class DockingDataset(data.Dataset):
 
         # New code 
         
-        esm_model = ESMLanguageModel()
+        # esm_model = ESMLanguageModel()
 
         # get esm embedding
-        rec_x = esm_model(rec_x).squeeze(0) 
-        lig_x = esm_model(lig_x).squeeze(0)  
+        rec_x = self.esm_model(rec_x).squeeze(0) 
+        lig_x = self.esm_model(lig_x).squeeze(0)  
     
         # get one-hot encodings from openfold
         rec_onehot = torch.from_numpy(residue_constants.sequence_to_onehot(
