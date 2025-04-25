@@ -15,7 +15,7 @@ import hydra
 from diffenergy.laplacian.dataset import TrimodalGaussianSampler, TrimodalGaussianDataset
 from diffenergy.laplacian.loss import loss_fn
 from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.helper_gpu import marginal_prob_std
+from DiffEnergy.diffenergy.helper import marginal_prob_std
 
 
 # --------------------------------------------------------------------------------

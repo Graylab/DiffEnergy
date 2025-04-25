@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, Dataset
 import hydra
 
 from diffenergy.likelihood import FlowTimeIntegral, DiffSpaceIntegral, DiffTimeIntegral
-from diffenergy.helper_gpu import marginal_prob_std, diffusion_coeff, prior_laplace
+from DiffEnergy.diffenergy.helper import marginal_prob_std, diffusion_coeff, prior_laplace
 from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.laplacian.divergence import score_eval_wrapper, divergence_eval_wrapper
 
