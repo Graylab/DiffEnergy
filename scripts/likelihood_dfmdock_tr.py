@@ -101,14 +101,14 @@ def main(config: DictConfig):
     if inference_type == 'FlowTimeIntegral':
         testset = DockingDataset(data_dir=data_dir, data_list=config.data_listpdb, esm_model=esm_model, esm_alphabet=esm_model.alphabet)
         testset = DockingDatasetWrapper(testset)
-        dataloader = DataLoader(testset, batch_size=1, num_workers=6)
+        dataloader = DataLoader(testset, batch_size=1, num_workers=config.num_workers, shuffle=False)
     else:
         with open(config.data_listpdb, 'r') as f:
             data_lists = f.read().splitlines()
         testsets = [DockingDataset(data_dir=data_dir, data_list=data_list, esm_model=esm_model, esm_alphabet=esm_model.alphabet) 
                     for data_list in data_lists]
         testsets = [DockingDatasetWrapper(testset) for testset in testsets]
-        dataloaders = {data_list: DataLoader(testset, batch_size=1, shuffle=False, num_workers=6) 
+        dataloaders = {data_list: DataLoader(testset, batch_size=1, shuffle=False, num_workers=config.num_workers) 
                        for data_list, testset in zip(data_lists, testsets)}
     
     prior_likelihood_fn = functools.partial(prior_likelihood, sigma = sigma_max)
