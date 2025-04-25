@@ -52,13 +52,20 @@ class Score_Model(pl.LightningModule):
         rec_pos = batch["rec_pos"]
         lig_pos = batch["lig_pos"]
 
-        # move the lig center to origin
+        # move the lig center to origin 
         center = lig_pos[..., 1, :].mean(dim=0)
-        rec_pos -= center
-        lig_pos = lig_pos - center
+
+        new_batch = {
+            "rec_x": batch["rec_x"],
+            "lig_x": batch["lig_x"],
+            "rec_pos": rec_pos - center,
+            "lig_pos": lig_pos - center,
+            "position_matrix": batch["position_matrix"],
+            "t": batch["t"],
+        }
 
         # predict
-        outputs = self.net(batch, predict=True)
+        outputs = self.net(new_batch, predict=True)
 
         return outputs
 
