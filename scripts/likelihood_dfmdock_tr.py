@@ -125,6 +125,8 @@ def main(config: DictConfig):
                                       odeint_rtol=config.odeint_rtol,
                                       odeint_atol=config.odeint_atol,
                                       odeint_method=config.odeint_method,
+                                      reset_seed_each_sample=config.reset_seed_each_sample,
+                                      seed=config.seed,
                                       device=device)
         data_list = likelihood.run_likelihood()
     elif inference_type == 'DiffSpaceIntegral':
@@ -136,6 +138,8 @@ def main(config: DictConfig):
                                        score_eval_wrapper=score_eval_wrapper_tr_diffspace,
                                        del_sample_fn=del_sample_fn,
                                        diffusion_steps=config.diffusion_steps,
+                                       reset_seed_each_sample=config.reset_seed_each_sample,
+                                       seed=config.seed,
                                        device=device)
         data_list = likelihood.run_likelihood()
     elif inference_type == 'DiffTimeIntegral':
@@ -146,6 +150,8 @@ def main(config: DictConfig):
                                       prior_likelihood_fn=prior_likelihood_fn,
                                       divergence_eval_wrapper=divergence_eval_wrapper_tr,
                                       diffusion_steps=config.diffusion_steps,
+                                      reset_seed_each_sample=config.reset_seed_each_sample,
+                                      seed=config.seed,
                                       device=device)
         data_list = likelihood.run_likelihood()
     else:
