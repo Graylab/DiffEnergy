@@ -12,7 +12,7 @@ from omegaconf import DictConfig, OmegaConf
 import hydra
 
 from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
-from DiffEnergy.diffenergy.helper import marginal_prob_std, diffusion_coeff
+from diffenergy.helper import marginal_prob_std, diffusion_coeff
 
 # --------------------------------------------------------------------------
 

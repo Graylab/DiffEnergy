@@ -15,7 +15,7 @@ from diffenergy.dfmdock_tr.divergence import (
     score_eval_wrapper_tr_diffspace, 
     divergence_eval_wrapper_tr
 )
-from DiffEnergy.diffenergy.helper import diffusion_coeff, prior_dfmdock_tr
+from diffenergy.helper import diffusion_coeff, prior_dfmdock_tr
 
 def del_sample_fn(sample, prev_sample):
     # Compute del_position as the difference between current and previous lig_pos

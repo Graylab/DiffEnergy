@@ -44,6 +44,7 @@ def score_eval_wrapper_tr_ode(batch, score_model, device="cuda"):
     #A wrapper for evaluating the score-based model for the black-box ODE solver
     
     # grab some input
+    batch["lig_pos"] = batch["lig_pos"].clone().detach()
     lig_pos = batch["lig_pos"]
     time_steps = batch["time_steps"].reshape((1,)) 
 
@@ -60,6 +61,7 @@ def divergence_eval_wrapper_tr(batch, score_model, device="cuda"):
     #A wrapper for evaluating the divergence of score for the black-box ODE solver
 
     # grab some input
+    batch["lig_pos"] = batch["lig_pos"].clone().detach()
     time_steps = batch["time_steps"].reshape((1,)) 
 
     # prepare for input
