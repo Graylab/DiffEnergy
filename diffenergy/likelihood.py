@@ -22,6 +22,8 @@ class FlowTimeIntegral:
                 odeint_rtol=1e-5,
                 odeint_atol=1e-5,
                 odeint_method='rk4',
+                reset_seed_each_sample=False,
+                seed=0,
                 device='cuda'):
 
         self.dataloader = dataloader
@@ -35,6 +37,8 @@ class FlowTimeIntegral:
         self.odeint_rtol = odeint_rtol
         self.odeint_atol = odeint_atol
         self.odeint_method = odeint_method
+        self.reset_seed_each_sample = reset_seed_each_sample
+        self.seed = seed
         self.device = device
 
     def ode_likelihood(self, batch):
@@ -56,7 +60,6 @@ class FlowTimeIntegral:
             return sample_logp_concat
 
         init = torch.cat([sample.reshape((-1,)), torch.zeros((1,), device = self.device)]) 
-        N = sample.numel()
         eps = 1e-2
         t_eval = torch.linspace(eps, 1.0, steps=self.ode_steps, device=self.device)
 
@@ -65,12 +68,12 @@ class FlowTimeIntegral:
         zp = res[-1]
         z = zp[:-1].reshape(sample_shape)
         batch['sample'] = z
-        prior_logp = self.prior_likelihood_fn(batch)
+        prior_logp, N = self.prior_likelihood_fn(batch)
         delta_logp = zp[-1:].reshape(1)
         bpd = - (prior_logp + delta_logp)
         bpd = bpd / N
 
-        return {'bpd': bpd.item(), 'delta_logp': delta_logp.item()}
+        return {'bpd': bpd.item(), 'prior_logp': prior_logp.item(), 'delta_logp': delta_logp.item()}
 
     def run_likelihood(self):
 
@@ -78,10 +81,13 @@ class FlowTimeIntegral:
 
         for batch in tqdm(self.dataloader):
             batch = self.batch_process_fn(batch, self.device)
+            if self.reset_seed_each_sample:
+                torch.manual_seed(self.seed)
             out = self.ode_likelihood(batch)
             _id = batch['id'].item() if isinstance(batch['id'], torch.Tensor) else batch['id']
-            out.update({'id': _id}) 
-            data_list.append(out)
+            output = {'id': _id}
+            output.update(out)
+            data_list.append(output)
 
         return data_list
 
@@ -98,6 +104,8 @@ class DiffSpaceIntegral:
                 score_eval_wrapper,
                 del_sample_fn,
                 diffusion_steps=100,
+                reset_seed_each_sample=False,
+                seed=0,
                 device='cuda'):
 
         self.dataloaders = dataloaders
@@ -108,6 +116,8 @@ class DiffSpaceIntegral:
         self.score_eval_wrapper = score_eval_wrapper
         self.del_sample_fn = del_sample_fn
         self.tot_steps = diffusion_steps
+        self.reset_seed_each_sample = reset_seed_each_sample
+        self.seed = seed
         self.device = device
     
     def diff_likelihood(self, batch, prev_sample = None, num_steps = 0):
@@ -136,6 +146,8 @@ class DiffSpaceIntegral:
 
             integral_list = []
             prev_sample = None
+            if self.reset_seed_each_sample:
+                torch.manual_seed(self.seed)
 
             for num_steps, batch in enumerate(single_traj):
                 batch = self.batch_process_fn(batch, self.device)
@@ -144,8 +156,7 @@ class DiffSpaceIntegral:
                 force_del_sample = self.diff_likelihood(batch, prev_sample, num_steps)
 
                 if prev_sample is None:
-                    prior_logp = self.prior_likelihood_fn(batch)
-                    N = sample.numel()
+                    prior_logp, N = self.prior_likelihood_fn(batch)
 
                 # Update previous ligand position for the next iteration
                 prev_sample = sample.clone().detach()
@@ -162,6 +173,8 @@ class DiffSpaceIntegral:
             out = {
                 "id": _id,
                 "bpd": bpd.item(),
+                "prior_logp": prior_logp.item(),
+                "integral": integral,
             }
 
             data_list.append(out)
@@ -180,6 +193,8 @@ class DiffTimeIntegral:
                 prior_likelihood_fn,
                 divergence_eval_wrapper,
                 diffusion_steps=100,
+                reset_seed_each_sample=False,
+                seed=0,
                 device='cuda'):
 
         self.dataloaders = dataloaders
@@ -189,6 +204,8 @@ class DiffTimeIntegral:
         self.prior_likelihood_fn = prior_likelihood_fn
         self.divergence_eval_wrapper = divergence_eval_wrapper
         self.tot_steps = diffusion_steps
+        self.reset_seed_each_sample = reset_seed_each_sample
+        self.seed = seed
         self.device = device
 
     def ode_diff_likelihood(self, batch, num_steps = 0):
@@ -212,16 +229,16 @@ class DiffTimeIntegral:
         for i, (_id, single_traj) in enumerate(tqdm(self.dataloaders.items())):
 
             integral_list = []
+            if self.reset_seed_each_sample:
+                torch.manual_seed(self.seed)
 
             for num_steps, batch in enumerate(single_traj):
                 batch = self.batch_process_fn(batch, self.device)
                 # Call ode_diff_likelihood
-                sample = batch['sample'].clone().detach()
                 logp_grad_t = self.ode_diff_likelihood(batch, num_steps)
 
                 if num_steps == 0:
-                    prior_logp = self.prior_likelihood_fn(batch)
-                    N = sample.numel()
+                    prior_logp, N = self.prior_likelihood_fn(batch)
 
                 # Append the full output to the list
                 integral_list.append(logp_grad_t)
@@ -236,6 +253,8 @@ class DiffTimeIntegral:
             out = {
                 "id": _id,
                 "bpd": bpd.item(),
+                "prior_logp": prior_logp.item(),
+                "integral": integral,
             }
 
             data_list.append(out) 

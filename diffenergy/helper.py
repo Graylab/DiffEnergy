@@ -45,7 +45,8 @@ def prior_dfmdock_tr(batch, sigma):
     rec_pos = batch['rec_pos']
     com_diff = lig_pos[...,1,:].mean(dim=0) - rec_pos[...,1,:].mean(dim=0)
     N = com_diff.numel()
-    return -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = lig_pos.device)) - torch.sum(com_diff**2) / (2 * sigma**2)
+    prior_logp = -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = lig_pos.device)) - torch.sum(com_diff**2) / (2 * sigma**2)
+    return prior_logp, N
     
 
 def prior_laplace(batch, sigma):
@@ -55,4 +56,5 @@ def prior_laplace(batch, sigma):
     # N = np.prod(shape)
     z = batch['sample']
     N = z.numel()
-    return -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - (z**2) / (2 * sigma**2)
+    prior_logp = -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - (z**2) / (2 * sigma**2)
+    return prior_logp, N
