@@ -64,8 +64,9 @@ class FlowTimeIntegral:
         res = odeint(ode_func, init, t_eval, rtol=self.odeint_rtol, atol=self.odeint_atol, method=self.odeint_method)
         zp = res[-1]
         z = zp[:-1].reshape(sample_shape)
+        batch['sample'] = z
+        prior_logp = self.prior_likelihood_fn(batch)
         delta_logp = zp[-1:].reshape(1)
-        prior_logp = self.prior_likelihood_fn(z)
         bpd = - (prior_logp + delta_logp)
         bpd = bpd / N
 
@@ -143,7 +144,7 @@ class DiffSpaceIntegral:
                 force_del_sample = self.diff_likelihood(batch, prev_sample, num_steps)
 
                 if prev_sample is None:
-                    prior_logp = self.prior_likelihood_fn(sample)
+                    prior_logp = self.prior_likelihood_fn(batch)
                     N = sample.numel()
 
                 # Update previous ligand position for the next iteration
@@ -219,7 +220,7 @@ class DiffTimeIntegral:
                 logp_grad_t = self.ode_diff_likelihood(batch, num_steps)
 
                 if num_steps == 0:
-                    prior_logp = self.prior_likelihood_fn(sample)
+                    prior_logp = self.prior_likelihood_fn(batch)
                     N = sample.numel()
 
                 # Append the full output to the list
