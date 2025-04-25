@@ -35,16 +35,24 @@ def diffusion_coeff(t, sigma_min, sigma_max, clamp = False):
         diff_coeff = torch.clamp(diff_coeff, min=1e-5)
     return diff_coeff
 
-def prior_likelihood(z, sigma):
+def prior_dfmdock_tr(batch, sigma):
     """The likelihood of a Gaussian distribution with mean zero and 
             standard deviation sigma."""
-    shape = z.shape
-    N = np.prod(shape)
-    return -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - torch.sum(z**2, dim=(0,1,2)) / (2 * sigma**2)
+    # shape = z.shape
+    # N = np.prod(shape)
+    # return -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - torch.sum(z**2, dim=(0,1,2)) / (2 * sigma**2)
+    lig_pos = batch['sample']
+    rec_pos = batch['rec_pos']
+    com_diff = lig_pos[...,1,:].mean(dim=0) - rec_pos[...,1,:].mean(dim=0)
+    N = com_diff.numel()
+    return -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = lig_pos.device)) - torch.sum(com_diff**2) / (2 * sigma**2)
+    
 
-def prior_laplace(z, sigma):
+def prior_laplace(batch, sigma):
     """The likelihood of a Gaussian distribution with mean zero and 
             standard deviation sigma."""
-    shape = z.shape
-    N = np.prod(shape)
+    # shape = z.shape
+    # N = np.prod(shape)
+    z = batch['sample']
+    N = z.numel()
     return -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - (z**2) / (2 * sigma**2)

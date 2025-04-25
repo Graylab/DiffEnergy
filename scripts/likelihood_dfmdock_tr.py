@@ -15,7 +15,7 @@ from diffenergy.dfmdock_tr.divergence import (
     score_eval_wrapper_tr_diffspace, 
     divergence_eval_wrapper_tr
 )
-from diffenergy.helper_gpu import diffusion_coeff, prior_likelihood
+from diffenergy.helper_gpu import diffusion_coeff, prior_dfmdock_tr
 
 def del_sample_fn(sample, prev_sample):
     # Compute del_position as the difference between current and previous lig_pos
@@ -111,7 +111,7 @@ def main(config: DictConfig):
         dataloaders = {data_list: DataLoader(testset, batch_size=1, shuffle=False, num_workers=config.num_workers) 
                        for data_list, testset in zip(data_lists, testsets)}
     
-    prior_likelihood_fn = functools.partial(prior_likelihood, sigma = sigma_max)
+    prior_likelihood_fn = functools.partial(prior_dfmdock_tr, sigma = sigma_max)
 
     if inference_type == 'FlowTimeIntegral':
         likelihood = FlowTimeIntegral(dataloader=dataloader,
