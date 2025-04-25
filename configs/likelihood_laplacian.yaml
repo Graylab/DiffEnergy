@@ -10,3 +10,4 @@ odeint_rtol: 1e-5
 odeint_atol: 1e-5
 odeint_method: rk4
 ode_steps: 100
+num_workers: 4

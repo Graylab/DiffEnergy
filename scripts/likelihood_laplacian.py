@@ -38,7 +38,7 @@ class laplacian_dataset(Dataset):
     def __getitem__(self, idx):
         return {'id': self.ids[idx], 'sample': self.samples[idx]}
 
-def load_test_data(data_path, batch_size):
+def load_test_data(data_path, batch_size, num_workers):
     """Loads dataset from a CSV file and returns a DataLoader."""
 
     df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
@@ -50,7 +50,7 @@ def load_test_data(data_path, batch_size):
     samples = torch.tensor(samples, dtype=torch.float32)  # samples as integers 
 
     dataset = laplacian_dataset(ids, samples)  # Create a dataset
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     return dataloader
 
@@ -109,11 +109,11 @@ def main(config: DictConfig):
 
     # load dataset
     if inference_type == 'FlowTimeIntegral':
-        dataloader = load_test_data(config.data_samples, batch_size=1)
+        dataloader = load_test_data(config.data_samples, batch_size=1, num_workers=config.num_workers)
     else:
         with open(config.data_samples, 'r') as f:
             data_lists = f.read().splitlines()
-        dataloaders = {data_list: load_test_data(data_list, batch_size=1) for data_list in data_lists}
+        dataloaders = {data_list: load_test_data(data_list, batch_size=1, num_workers=config.num_workers) for data_list in data_lists}
     
     prior_likelihood_fn = functools.partial(prior_laplace, sigma = sigma_max)
 
