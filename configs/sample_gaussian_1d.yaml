@@ -1,6 +1,6 @@
-out_dir: ./sample_results
-wt_file: ../weights/1d_trinormal_20.ckpt
-sample_file: trinormal_20.csv
+out_dir: ../../sample_results
+wt_file: ../checkpoints/1d_trinormal.ckpt
+sample_file: trinormal_1d.csv
 sample_num: 10000
 tr_type: non_conservative
 num_steps: 1000
