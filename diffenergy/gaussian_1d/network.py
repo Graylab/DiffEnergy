@@ -1,6 +1,6 @@
 # --------------------------------------------------------------------------
 # author Sudeep Sarma
-# MLP network for training 1D laplacian distribution
+# MLP network for training 1D distribution
 # --------------------------------------------------------------------------
 import torch
 from torch import nn

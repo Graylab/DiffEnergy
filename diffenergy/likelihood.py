@@ -1,6 +1,6 @@
 # --------------------------------------------------------------------------
 # author Sudeep Sarma
-# likelihood calculation for laplacian distribution
+# likelihood calculation
 # --------------------------------------------------------------------------
 from tqdm import tqdm
 import torch
