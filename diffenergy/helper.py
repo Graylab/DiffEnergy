@@ -49,7 +49,7 @@ def prior_dfmdock_tr(batch, sigma):
     return prior_logp, N
     
 
-def prior_laplace(batch, sigma):
+def prior_gaussian_1d(batch, sigma):
     """The likelihood of a Gaussian distribution with mean zero and 
             standard deviation sigma."""
     # shape = z.shape

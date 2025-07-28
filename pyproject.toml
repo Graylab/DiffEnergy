@@ -25,5 +25,5 @@ dependencies = [
     "dm-tree",
 ]
 
-[tool.setuptools]
-packages = ["diffenergy"]
+[tool.setuptools.packages]
+find = {}
