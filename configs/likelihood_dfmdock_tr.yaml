@@ -1,9 +1,9 @@
-checkpoint: ../weights/trans_epochs_200.ckpt
-out_file: ../../results/flowtimeDock2_1.csv
+checkpoint: ../checkpoints/dfmdock_model_0.ckpt
+out_file: ../../results/dfmdock_tr_flowtime_nll.csv
 sigma_min: 0.1
 sigma_max: 30
-data_directory: ../data/pdbs
-data_listpdb: ../data/pdb_list.txt
+data_directory: ../../data/pdbs
+data_listpdb: ../../data/pdb_list.txt
 inference_type: FlowTimeIntegral
 diffusion_steps: 40
 odeint_rtol: 1e-4

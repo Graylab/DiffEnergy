@@ -1,6 +1,6 @@
 # --------------------------------------------------------------------------
 # author Sudeep Sarma
-# likelihood calculation for laplacian distribution
+# likelihood calculation
 # --------------------------------------------------------------------------
 from tqdm import tqdm
 import torch
@@ -73,7 +73,7 @@ class FlowTimeIntegral:
         bpd = - (prior_logp + delta_logp)
         bpd = bpd / N
 
-        return {'bpd': bpd.item(), 'prior_logp': prior_logp.item(), 'delta_logp': delta_logp.item()}
+        return {'nll': bpd.item(), 'prior_logp': prior_logp.item(), 'delta_logp': delta_logp.item()}
 
     def run_likelihood(self):
 
@@ -172,7 +172,7 @@ class DiffSpaceIntegral:
             # Define and update out_2
             out = {
                 "id": _id,
-                "bpd": bpd.item(),
+                "nll": bpd.item(),
                 "prior_logp": prior_logp.item(),
                 "integral": integral,
             }
@@ -252,7 +252,7 @@ class DiffTimeIntegral:
             # Define and update out_2
             out = {
                 "id": _id,
-                "bpd": bpd.item(),
+                "nll": bpd.item(),
                 "prior_logp": prior_logp.item(),
                 "integral": integral,
             }
