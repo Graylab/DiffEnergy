@@ -27,44 +27,6 @@ class ModelConfig:
 #----------------------------------------------------------------------------
 # Helper functions
 
-def get_topk_nearest(D, k=30):
-    # get nearest point
-    min_value, min_index = torch.min(D.view(-1), 0)
-    min_row, min_col = divmod(min_index.item(), D.size(1))
-
-    distances = D[min_row, :]
-
-    if k > D.size(1):
-        k = D.size(1)
-
-    _, nearest_indices = torch.topk(distances, k, largest=False)
-
-
-    sorted_nearest_indices = torch.sort(nearest_indices).values
-
-    return sorted_nearest_indices
-
-def get_interface_residue_tensors(set1, set2, threshold=8.0):
-    device = set1.device
-    n1_len = set1.shape[0]
-    n2_len = set2.shape[0]
-    
-    # Calculate the Euclidean distance between each pair of points from the two sets
-    dists = torch.cdist(set1, set2)
-
-    # Find the indices where the distance is less than the threshold
-    close_points = dists < threshold
-
-    # Create indicator tensors initialized to 0
-    indicator_set1 = torch.zeros((n1_len, 1), dtype=torch.float32, device=device)
-    indicator_set2 = torch.zeros((n2_len, 1), dtype=torch.float32, device=device)
-
-    # Set the corresponding indices to 1 where the points are close
-    indicator_set1[torch.any(close_points, dim=1)] = 1.0
-    indicator_set2[torch.any(close_points, dim=0)] = 1.0
-
-    return indicator_set1, indicator_set2
-
 def get_spatial_matrix(coord):
     dist, omega, theta, phi = get_coords6d(coord)
 
@@ -124,6 +86,10 @@ def get_knn_and_sample(points, knn=20, sample_size=40, epsilon=1e-10):
     device = points.device
     n_points = points.size(0)
 
+    if n_points < knn:
+        knn = n_points
+        sample_size = 0
+
     if n_points < knn + sample_size:
         sample_size = n_points - knn
     
@@ -133,141 +99,55 @@ def get_knn_and_sample(points, knn=20, sample_size=40, epsilon=1e-10):
     # Step 2: Find the 20 nearest neighbors (including the point itself)
     _, knn_indices = torch.topk(dist_matrix, k=knn, largest=False)
     
-    # Step 3: Create a mask for the non-knn points
-    mask = torch.ones(n_points, n_points, dtype=torch.bool, device=device)
-    mask.scatter_(1, knn_indices, False)
-    
-    # Select the non-knn distances and compute inverse cubic distances
-    non_knn_distances = dist_matrix[mask].view(n_points, -1)
-    
-    # Replace zero distances with a small value to avoid division by zero
-    non_knn_distances = torch.where(non_knn_distances < epsilon, torch.tensor(epsilon, device=device), non_knn_distances)
-    
-    inv_cubic_distances = 1 / torch.pow(non_knn_distances, 3)
-    
-    # Normalize the inverse cubic distances to get probabilities
-    probabilities = inv_cubic_distances / inv_cubic_distances.sum(dim=1, keepdim=True)
-    
-    # Ensure there are no NaNs or negative values
-    probabilities = torch.nan_to_num(probabilities, nan=0.0, posinf=0.0, neginf=0.0)
-    probabilities = torch.clamp(probabilities, min=0)
-    
-    # Normalize again to ensure it's a proper probability distribution
-    probabilities /= probabilities.sum(dim=1, keepdim=True)
-    
-    # Generate a tensor of indices excluding knn_indices
-    all_indices = torch.arange(n_points, device=device).expand(n_points, n_points)
-    non_knn_indices = all_indices[mask].view(n_points, -1)
-    
-    # Step 4: Sample 40 indices based on the probability distribution
-    sample_indices = torch.multinomial(probabilities, sample_size, replacement=False)
-    sampled_points_indices = non_knn_indices.gather(1, sample_indices)
+    if sample_size > 0:
+        # Step 3: Create a mask for the non-knn points
+        mask = torch.ones(n_points, n_points, dtype=torch.bool, device=device)
+        mask.scatter_(1, knn_indices, False)
+        
+        # Select the non-knn distances and compute inverse cubic distances
+        non_knn_distances = dist_matrix[mask].view(n_points, -1)
+        
+        # Replace zero distances with a small value to avoid division by zero
+        non_knn_distances = torch.where(non_knn_distances < epsilon, torch.tensor(epsilon, device=device), non_knn_distances)
+        
+        inv_cubic_distances = 1 / torch.pow(non_knn_distances, 3)
+        
+        # Normalize the inverse cubic distances to get probabilities
+        probabilities = inv_cubic_distances / inv_cubic_distances.sum(dim=1, keepdim=True)
+        
+        # Ensure there are no NaNs or negative values
+        probabilities = torch.nan_to_num(probabilities, nan=0.0, posinf=0.0, neginf=0.0)
+        probabilities = torch.clamp(probabilities, min=0)
+        
+        # Normalize again to ensure it's a proper probability distribution
+        probabilities /= probabilities.sum(dim=1, keepdim=True)
+        
+        # Generate a tensor of indices excluding knn_indices
+        all_indices = torch.arange(n_points, device=device).expand(n_points, n_points)
+        non_knn_indices = all_indices[mask].view(n_points, -1)
+        
+        # Step 4: Sample 40 indices based on the probability distribution
+        sample_indices = torch.multinomial(probabilities, sample_size, replacement=False)
+        sampled_points_indices = non_knn_indices.gather(1, sample_indices)
+    else:
+        sampled_points_indices = None
     
     return knn_indices, sampled_points_indices
 
 #----------------------------------------------------------------------------
 # Edge seletion functions
 
-def get_knn_and_sample_graph(x, e):
-    knn_indices, sampled_points_indices = get_knn_and_sample(x)
-    indices = torch.cat([knn_indices, sampled_points_indices], dim=-1)
+def get_knn_and_sample_graph(x, e, knn=20, sample_size=40):
+    knn_indices, sampled_points_indices = get_knn_and_sample(x, knn=knn, sample_size=sample_size)
+    if sampled_points_indices is not None:
+        indices = torch.cat([knn_indices, sampled_points_indices], dim=-1)
+    else:
+        indices = knn_indices
     n_points, n_samples = indices.shape
 
     # edge src and dst
     edge_src = torch.arange(start=0, end=n_points, device=x.device)[..., None].repeat(1, n_samples).reshape(-1)
     edge_dst = indices.reshape(-1)
-
-    # combine graphs
-    edge_index = [edge_src, edge_dst]
-    edge_indices = torch.stack(edge_index, dim=1)
-    edge_attr = e[edge_indices[:, 0], edge_indices[:, 1]]
-
-    return edge_index, edge_attr
-
-def get_cross_graph(x, e, sep, num_self, num_cross):
-    """cross graph from the complex pose"""
-
-    # distance matrix
-    d = torch.norm((x[:, None, :] - x[None, :, :]), dim=-1)
-
-    # make sure the knn not exceed the size
-    rec_len = sep
-    lig_len = x.size(0) - sep
-
-    # self and cross
-    num_self_lig = num_self
-    num_cross_lig = num_cross
-    num_self_rec = num_self
-    num_cross_rec = num_cross
-
-    if num_self_lig > lig_len:
-        num_self_lig = lig_len
-    if num_cross_lig > rec_len:
-        num_cross_lig = rec_len
-    if num_self_rec > rec_len:
-        num_self_rec = rec_len
-    if num_cross_rec > lig_len:
-        num_cross_rec = lig_len
-
-    # intra and inter topk
-    nbhd_ranking_ii, nbhd_indices_ii = d[..., :sep, :sep].topk(num_self_rec, dim=-1, largest=False)
-    nbhd_ranking_jj, nbhd_indices_jj = d[..., sep:, sep:].topk(num_self_lig, dim=-1, largest=False)
-    nbhd_ranking_ij, nbhd_indices_ij = d[..., :sep, sep:].topk(num_cross_rec, dim=-1, largest=False)
-    nbhd_ranking_ji, nbhd_indices_ji = d[..., sep:, :sep].topk(num_cross_lig, dim=-1, largest=False)
-
-    # edge src and dst
-    edge_src_rec = torch.arange(start=0, end=rec_len, device=x.device)[..., None].repeat(1, num_self_rec+num_cross_rec)
-    edge_src_lig = torch.arange(start=rec_len, end=rec_len+lig_len, device=x.device)[..., None].repeat(1, num_self_lig+num_cross_lig)
-    edge_dst_rec = torch.cat([nbhd_indices_ii, nbhd_indices_ij + rec_len], dim=1)
-    edge_dst_lig = torch.cat([nbhd_indices_ji, nbhd_indices_jj + rec_len], dim=1)
-    edge_src = torch.cat([edge_src_rec.reshape(-1), edge_src_lig.reshape(-1)])
-    edge_dst = torch.cat([edge_dst_rec.reshape(-1), edge_dst_lig.reshape(-1)])
-
-    # combine graphs
-    edge_index = [edge_src, edge_dst]
-    edge_indices = torch.stack(edge_index, dim=1)
-    edge_attr = e[edge_indices[:, 0], edge_indices[:, 1]]
-
-    return edge_index, edge_attr
-
-def get_random_graph(x, e, sep, num_self, num_cross):
-    """random graph from the complex pose"""
-
-    # distance matrix
-    d = torch.norm((x[:, None, :] - x[None, :, :]), dim=-1)
-
-    # make sure the knn not exceed the size
-    rec_len = sep
-    lig_len = x.size(0) - sep
-
-    # self and cross
-    num_self_lig = num_self
-    num_cross_lig = num_cross
-    num_self_rec = num_self
-    num_cross_rec = num_cross
-
-    if num_self_lig > lig_len:
-        num_self_lig = lig_len
-    if num_cross_lig > rec_len:
-        num_cross_lig = rec_len
-    if num_self_rec > rec_len:
-        num_self_rec = rec_len
-    if num_cross_rec > lig_len:
-        num_cross_rec = lig_len
-
-    # intra and inter topk
-    nbhd_ranking_ii, nbhd_indices_ii = d[..., :sep, :sep].topk(num_self_rec, dim=-1, largest=False)
-    nbhd_ranking_jj, nbhd_indices_jj = d[..., sep:, sep:].topk(num_self_lig, dim=-1, largest=False)
-    nbhd_indices_ij = sample_indices(d[..., :sep, sep:], num_cross_rec)
-    nbhd_indices_ji = sample_indices(d[..., sep:, :sep], num_cross_lig)
-
-    # edge src and dst
-    edge_src_rec = torch.arange(start=0, end=rec_len, device=x.device)[..., None].repeat(1, num_self_rec+num_cross_rec)
-    edge_src_lig = torch.arange(start=rec_len, end=rec_len+lig_len, device=x.device)[..., None].repeat(1, num_self_lig+num_cross_lig)
-    edge_dst_rec = torch.cat([nbhd_indices_ii, nbhd_indices_ij + rec_len], dim=1)
-    edge_dst_lig = torch.cat([nbhd_indices_ji, nbhd_indices_jj + rec_len], dim=1)
-    edge_src = torch.cat([edge_src_rec.reshape(-1), edge_src_lig.reshape(-1)])
-    edge_dst = torch.cat([edge_dst_rec.reshape(-1), edge_dst_lig.reshape(-1)])
 
     # combine graphs
     edge_index = [edge_src, edge_dst]
@@ -304,6 +184,7 @@ class EGNNLayer(nn.Module):
         tanh=False, 
         update_coords=False,
         coord_weights_clamp_value=2.0,
+        dropout=0.0,
     ):
         super(EGNNLayer, self).__init__()
         self.egcl = E_GCL(
@@ -318,10 +199,11 @@ class EGNNLayer(nn.Module):
             tanh=tanh, 
             update_coords=update_coords,
             coord_weights_clamp_value=coord_weights_clamp_value,
+            dropout=dropout,
         )
 
-    def forward(self, h, x, edges, edge_attr=None):
-        h, x, edge_attr = self.egcl(h, edges, x, edge_attr=edge_attr)
+    def forward(self, h, x, edges, edge_attr=None, lig_mask=None):
+        h, x, edge_attr = self.egcl(h, edges, x, edge_attr=edge_attr, lig_mask=lig_mask)
         return h, x, edge_attr
 
 
@@ -335,7 +217,8 @@ class EGNN(nn.Module):
         residual=True, 
         attention=False, 
         normalize=False, 
-        tanh=False, 
+        tanh=False,
+        dropout=0.0,
     ):
         super(EGNN, self).__init__()
         self.depth = depth
@@ -348,15 +231,17 @@ class EGNN(nn.Module):
                 residual=residual, 
                 attention=attention,
                 normalize=normalize, 
-                tanh=tanh, 
-                update_coords=is_last
+                tanh=tanh,
+                dropout=dropout,
+                update_coords=is_last,
             )
         )
 
-    def forward(self, h, x, edges, edge_attr=None):
+    def forward(self, h, x, edges, edge_attr=None, lig_mask=None):
         for i in range(self.depth):
-            h, x, edge_attr = self._modules["EGNN_%d" % i](h, x, edges, edge_attr=edge_attr)
+            h, x, edge_attr = self._modules["EGNN_%d" % i](h, x, edges, edge_attr=edge_attr, lig_mask=lig_mask)
         return h, x, edge_attr
+
 
 #----------------------------------------------------------------------------
 # Main score network
@@ -394,9 +279,10 @@ class Score_Net(nn.Module):
             act_fn=nn.SiLU(), 
             depth=depth, 
             residual=True, 
-            attention=False, 
+            attention=True, 
             normalize=normalize, 
             tanh=False,
+            dropout=dropout,
         )
 
         # energy head
@@ -405,6 +291,15 @@ class Score_Net(nn.Module):
             nn.LayerNorm(node_dim),
             nn.SiLU(),
             nn.Linear(node_dim, 1, bias=False),
+        )
+
+        # interface residue head
+        self.to_ires = nn.Sequential(
+            nn.Linear(node_dim, 2*node_dim),
+            nn.SiLU(),
+            nn.Linear(2*node_dim, 2*node_dim),
+            nn.SiLU(),
+            nn.Linear(2*node_dim, 1),
         )
 
         # timestep embedding
@@ -445,7 +340,7 @@ class Score_Net(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
         
-    def forward(self, batch, predict=False):
+    def forward(self, batch, predict=False, return_energy=False):
         # get inputs
         rec_x = batch["rec_x"] 
         lig_x = batch["lig_x"] 
@@ -453,6 +348,11 @@ class Score_Net(nn.Module):
         lig_pos = batch["lig_pos"] 
         t = batch["t"]
         position_matrix = batch["position_matrix"]
+
+        # move to center
+        center = lig_pos[..., 1, :].mean(dim=0)
+        rec_pos = rec_pos - center
+        lig_pos = lig_pos - center
 
         # get the current complex pose
         lig_pos.requires_grad_()
@@ -467,24 +367,32 @@ class Score_Net(nn.Module):
 
         # edge feature embedding
         spatial_matrix = get_spatial_matrix(pos)
-        edge = self.spatial_embed(spatial_matrix)
-        edge += self.positional_embed(position_matrix)
+        edge = self.spatial_embed(spatial_matrix) + self.positional_embed(position_matrix)
 
         # sample edge_index and get edge_attr
         edge_index, edge_attr = get_knn_and_sample_graph(pos[..., 1, :], edge)
-        #edge_index, edge_attr = get_cross_graph(pos[..., 1, :], edge, rec_pos.size(0), 20, 40)
+
+        # get ligand mask
+        lig_mask = torch.zeros(x.size(0), device=x.device)
+        lig_mask[rec_x.size(0):] = 1.0
 
         # main network 
-        node_out, pos_out, _ = self.network(node, pos[..., 1, :], edge_index, edge_attr) # [R+L, H]
+        node_out, pos_out, _ = self.network(node, pos[..., 1, :], edge_index, edge_attr, lig_mask) # [R+L, H]
+
+        # interface residue
+        ires = self.to_ires(node_out)
 
         # energy
         h_rec = repeat(node_out[:rec_pos.size(0)], 'n h -> n m h', m=lig_pos.size(0))
         h_lig = repeat(node_out[rec_pos.size(0):], 'm h -> n m h', n=rec_pos.size(0))
         energy = self.to_energy(torch.cat([h_rec, h_lig], dim=-1)).squeeze(-1) # [R, L]
         mask_2D = (D < self.cut_off).float() # [R, L]
-        energy = (energy * mask_2D).sum()
+        energy = (energy * mask_2D).sum() / (mask_2D.sum() + 1e-6) 
 
-        # get translation and rotation vectors
+        if return_energy:
+            return energy
+
+        # force
         lig_pos_curr = pos_out[rec_pos.size(0):] 
         r = lig_pos[..., 1, :].detach()
         f = lig_pos_curr - r # f / kT
@@ -511,6 +419,7 @@ class Score_Net(nn.Module):
                 "energy": energy,
                 "f": f,
                 "num_clashes": num_clashes,
+                "ires": ires,
             }
 
             return outputs
@@ -534,10 +443,11 @@ class Score_Net(nn.Module):
             "energy": energy,
             "f": f,
             "dedx": dedx,
+            "ires": ires,
         }
 
         return outputs
-
+    
 #----------------------------------------------------------------------------
 # Testing
 
