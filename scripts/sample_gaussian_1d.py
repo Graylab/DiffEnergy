@@ -11,7 +11,7 @@ from tqdm import tqdm
 from omegaconf import DictConfig, OmegaConf
 import hydra
 
-from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
+from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.helper import marginal_prob_std, diffusion_coeff
 
 # --------------------------------------------------------------------------
@@ -82,7 +82,7 @@ def Euler_Maruyama_sampler(score_model,
 
 # ----------------------------------------------------------------------------------
 # Main
-@hydra.main(version_base=None, config_path="../configs", config_name="sample_laplacian")
+@hydra.main(version_base=None, config_path="../configs", config_name="sample_gaussian_1d")
 def main(config: DictConfig):
 
     # Print the entire configuration

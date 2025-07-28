@@ -8,9 +8,9 @@ from torch.utils.data import DataLoader, Dataset
 import hydra
 
 from diffenergy.likelihood import FlowTimeIntegral, DiffSpaceIntegral, DiffTimeIntegral
-from diffenergy.helper import marginal_prob_std, diffusion_coeff, prior_laplace
-from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.laplacian.divergence import score_eval_wrapper, divergence_eval_wrapper
+from diffenergy.helper import marginal_prob_std, diffusion_coeff, prior_gaussian_1d
+from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
+from diffenergy.gaussian_1d.divergence import score_eval_wrapper, divergence_eval_wrapper
 
 def del_sample_fn(sample, prev_sample):
     if prev_sample is not None:
@@ -27,7 +27,7 @@ def batch_process_fn(batch, device):
         batch[key] = batch[key].to(device)
     return batch
 
-class laplacian_dataset(Dataset):
+class gaussian_1d_dataset(Dataset):
     def __init__(self, ids, samples):
         self.ids = ids
         self.samples = samples
@@ -49,12 +49,12 @@ def load_test_data(data_path, batch_size, num_workers):
     ids = torch.tensor(ids, dtype=torch.int64)  # ids as integers
     samples = torch.tensor(samples, dtype=torch.float32)  # samples as integers 
 
-    dataset = laplacian_dataset(ids, samples)  # Create a dataset
+    dataset = gaussian_1d_dataset(ids, samples)  # Create a dataset
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     return dataloader
 
-@hydra.main(version_base=None, config_path="../configs", config_name="likelihood_laplacian")
+@hydra.main(version_base=None, config_path="../configs", config_name="likelihood_gaussian_1d")
 def main(config: DictConfig):
 
     # Print the entire configuration
@@ -115,7 +115,7 @@ def main(config: DictConfig):
             data_lists = f.read().splitlines()
         dataloaders = {data_list: load_test_data(data_list, batch_size=1, num_workers=config.num_workers) for data_list in data_lists}
     
-    prior_likelihood_fn = functools.partial(prior_laplace, sigma = sigma_max)
+    prior_likelihood_fn = functools.partial(prior_gaussian_1d, sigma = sigma_max)
 
     if inference_type == 'FlowTimeIntegral':
         likelihood = FlowTimeIntegral(dataloader=dataloader,

@@ -1,5 +1,5 @@
 import torch
-from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
+from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 
 # --------------------------------------------------------------------------
 # Translation divergence calculation

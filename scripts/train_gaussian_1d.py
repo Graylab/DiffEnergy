@@ -1,6 +1,6 @@
 # --------------------------------------------------------------------------
 # author Sudeep Sarma
-# minimal diffusion model using MLP for a laplacian distribution training
+# minimal diffusion model using MLP for a trimodal Gaussian distribution training
 # --------------------------------------------------------------------------
 import functools
 import numpy as np
@@ -12,9 +12,9 @@ from torch.utils.data import DataLoader
 from omegaconf import DictConfig, OmegaConf
 import hydra
 
-from diffenergy.laplacian.dataset import TrimodalGaussianSampler, TrimodalGaussianDataset
-from diffenergy.laplacian.loss import loss_fn
-from diffenergy.laplacian.network import ScoreNetMLP, NegativeGradientMLP
+from diffenergy.gaussian_1d.dataset import TrimodalGaussianSampler, TrimodalGaussianDataset
+from diffenergy.gaussian_1d.loss import loss_fn
+from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.helper import marginal_prob_std
 
 
@@ -26,7 +26,7 @@ from diffenergy.helper import marginal_prob_std
 # ----------------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------------
-@hydra.main(version_base=None, config_path="../configs", config_name="train_laplacian")
+@hydra.main(version_base=None, config_path="../configs", config_name="train_gaussian_1d")
 def main(config: DictConfig):
     
     # Print the entire configuration
