@@ -1,4 +1,4 @@
-out_dir: ./train_results
+out_dir: ../../train_results
 sigma_min: 0.1
 sigma_max: 20
 sigma_noise: 0.2
@@ -8,5 +8,5 @@ num_workers: 4
 test_size: 0.1
 val_size: 0.2
 tr_data: trimodal_gaussian
-wt_file: 1d_trinormal_20.ckpt
+wt_file: 1d_trinormal.ckpt
 tr_type: non_conservative

@@ -1,8 +1,8 @@
-checkpoint: ../weights/1d_trinormal.ckpt
-out_file: ./results/mps.csv
+checkpoint: ../checkpoints/1d_trinormal.ckpt
+out_file: ../../results/trinormal_1d_nll.csv
 sigma_min: 0.1
 sigma_max: 30
-data_samples: ../data/trinormal_mps.csv
+data_samples: ../../data/trinormal_1d.csv
 inference_type: FlowTimeIntegral
 tr_type: non_conservative
 diffusion_steps: 1000
