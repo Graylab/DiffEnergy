@@ -1,8 +1,8 @@
-checkpoint: ../checkpoints/1d_trinormal.ckpt
-out_file: ../../results/trinormal_1d_nll_perturbed.csv
+checkpoint: checkpoints/1d_trinormal.ckpt
+out_file: ../likelihood_results/trinormal_1d_nll_perturbed.csv
 sigma_min: 0.1
 sigma_max: 30
-data_samples: ../../data/trinormal_1d_small.csv
+data_samples: ../sample_results/trinormal_1d_small.csv
 inference_type: FlowPerturbationIntegral
 tr_type: non_conservative
 diffusion_steps: 1000
