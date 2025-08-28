@@ -172,3 +172,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+
+#Hydra outputs:
+scripts/outputs/
+outputs/
