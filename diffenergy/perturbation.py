@@ -82,6 +82,8 @@ class FlowPerturbationIntegral:
         sample = batch['sample']
         sample_shape = sample.shape
 
+        # print("sample shape:",sample)
+
         def ode_func(t, x):
             # The ODE function for the black-box solver
             time_steps = torch.ones((1,), device = self.device) * t
