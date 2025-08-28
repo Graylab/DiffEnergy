@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 import hydra
 
-from diffenergy.likelihood import FlowSpaceIntegral, FlowTimeIntegral, DiffSpaceIntegral, DiffTimeIntegral
+from diffenergy.likelihood import FlowTimeIntegral, DiffSpaceIntegral, DiffTimeIntegral
 from diffenergy.helper import marginal_prob_std, diffusion_coeff, prior_gaussian_1d
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.gaussian_1d.divergence import score_eval_wrapper, divergence_eval_wrapper
@@ -54,7 +54,7 @@ def load_test_data(data_path, batch_size, num_workers):
 
     return dataloader
 
-@hydra.main(version_base=None, config_path="../configs", config_name="likelihood_gaussian_1d")
+@hydra.main(version_base=None, config_path="../configs", config_name="likelihood_gaussian_2d")
 def main(config: DictConfig):
 
     # Print the entire configuration
@@ -108,7 +108,7 @@ def main(config: DictConfig):
     score_model.load_state_dict(ckpt)
 
     # load dataset
-    if "Flow" in inference_type:
+    if inference_type == 'FlowTimeIntegral':
         dataloader = load_test_data(config.data_samples, batch_size=1, num_workers=config.num_workers)
     else:
         with open(config.data_samples, 'r') as f:
@@ -131,20 +131,6 @@ def main(config: DictConfig):
                                       odeint_method=config.odeint_method,
                                       device=device)
         data_list = likelihood.run_likelihood()
-    elif inference_type == 'FlowSpaceIntegral':
-        likelihood = FlowSpaceIntegral(dataloader=dataloader,
-                                       batch_process_fn=batch_process_fn,
-                                       score_model=score_model,
-                                       diffusion_coeff_fn=diffusion_coeff_fn,
-                                       prior_likelihood_fn=prior_likelihood_fn,
-                                       score_eval_wrapper=score_eval_wrapper,
-                                       del_sample_fn=del_sample_fn,
-                                       ode_steps=config.ode_steps,
-                                       odeint_rtol=config.odeint_rtol,
-                                       odeint_atol=config.odeint_atol,
-                                       odeint_method=config.odeint_method,
-                                       device=device)
-        data_list = likelihood.run_likelihood()
     elif inference_type == 'DiffSpaceIntegral':
         likelihood = DiffSpaceIntegral(dataloaders=dataloaders,
                                        batch_process_fn=batch_process_fn,
@@ -166,8 +152,6 @@ def main(config: DictConfig):
                                       diffusion_steps=config.diffusion_steps,
                                       device=device)
         data_list = likelihood.run_likelihood()
-    elif inference_type == 'FlowPerturbationIntegral':
-        pass
     else:
         raise ValueError(f"Unknown inference type: {inference_type}")
 

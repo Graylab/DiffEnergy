@@ -12,9 +12,9 @@ from torch.utils.data import DataLoader
 from omegaconf import DictConfig, OmegaConf
 import hydra
 
-from diffenergy.gaussian_1d.dataset import TrimodalGaussianSampler, TrimodalGaussianDataset
-from diffenergy.gaussian_1d.loss import loss_fn
-from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
+from diffenergy.gaussian_2d.dataset import TrimodalGaussianSampler, TrimodalGaussianDataset
+from diffenergy.gaussian_2d.loss import loss_fn
+from diffenergy.gaussian_2d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.helper import marginal_prob_std
 
 
@@ -26,7 +26,7 @@ from diffenergy.helper import marginal_prob_std
 # ----------------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------------
-@hydra.main(version_base=None, config_path="../configs", config_name="train_gaussian_1d")
+@hydra.main(version_base=None, config_path="../configs", config_name="train_gaussian_2d")
 def main(config: DictConfig):
     
     # Print the entire configuration
@@ -69,14 +69,16 @@ def main(config: DictConfig):
         # train_loader = DataLoader(dataset, batch_size = batch_size, shuffle = True, num_workers = 4)
         raise NotImplementedError("Laplace dataset is not implemented yet.")
     elif tr_data == 'trimodal_gaussian':
-        sampler = TrimodalGaussianSampler(mu1=-30, sigma1=8.0, w1=0.4 , mu2=0, sigma2=5.0, w2=0.3, mu3=40, sigma3=10.0, w3=0.3)
+        sampler = TrimodalGaussianSampler(mu1=[-30,45], sigma1=8.0, w1=0.4 , mu2=[0,-20], sigma2=5.0, w2=0.3, mu3=[40,-5], sigma3=10.0, w3=0.3,dimension=2)
         dataset = TrimodalGaussianDataset(sampler, noise_std=0.1, num_samples=20000)
         train_loader = DataLoader(dataset, batch_size = batch_size, shuffle = True, num_workers = num_workers)
+    else:
+        raise ValueError(tr_data)
 
     tr_type = config.tr_type
 
     # create a model
-    input_dim = sampler(1).unsqueeze(1).size(1)
+    input_dim = sampler(1).size(1) #no unsqueeze cause nd
 
     if tr_type == 'non_conservative':
         score_model = torch.nn.parallel.DataParallel(ScoreNetMLP(input_dim, embed_dim = 512, layers = (512, 512, 512), marginal_prob_std = marginal_prob_std_fn))
