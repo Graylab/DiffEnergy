@@ -1,6 +1,7 @@
 from pathlib import Path
 import csv
 import functools
+from diffenergy.perturbation import FlowPerturbationIntegral
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
 import torch
@@ -167,7 +168,38 @@ def main(config: DictConfig):
                                       device=device)
         data_list = likelihood.run_likelihood()
     elif inference_type == 'FlowPerturbationIntegral':
-        pass
+        likelihood = FlowPerturbationIntegral(dataloader=dataloader,
+                                               batch_process_fn=batch_process_fn,
+                                               score_model=score_model,
+                                               diffusion_coeff_fn=diffusion_coeff_fn,
+                                               prior_likelihood_fn=prior_likelihood_fn,
+                                               score_eval_wrapper=score_eval_wrapper,
+                                               divergence_eval_wrapper=divergence_eval_wrapper,
+                                               ode_steps=config.ode_steps,
+                                               num_perturbations=config.num_perturbations,
+                                               perturbation_sigma=config.perturbation_sigma,
+                                               odeint_rtol=config.odeint_rtol,
+                                               odeint_atol=config.odeint_atol,
+                                               odeint_method=config.odeint_method,
+                                               device=device)
+        data_list = likelihood.run_likelihood()
+    elif inference_type == 'FlowPerturbationIntegral':
+        likelihood = FlowPerturbationIntegral(dataloader=dataloader,
+                                               batch_process_fn=batch_process_fn,
+                                               score_model=score_model,
+                                               diffusion_coeff_fn=diffusion_coeff_fn,
+                                               prior_likelihood_fn=prior_likelihood_fn,
+                                               score_eval_wrapper=score_eval_wrapper,
+                                               divergence_eval_wrapper=divergence_eval_wrapper,
+                                               ode_steps=config.ode_steps,
+                                               num_perturbations=config.num_perturbations,
+                                               perturbation_sigma=config.perturbation_sigma,
+                                               odeint_rtol=config.odeint_rtol,
+                                               odeint_atol=config.odeint_atol,
+                                               odeint_method=config.odeint_method,
+                                               device=device)
+        data_list = likelihood.run_likelihood()
+
     else:
         raise ValueError(f"Unknown inference type: {inference_type}")
 

@@ -173,6 +173,9 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-outputs/**
 
-.vscode/**
+#Hydra outputs:
+scripts/outputs/
+outputs/
+
+.vscode/

@@ -95,7 +95,7 @@ def main(config: DictConfig):
     marginal_prob_std_fn = functools.partial(marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
     diffusion_coeff_fn = functools.partial(diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max)
 
-    device = 'cuda'
+    device = 'cuda'# if torch.cuda.is_available() else 'cpu'
     wt_file = config.wt_file
     ckpt = torch.load(wt_file, map_location = device)
 
