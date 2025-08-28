@@ -85,7 +85,7 @@ class FlowPerturbationIntegral:
         def ode_func(t, x):
             # The ODE function for the black-box solver
             time_steps = torch.ones((1,), device = self.device) * t
-            sample = x[:-1].reshape(sample_shape).to(self.device)
+            sample = x.reshape(sample_shape).to(self.device)
             g = self.diffusion_coeff_fn(t)
             batch['sample'] = sample
             batch['time_steps'] = time_steps
@@ -122,28 +122,29 @@ class FlowPerturbationIntegral:
 
         data_list = []
 
-        for batch in tqdm(self.dataloader):
+        for batch in tqdm(self.dataloader,desc="Iterating samples..."):
             batch = self.batch_process_fn(batch, self.device)
             if self.reset_seed_each_sample:
                 torch.manual_seed(self.seed)
 
-            flow_trajectory = self.ode_trajectory(batch)
+            time,flow_trajectory = self.ode_trajectory(batch)
             _id = batch['id'].item() if isinstance(batch['id'], torch.Tensor) else batch['id']
 
             data_shape = batch['sample'].shape
             trajectories = [flow_trajectory] + [
                 flow_trajectory + 
-                brownian_bridge(self.ode_steps,data_shape,sigma=self.perturbation_sigma) 
+                torch.tensor(brownian_bridge(self.ode_steps,data_shape,sigma=self.perturbation_sigma),device=self.device)
                 for _ in range(self.num_perturbations-1)
             ]
 
             trajectory_integrals:list[dict] = []
-            for trajectory in trajectories:
+            for trajectory in tqdm(trajectories,desc="Integrating Trajectories...",leave=False):
                 integral_list = []
                 if self.reset_seed_each_sample:
                     torch.manual_seed(self.seed)
 
-                for num_steps, batch in enumerate(trajectory):
+                for num_steps, x in enumerate(trajectory):
+                    batch = {"sample":x}
                     batch = self.batch_process_fn(batch, self.device)
                     # Call ode_diff_likelihood
                     logp_grad_t = self.ode_diff_likelihood(batch, num_steps)
@@ -175,18 +176,24 @@ class FlowPerturbationIntegral:
             result = {
                 "id": _id,
                 "prior_logp":trajectory_integrals[0]["prior_logp"],
-                "flow_trajectory":trajectory_integrals[0],
-                "all_trajectories":{
-                    "nll":[traj["nll"] for traj in trajectory_integrals],
-                    "integral":[traj["integral"] for traj in trajectory_integrals],
-                }
+            }
+
+            flow_trajectory=trajectory_integrals[0]
+            all_trajectories={
+                "nll":[traj["nll"] for traj in trajectory_integrals],
+                "integral":[traj["integral"] for traj in trajectory_integrals],
             }
 
             result.update({
-                "nll":np.average(result["all_trajectories"]["nll"]),
-                "integral":np.average(result["all_trajectories"]["integral"]),
-                "nll_variance":np.var(result["all_trajectories"]["nll"]),
-                "integral_variance":np.var(result["all_trajectories"]["integral"])
+                "nll":np.average(all_trajectories["nll"]),
+                "integral":np.average(all_trajectories["integral"]),
+                "nll_variance":np.var(all_trajectories["nll"]),
+                "integral_variance":np.var(all_trajectories["integral"])
+            })
+
+            result.update({
+                "flow_trajectory": flow_trajectory,
+                "all_trajectories": all_trajectories
             })
 
             data_list.append(result) 

@@ -98,16 +98,16 @@ def main(config: DictConfig):
         avg_train_loss = 0.
         num_train_items = 0
 
-        for noisy_data, clean_data in train_loader:
-            noisy_data = noisy_data.to(device)
-            loss = loss_fn(score_model, noisy_data, marginal_prob_std_fn)
+        for sample_data, mean in train_loader:
+            sample_data = sample_data.to(device)
+            loss = loss_fn(score_model, sample_data, marginal_prob_std_fn)
             optimizer.zero_grad()
             loss.backward()
             # Add gradient clipping
             torch.nn.utils.clip_grad_norm_(score_model.parameters(), max_norm=1.0)
             optimizer.step()
-            avg_train_loss += loss.item() * noisy_data.shape[0]
-            num_train_items += noisy_data.shape[0]
+            avg_train_loss += loss.item() * sample_data.shape[0]
+            num_train_items += sample_data.shape[0]
 
         avg_train_loss /= num_train_items
         scheduler.step(avg_train_loss)
