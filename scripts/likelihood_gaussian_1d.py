@@ -1,6 +1,7 @@
 from pathlib import Path
 import csv
 import functools
+from diffenergy.perturbation import FlowPerturbationIntegral
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
 import torch
@@ -108,7 +109,7 @@ def main(config: DictConfig):
     score_model.load_state_dict(ckpt)
 
     # load dataset
-    if inference_type == 'FlowTimeIntegral':
+    if inference_type == 'FlowTimeIntegral' or 'Flow' in inference_type:
         dataloader = load_test_data(config.data_samples, batch_size=1, num_workers=config.num_workers)
     else:
         with open(config.data_samples, 'r') as f:
@@ -151,6 +152,22 @@ def main(config: DictConfig):
                                       divergence_eval_wrapper=divergence_eval_wrapper,
                                       diffusion_steps=config.diffusion_steps,
                                       device=device)
+        data_list = likelihood.run_likelihood()
+    elif inference_type == 'FlowPerturbationIntegral':
+        likelihood = FlowPerturbationIntegral(dataloader=dataloader,
+                                               batch_process_fn=batch_process_fn,
+                                               score_model=score_model,
+                                               diffusion_coeff_fn=diffusion_coeff_fn,
+                                               prior_likelihood_fn=prior_likelihood_fn,
+                                               score_eval_wrapper=score_eval_wrapper,
+                                               divergence_eval_wrapper=divergence_eval_wrapper,
+                                               ode_steps=config.ode_steps,
+                                               num_perturbations=config.num_perturbations,
+                                               perturbation_sigma=config.perturbation_sigma,
+                                               odeint_rtol=config.odeint_rtol,
+                                               odeint_atol=config.odeint_atol,
+                                               odeint_method=config.odeint_method,
+                                               device=device)
         data_list = likelihood.run_likelihood()
     else:
         raise ValueError(f"Unknown inference type: {inference_type}")

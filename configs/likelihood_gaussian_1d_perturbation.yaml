@@ -1,0 +1,15 @@
+checkpoint: ../checkpoints/1d_trinormal.ckpt
+out_file: ../../results/trinormal_1d_nll_perturbed.csv
+sigma_min: 0.1
+sigma_max: 30
+data_samples: ../../data/trinormal_1d_small.csv
+inference_type: FlowPerturbationIntegral
+tr_type: non_conservative
+diffusion_steps: 1000
+odeint_rtol: 1e-5
+odeint_atol: 1e-5
+odeint_method: rk4
+ode_steps: 100
+num_workers: 4
+num_perturbations: 20
+perturbation_sigma: 5
