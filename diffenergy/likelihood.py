@@ -140,7 +140,7 @@ class FlowSpaceIntegral:
         def ode_func(t, x):
             # The ODE function for the black-box solver
             time_steps = torch.ones((1,), device = self.device) * t
-            sample = x[:-1].reshape(sample_shape).to(self.device)
+            sample = x.reshape(sample_shape).to(self.device)
             g = self.diffusion_coeff_fn(t)
             batch['sample'] = sample
             batch['time_steps'] = time_steps
@@ -162,7 +162,7 @@ class FlowSpaceIntegral:
 
         # grab some input
         sample = batch['sample'].clone().detach()
-        t_step = torch.tensor([1.0 / self.tot_steps], device = self.device)
+        t_step = torch.tensor([1.0 / self.ode_steps], device = self.device)
         t_final = torch.tensor([1.0], device = self.device)
         time_steps = t_final - t_step * num_steps
         batch['time_steps'] = time_steps
@@ -195,8 +195,8 @@ class FlowSpaceIntegral:
             if self.reset_seed_each_sample:
                 torch.manual_seed(self.seed)
 
-            for num_steps, batch in enumerate(trajectory):
-                batch = self.batch_process_fn(batch, self.device)
+            for num_steps, sam in enumerate(trajectory):
+                batch = {"sample":sam}
                 # Call ode_diff_likelihood
                 sample = batch['sample'].clone().detach()
                 logp_grad_t = self.ode_diff_likelihood(batch, prev_sample=prev_sample, num_steps=num_steps)
@@ -216,7 +216,6 @@ class FlowSpaceIntegral:
             bpd = bpd.to(self.device)
             bpd = bpd / N
 
-            # Define and update out_2
             out = {
                 "id": _id,
                 "nll": bpd.item(),
