@@ -1,13 +1,13 @@
 checkpoint: checkpoints/1d_trinormal.ckpt
-out_file: ../likelihood_results/trinormal_1d_nll_flowspace.csv
+out_file: ../likelihood_results/trinormal_1d_nll_flowtime_euler.csv
 sigma_min: 0.1
 sigma_max: 30
 data_samples: ../sample_results/trinormal_1d.csv
-inference_type: FlowSpaceIntegral
+inference_type: FlowTimeIntegral
 tr_type: non_conservative
 diffusion_steps: 1000
 odeint_rtol: 1e-5
 odeint_atol: 1e-5
-odeint_method: rk4
+odeint_method: euler
 ode_steps: 100
 num_workers: 4
