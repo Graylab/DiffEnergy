@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 import hydra
 
-from diffenergy.likelihood import FlowSpaceIntegral, FlowTimeIntegral, DiffSpaceIntegral, DiffTimeIntegral
+from diffenergy.likelihood import DiffTotalIntegral, FlowSpaceIntegral, FlowTimeIntegral, DiffSpaceIntegral, DiffTimeIntegral
 from diffenergy.helper import marginal_prob_std, diffusion_coeff, prior_gaussian_1d
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.gaussian_1d.divergence import score_eval_wrapper, divergence_eval_wrapper
@@ -166,6 +166,18 @@ def main(config: DictConfig):
                                       divergence_eval_wrapper=divergence_eval_wrapper,
                                       diffusion_steps=config.diffusion_steps,
                                       device=device)
+        data_list = likelihood.run_likelihood()
+    elif inference_type == 'DiffTotalIntegral':
+        likelihood = DiffTotalIntegral(dataloaders=dataloaders,
+                                       batch_process_fn=batch_process_fn,
+                                       score_model=score_model,
+                                       diffusion_coeff_fn=diffusion_coeff_fn,
+                                       prior_likelihood_fn=prior_likelihood_fn,
+                                       divergence_eval_wrapper=divergence_eval_wrapper,
+                                       score_eval_wrapper=score_eval_wrapper,
+                                       del_sample_fn=del_sample_fn,
+                                       diffusion_steps=config.diffusion_steps,
+                                       device=device)
         data_list = likelihood.run_likelihood()
     elif inference_type == 'FlowPerturbationIntegral':
         likelihood = FlowPerturbationIntegral(dataloader=dataloader,

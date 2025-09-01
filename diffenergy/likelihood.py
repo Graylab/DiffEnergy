@@ -402,3 +402,102 @@ class DiffTimeIntegral:
             data_list.append(out) 
 
         return data_list
+
+
+# -----------------------------------------------------------------------------------
+# Diffusion likelihood calculation with both flowtime and flowspace terms together
+class DiffTotalIntegral:
+    def __init__(self,
+                dataloaders,
+                batch_process_fn,
+                score_model,
+                diffusion_coeff_fn,
+                prior_likelihood_fn,
+                divergence_eval_wrapper,
+                score_eval_wrapper,
+                del_sample_fn,
+                diffusion_steps=100,
+                reset_seed_each_sample=False,
+                seed=0,
+                device='cuda'):
+        self.dataloaders = dataloaders
+        self.batch_process_fn = batch_process_fn
+        self.score_model = score_model
+        self.diffusion_coeff_fn = diffusion_coeff_fn
+        self.prior_likelihood_fn = prior_likelihood_fn
+        self.divergence_eval_wrapper = divergence_eval_wrapper
+        self.score_eval_wrapper = score_eval_wrapper
+        self.del_sample_fn = del_sample_fn
+        self.tot_steps = diffusion_steps
+        self.reset_seed_each_sample = reset_seed_each_sample
+        self.seed = seed
+        self.device = device
+
+    #diffspace
+    def diff_likelihood(self, batch, prev_sample = None, num_steps = 0):
+
+        # grab some input
+        t_step = torch.tensor([1.0 / self.tot_steps], device = self.device)
+        t_final = torch.tensor([1.0], device = self.device)
+        time_steps = t_final - t_step * num_steps
+        batch['time_steps'] = time_steps
+
+        score = self.score_eval_wrapper(batch, self.score_model, device = self.device)
+
+        # Compute del_position as the difference between current and previous sample
+        sample = batch['sample'].clone().detach()
+        del_sample = self.del_sample_fn(sample, prev_sample)
+        force_del_sample = torch.dot(score, del_sample)
+
+        g = self.diffusion_coeff_fn(time_steps)
+        logp_grad = -0.5 * g**2 * self.divergence_eval_wrapper(batch, self.score_model, device = self.device)
+        logp_grad_t = logp_grad * t_step
+
+        total_delta_logp = force_del_sample + logp_grad_t
+
+        return total_delta_logp
+
+
+    #diffspace
+    def run_likelihood(self):
+        
+        data_list = []
+    
+        for i, (_id, single_traj) in enumerate(tqdm(self.dataloaders.items())):
+
+            integral_list = []
+            prev_sample = None
+            if self.reset_seed_each_sample:
+                torch.manual_seed(self.seed)
+
+            for num_steps, batch in enumerate(single_traj):
+                batch = self.batch_process_fn(batch, self.device)
+                # Call diff_likelihood with the previous ligand position
+                sample = batch['sample'].clone().detach()
+                force_del_sample = self.diff_likelihood(batch, prev_sample, num_steps)
+
+                if prev_sample is None:
+                    prior_logp, N = self.prior_likelihood_fn(batch)
+
+                # Update previous ligand position for the next iteration
+                prev_sample = sample.clone().detach()
+
+                # Append the full output to the list
+                integral_list.append(force_del_sample)
+
+            # Sum tensors for each key in 'out'
+            integral = torch.stack(integral_list).sum(dim=0).item()
+            bpd = -prior_logp - integral
+            bpd = bpd / N
+
+            # Define and update out_2
+            out = {
+                "id": _id,
+                "nll": bpd.item(),
+                "prior_logp": prior_logp.item(),
+                "integral": integral,
+            }
+
+            data_list.append(out)
+
+        return data_list
