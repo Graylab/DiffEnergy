@@ -161,7 +161,7 @@ def main(config: DictConfig):
         load_data_fn = load_test_data
         if config.interpolate_trajectories:
             load_data_fn = functools.partial(load_interpolated_test_data,num_interpolants=config.num_interpolants)
-        with open(config.trajectory_index, 'r') as f:
+        with open(config.trajectory_index_file, 'r') as f:
             data_lists = f.read().splitlines()
         dataloaders = {data_list: load_data_fn(data_list, batch_size=1, num_workers=config.num_workers) for data_list in data_lists}
     

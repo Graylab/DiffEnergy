@@ -3,7 +3,7 @@ out_file: ../likelihood_results/trinormal_1d_nll_flowtotal_dense.csv
 sigma_min: 0.1
 sigma_max: 30
 data_samples: ../sample_results/trinormal_1d.csv
-trajectory_index: ../sample_results/trinormal_1d_traj/trajectory_index.txt
+trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index.txt
 inference_type: FlowTotalIntegral
 tr_type: non_conservative
 diffusion_steps: 1000
