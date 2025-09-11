@@ -1,14 +1,14 @@
 checkpoint: checkpoints/1d_trinormal.ckpt
-out_file: ../likelihood_results/trinormal_1d_nll_flowtotal_dense.csv
+out_file: ../likelihood_results/trinormal_1d_nll_unmoving.csv
 sigma_min: 0.1
 sigma_max: 30
 data_samples: ../sample_results/trinormal_1d.csv
 trajectory_index: ../sample_results/trinormal_1d_traj/trajectory_index.txt
-inference_type: FlowTotalIntegral
+inference_type: UnmovingIntegral
 tr_type: non_conservative
 diffusion_steps: 1000
 odeint_rtol: 1e-5
 odeint_atol: 1e-5
 odeint_method: rk4
-ode_steps: 200
+ode_steps: 100
 num_workers: 4

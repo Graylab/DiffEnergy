@@ -4,7 +4,7 @@ from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 # --------------------------------------------------------------------------
 # Translation divergence calculation
 
-def divergence_eval(sample, score_model, time_steps, epsilon):
+def divergence_eval(sample, score_model:torch.nn.Module, time_steps, epsilon):
     # Compute the divergence of the score-based model with Skilling-Hutchinson estimator
 
     with torch.enable_grad():
@@ -15,7 +15,7 @@ def divergence_eval(sample, score_model, time_steps, epsilon):
 
     return trace
 
-def score_eval_wrapper(batch, score_model, device="cuda"):
+def score_eval_wrapper(batch, score_model:torch.nn.Module, device:str|torch.device="cuda"):
     # A wrapper for evaluating the score-based model for the black-box ODE solver
     
     sample = batch['sample'].unsqueeze(1).clone().detach()
@@ -31,7 +31,7 @@ def score_eval_wrapper(batch, score_model, device="cuda"):
         
     return score.reshape((-1))
 
-def divergence_eval_wrapper(batch, score_model, device="cuda"):
+def divergence_eval_wrapper(batch, score_model:torch.nn.Module, device:str|torch.device="cuda"):
     # A wrapper for evaluating the divergence of score for the black-box ODE solver
 
     # Draw the random Gaussian sample for Skilling-Hutchinson's estimator.

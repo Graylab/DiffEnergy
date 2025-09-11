@@ -43,6 +43,10 @@ def Euler_Maruyama_sampler(score_model,
         Final samples, optionally saves full trajectory
     """
 
+    if save_trajectory:
+        if outpath is None:
+            raise ValueError("outpath must be provided if save_trajectory is True")
+
     t = torch.ones(batch_size, device=device)
     init_x = torch.randn(batch_size, 1, device=device) * marginal_prob_std(t)[:, None]
     time_steps = torch.linspace(1., eps, num_steps, device=device)
@@ -68,15 +72,21 @@ def Euler_Maruyama_sampler(score_model,
                     trajectory[i].append(x[i].cpu().item())  # Store per-sample trajectory
 
     if save_trajectory:
-        if outpath is None:
-            raise ValueError("outpath must be provided if save_trajectory is True")
-        traj_dir = outpath / "traj"
+        traj_dir = outpath
         if not traj_dir.exists():
             traj_dir.mkdir()
 
-        for i, traj in enumerate(trajectory):
+        filepaths = [f"{traj_dir}/lp{i+1}.csv" for i in range(len(trajectory))]
+        for traj,path in zip(trajectory,filepaths):
             df_traj = pd.DataFrame({"Index": np.arange(num_steps), "Sample": traj})
-            df_traj.to_csv(f"{traj_dir}/lp{i+1}.csv", index=False)
+            df_traj.to_csv(path, index=False)
+        
+        index_file = f"{outpath}/trajectory_index.txt"
+        with open(index_file,"w") as f:
+            f.write("\n".join(filepaths))
+        
+
+        
 
     return mean_x
 
@@ -121,6 +131,8 @@ def main(config: DictConfig):
     sample_batch_size = config.sample_num
     save_trajectory = config.save_trajectory
 
+    traj_outpath = outpath / (Path(config.sample_file).stem + "_traj")
+
     # Generate samples using Euler-Maruyama sampler
     samples = Euler_Maruyama_sampler(score_model,
                         marginal_prob_std_fn,
@@ -129,7 +141,7 @@ def main(config: DictConfig):
                         num_steps,
                         device = device,
                         save_trajectory=save_trajectory,
-                        outpath=outpath)
+                        outpath=traj_outpath)
 
     samples_np = samples.cpu().detach().numpy()
     if samples_np.ndim == 1:
