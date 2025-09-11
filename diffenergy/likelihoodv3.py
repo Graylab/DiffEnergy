@@ -31,10 +31,9 @@ class LikelihoodIntegrand(ABC,Generic[X]):
 
 
 class ODELikelihoodIntegrand(LikelihoodIntegrand[X]):
-    def __init__(self,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],device:str|torch.device='cuda') -> None:
+    def __init__(self,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]) -> None:
         self.to_arr = to_arr
         self.from_arr = from_arr
-        self.device = device
 
     @abstractmethod
     def odeintegrand(self,x:X,t:float,dx:X,dt:float)->float | Array: 
@@ -43,7 +42,7 @@ class ODELikelihoodIntegrand(LikelihoodIntegrand[X]):
 
 
     def tensor(self,a:ArrayLike):
-        return torch.as_tensor(a,device=self.device)
+        return torch.as_tensor(a)
 
     def to_tensor(self,x:X):
         return self.tensor(self.to_arr(x))
@@ -66,14 +65,15 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X]):
     def delta(self)->Iterable[tuple[X,float]]:
         return map(lambda xt: (self.from_arr(self.to_arr(xt[1][0]) - self.to_arr(xt[0][0])),xt[1][1]-xt[0][1]), itertools.pairwise(self))
     
-    def diffintegrate(self, *integrands: LikelihoodIntegrand)->tuple[Sequence[tuple[X,float]],list[float|Array]]:
+    def diffintegrate(self, *integrands: LikelihoodIntegrand[X])->tuple[Sequence[tuple[X,float]],list[float|Array]]:
         acc:list[None|float|Array] = [None]*len(integrands)
-        path, offpath = itertools.tee(self) #repicate itertools.pairwise manually, so as to also accumulate the path
-        accpath = [next(offpath)]
-        for (x,t),(x2,t2) in zip(path,offpath):
-            accpath.append((x,t))
-            x,x2 = self.to_arr(x), self.to_arr(x2)
-            dx = x2-x
+        it = iter(self)
+        (x,t) = next(it)
+        accpath = [(x,t)]
+        for (x2,t2) in it:
+            xarr,x2arr = self.to_arr(x), self.to_arr(x2)
+            dxarr = x2arr-xarr
+            dx = self.from_arr(dxarr)
             dt = t2-t
             
             for i,integrand in enumerate(integrands):
@@ -82,17 +82,20 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X]):
                     acc[i] = I
                 else:
                     acc[i] += I
+
+            (x,t) = (x2,t2)
+            accpath.append((x,t))
         
         for i in range(len(acc)): #don't think this would ever happen but /shrug
             if acc[i] is None:
                 acc[i] = 0
 
-        accpath.append(next(path)) #complete path, finish consumption of both iterators
         return accpath,acc
 
 class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X]): #where path is an explicit sequence of x and t
-    def __init__(self,path:Sequence[tuple[X,float]]):
+    def __init__(self,path:Sequence[tuple[X,float]],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],):
         self.path = path
+        super().__init__(to_arr,from_arr)
     
     @overload
     def __getitem__(self, index: int) -> tuple[X,float]: ...
@@ -105,13 +108,12 @@ class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X]): #where pat
         return len(self.path)
     
 class ODEIntegrablePath(IntegrablePath[X],ABC):
-    def __init__(self,timeschedule:Sequence[float],initial:tuple[X,float],rtol:float,atol:float,method:str,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],device:str|torch.device='cuda'):
+    def __init__(self,timeschedule:Sequence[float],initial:tuple[X,float],rtol:float,atol:float,method:str,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]):
         self.timeschedule = timeschedule
         self.initial = initial
         self.rtol = rtol
         self.atol = atol
         self.method = method
-        self.device = torch.device(device)
         super().__init__(to_arr,from_arr)
             
     @abstractmethod
@@ -125,7 +127,7 @@ class ODEIntegrablePath(IntegrablePath[X],ABC):
 
 
     def tensor(self,a:ArrayLike):
-        return torch.as_tensor(a,device=self.device)
+        return torch.as_tensor(a)
 
     def to_tensor(self,x:X):
         return self.tensor(self.to_arr(x))
@@ -180,11 +182,11 @@ class ScoreDivDiffIntegrand(ODELikelihoodIntegrand[X]):
     divfn: (x,t) -> laplacian_x(logp(x,t)) = sum((d/dx_i)^2 logp(x,t))
     diffcoefffn: (t) -> g(t)
     """
-    def __init__(self,scorefn:Callable[[X,float],Array], divfn:Callable[[X,float],float], diffcoefffn:Callable[[float],float],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],device:str|torch.device='cuda'):
+    def __init__(self,scorefn:Callable[[X,float],Array], divfn:Callable[[X,float],float], diffcoefffn:Callable[[float],float],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]):
         self.scorefn = scorefn
         self.divfn = divfn
         self.diffcoefffn =diffcoefffn
-        super().__init__(to_arr,from_arr,device=device)
+        super().__init__(to_arr,from_arr)
 
 
 class TotalIntegrand(ScoreDivDiffIntegrand[X]):
@@ -269,40 +271,18 @@ class SpaceIntegrand(ScoreDivDiffIntegrand[X]):
 
         return dxterm #not a float, teehee. scalar tensor though!        
         
-# class BatchScoreDivDiffIntegrand(ScoreDivDiffIntegrand[X]): #integrand which integrates multiple ScoreDivDiffIntegrands in parallel
-#     def __init__(self, integrand_types:Iterable[type[ScoreDivDiffIntegrand]], scorefn: Callable[[X, float], Array], divfn: Callable[[X, float], float], diffcoefffn: Callable[[float], float], to_arr: Callable[[X], Array], from_arr: Callable[[ArrayLike], X], device: str | torch.device = 'cuda'):
-#         super().__init__(scorefn, divfn, diffcoefffn, to_arr, from_arr, device)
-        
-        
-
-#         self.integrands = [
-#             inttype(scorefn,divfn,diffcoefffn,to_arr,from_arr,device=device)
-#             for inttype in integrand_types
-#         ]
-    
-#     def name(self) -> str:
-#         names = []
-#         for grand in self.integrands:
-#             n = grand.name()
-#             if isinstance(n,str): names.append(n)
-#             else: names.extend(n)
-#         return names
-    
-#     def odeintegrand(self, x: X, t: float, dx: X, dt: float) -> float | np.ndarray | Tensor:
-#         return torch.flatten(torch.tensor([grand.odeintegrand(x,t,dx,dt) for grand in self.integrands]))
-
 
 #### Paths ####
 
 #just pass in a sequence of points. time schedule is interpreted to be tmin..tmax linearly
 class UniformIntegrableSequence(IntegrableSequence[X]):
-    def __init__(self,points:Iterable[X], tmin:float=0, tmax:float=1):
+    def __init__(self,points:Iterable[X], to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],tmin:float=0, tmax:float=1):
         points = list(points)
         t = np.linspace(tmin,tmax,len(points),endpoint=True)
-        super().__init__(list(zip(points,t)))
+        super().__init__(list(zip(points,t)),to_arr,from_arr)
 
 class InterpolatedUniformIntegrableSequence(UniformIntegrableSequence[X]):    
-    def __init__(self, points: Iterable[X], n_interp: int, to_arr: Callable[[X],Array], from_arr: Callable[[Array],X], tmin: float = 0, tmax: float = 1):
+    def __init__(self, points: Iterable[X], n_interp: int, to_arr: Callable[[X],Array], from_arr: Callable[[ArrayLike],X], tmin: float = 0, tmax: float = 1):
         """n_interp of i means i-1 extra points in between each original points. n_interp of 1 is the original sequence"""
         self.n_interp = n_interp
         self.orig_sequence = points = list(points)
@@ -310,7 +290,7 @@ class InterpolatedUniformIntegrableSequence(UniformIntegrableSequence[X]):
         interp = np.concatenate(np.linspace(arrpoints[:-1],arrpoints[1:],n_interp,endpoint=False))
         interp = np.concatenate([interp,arrpoints[-1]])
         assert interp.shape[0] == (len(points))*(n_interp)+1
-        super().__init__(map(from_arr,interp))
+        super().__init__(map(from_arr,interp),to_arr,from_arr)
 
 
 
@@ -319,10 +299,10 @@ class UniformODEIntegrablePath(ODEIntegrablePath[X]):
         return 1
 
 class FlowEquivalentODEPath(UniformODEIntegrablePath[X]):
-    def __init__(self, scorefn:Callable[[X,float],Array], diffcoefffn:Callable[[float],float], timeschedule: Sequence[float], initial: tuple[X, float], rtol: float, atol: float, method: str, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], device: str | torch.device = 'cuda'):
+    def __init__(self, scorefn:Callable[[X,float],Array], diffcoefffn:Callable[[float],float], timeschedule: Sequence[float], initial: tuple[X, float], rtol: float, atol: float, method: str, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]):
         self.scorefn = scorefn
         self.diffcoefffn = diffcoefffn
-        super().__init__(timeschedule, initial, rtol, atol, method, to_arr, from_arr, device=device)
+        super().__init__(timeschedule, initial, rtol, atol, method, to_arr, from_arr)
 
     def dx(self, i: float, x: X, t: float) -> X:
         delta = -1/2 * self.diffcoefffn(t)**2 * self.scorefn(x,t);
@@ -347,7 +327,8 @@ def _run_likelihood(method:Literal['diff','ode'],path:IntegrablePath[X],integran
     if method == 'diff':
         trajectory, deltas = path.diffintegrate(*integrands)
     elif method == 'ode':
-        assert isinstance(path,ODEIntegrablePath)
+        if not isinstance(path,ODEIntegrablePath):
+            raise ValueError(f"Path {path} is not ODEIntegrable! Please use an ODEIntegrable path or set the integral_type to 'diff' to use the path in euclidean mode");
         trajectory, deltas = path.odeintegrate(*integrands)
 
     results:dict[str,LikelihoodResult] = {}

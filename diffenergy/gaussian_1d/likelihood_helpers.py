@@ -9,8 +9,8 @@ from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 
 def to_array(x:Tensor)->Tensor:
     return x.squeeze(0)
-def from_array(a)->Tensor:
-    return torch.as_tensor(a,dtype=torch.float)[None,...]
+def from_array(a,device:str|torch.device='cuda')->Tensor:
+    return torch.as_tensor(a,dtype=torch.float,device=torch.device(device))[None,...]
 
 class ModelEval:
     def __init__(self,score_model:ScoreNetMLP|NegativeGradientMLP, always_grad:bool=True) -> None:

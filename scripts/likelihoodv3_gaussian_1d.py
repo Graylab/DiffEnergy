@@ -94,12 +94,14 @@ def flatten_keys(d:Mapping[str,Iterable[str]],formatstr="{}_{}"):
 
 @hydra.main(version_base=None, config_path="../configs/likelihoodv3", config_name="likelihood_gaussian_1d")
 def main(config: DictConfig):
+    global from_array
 
     # Print the entire configuration
     print(OmegaConf.to_yaml(config))
 
     # set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    from_array = functools.partial(from_array,device=device)
 
     # set sigma_values
     sigma_min = config.sigma_min
@@ -138,9 +140,6 @@ def main(config: DictConfig):
     # Load the checkpoint weights into the model    
     score_model.load_state_dict(ckpt)   
 
-
-    from diffenergy.gaussian_1d.likelihood_helpers import ModelEval, to_array, from_array
-
     model_eval = ModelEval(score_model)
 
     # load integrands
@@ -159,16 +158,16 @@ def main(config: DictConfig):
 
         match integrand_type:
             case TotalIntegrand.__name__:
-                integrand = TotalIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array,device=device)
+                integrand = TotalIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array)
             case TimeIntegrand.__name__:
-                integrand = TimeIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array,device=device)
+                integrand = TimeIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array)
             case SpaceIntegrand.__name__:
-                integrand = SpaceIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array,device=device)
+                integrand = SpaceIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array)
             case _:
                 raise ValueError("Unknown integrand type:",integrand_type)
             
         def prior_likelihood_fn(x:torch.Tensor,t:float):
-            assert np.allclose(t, 1) #diffeq errors might mean it's not *quite* 1 but that's fine
+            assert np.allclose(t, 1), t #diffeq errors might mean it's not *quite* 1 but that's fine
             return torch.squeeze(prior_gaussian_1d({"sample":x},sigma_max)[0]).item()
         priors.append(prior_likelihood_fn)
         integrands.append(integrand)
@@ -208,23 +207,22 @@ def main(config: DictConfig):
                     config.odeint_atol,
                     config.odeint_method,
                     to_array,
-                    from_array,
-                    device=device)
+                    from_array)
                     for initial in tqdm(dataloader)
                 )
         case "sde_trajectories":
             #sde: get paths from diffusion tajectories
-            with open(config.trajectory_index, 'r') as f:
+            with open(config.trajectory_index_file, 'r') as f:
                 data_lists = f.read().splitlines()
             dataloaders = {data_list: load_test_data(data_list, batch_size=1, num_workers=config.num_workers) for data_list in data_lists}
 
             
             pathclass = UniformIntegrableSequence[torch.Tensor]
-            if config.interpolate_trajectories:
-                pathclass = functools.partial(InterpolatedUniformIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants,to_arr=to_array,from_arr=from_array)
+            if config.get("interpolate_trajectories",False):
+                pathclass = functools.partial(InterpolatedUniformIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants)
             
             paths = (
-                pathclass(map(lambda x: from_array(x["sample"]), loader),tmin=0,tmax=0)
+                pathclass(map(lambda x: from_array(x["sample"]), loader),to_arr=to_array,from_arr=from_array,tmin=0,tmax=1)
                 for name,loader in tqdm(dataloaders.items())
             )
         case _:
@@ -247,7 +245,7 @@ def main(config: DictConfig):
         out_dir = Path(config.out_dir)
         file_name = out_dir/"likelihood.csv"
         
-        if out_dir.exists() and not config.overwrite_output:
+        if out_dir.exists() and not config.get("overwrite_output",False):
             raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
 
         out_dir.mkdir(parents=True,exist_ok=True)
