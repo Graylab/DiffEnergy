@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import functools
 import itertools
 from decorator import decorator
-from typing import Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Protocol, Sequence, Sized, TypeVar, TypedDict, Union, overload
+from typing import Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Optional, Protocol, Sequence, Sized, TypeVar, TypedDict, Union, overload
 from numpy.typing import ArrayLike
 
 import torch
@@ -155,7 +155,7 @@ class ODEIntegrablePath(IntegrablePath[X],ABC):
     
     
     def odeintegrate(self,*integrands:ODELikelihoodIntegrand[X])->tuple[Sequence[tuple[X,float]],list[float|Array]]:
-        def ode_func(i:float,v:tuple[Tensor,Tensor,Tensor]):
+        def ode_func(i:float,v:tuple[Tensor,...]):
             x,t,*_ = v
             
             x,t = self.from_arr(x), t.item()
@@ -288,10 +288,15 @@ class InterpolatedUniformIntegrableSequence(UniformIntegrableSequence[X]):
         """n_interp of i means i-1 extra points in between each original points. n_interp of 1 is the original sequence"""
         self.n_interp = n_interp
         self.orig_sequence = points = list(points)
-        arrpoints = list(map(to_arr,points))
-        interp = np.concatenate(np.linspace(arrpoints[:-1],arrpoints[1:],n_interp,endpoint=False))
-        interp = np.concatenate([interp,arrpoints[-1]])
-        assert interp.shape[0] == (len(points))*(n_interp)+1
+        it = map(torch.as_tensor,map(to_arr,points))
+        x1 = next(it)
+        accpath = [x1]
+        for x2 in it:
+            interps = torch.linspace(0,1,n_interp+1,device=x1.device,dtype=x1.dtype)[1:]
+            interp_points = (1-interps[:,None])*x1[None,...] + interps[:,None]*x2[None,...] #stupid-ass manual linspace because worthless torch.linspace doesn't support vectors aaaaaa
+            accpath.extend(interp_points)
+        interp = torch.stack(accpath,dim=0)
+        assert interp.shape[0] == (len(points)-1)*(n_interp)+1, interp.shape[0]
         super().__init__(map(from_arr,interp),to_arr,from_arr)
 
 
@@ -335,6 +340,12 @@ class LinearPath(ODEIntegrablePath[X]):
             interp = (i-self.mini)/self.di
             yield (self.from_arr((1-interp)*x0 + interp*x1),(1-interp)*t0+interp*t1)
 
+class LinearizedFlowPath(LinearPath[X]):
+    def __init__(self, scorefn:Callable[[X,float],Array], diffcoefffn:Callable[[float],float], timeschedule: Sequence[float], initial: tuple[X, float], rtol: float, atol: float, method: str, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],interpolants:Optional[Sequence[float]]=None):
+        self.flowpath = FlowEquivalentODEPath(scorefn,diffcoefffn,timeschedule,initial,rtol,atol,method,to_arr,from_arr)
+        self.path = list(self.flowpath)
+        end = self.path[-1]
+        super().__init__(initial,end,interpolants or timeschedule,rtol,atol,method,to_arr,from_arr);
     
 
 

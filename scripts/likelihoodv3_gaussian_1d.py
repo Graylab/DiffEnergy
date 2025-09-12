@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, TypedDic
 
 import numpy as np
 from tqdm import tqdm
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LikelihoodResult, LinearPath, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
+from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LikelihoodResult, LinearPath, LinearizedFlowPath, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
 from diffenergy.perturbation import FlowPerturbationIntegral
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
@@ -265,7 +265,31 @@ def main(config: DictConfig):
                             from_array)
                 for start,end in endpoints
             )
+        case "linearized_flow":
+            #flow ode: get data samples from diffusion endpoints, run the flow forwards
+            dataloader = load_test_data(config.data_samples, batch_size=1, num_workers=config.num_workers)
 
+            #ode integration: needs a timeschedule
+            schedule = config.get("ode_timeschedule","uniform")
+            match schedule:
+                case "uniform":
+                    times = torch.linspace(0,1,config.ode_steps+1,device=device)
+                case _:
+                    raise ValueError("Unknown timeschedule method:",schedule)
+
+            paths = ( #maybe this should be a dataloader or something idk
+                LinearizedFlowPath[torch.Tensor](
+                    model_eval.score,
+                    diffusion_coeff_fn,
+                    times,
+                    (from_array(initial["sample"]),0),
+                    config.odeint_rtol,
+                    config.odeint_atol,
+                    config.odeint_method,
+                    to_array,
+                    from_array)
+                    for initial in tqdm(dataloader)
+                )
         case _:
             raise ValueError("Unknown path type:",config.path_type)
 
