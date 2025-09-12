@@ -1,6 +1,7 @@
 
 
-from typing import Optional, TypedDict
+import abc
+from typing import Generic, Optional, Protocol, TypeVar, TypedDict
 
 from torch import Tensor
 import torch
@@ -12,7 +13,12 @@ def to_array(x:Tensor)->Tensor:
 def from_array(a,device:str|torch.device='cuda')->Tensor:
     return torch.as_tensor(a,dtype=torch.float,device=torch.device(device))[None,...]
 
-class ModelEval:
+X = TypeVar("X",contravariant=True)
+class ScoreModelEvaluator(Protocol,Generic[X]):
+    def score(self,x:X,t:float,grad:bool=False)->Tensor:  ...
+    def divergence(self,x:X,t:float)->float:  ...
+
+class ModelEval(ScoreModelEvaluator):
     def __init__(self,score_model:ScoreNetMLP|NegativeGradientMLP, always_grad:bool=True) -> None:
         self.score_model = score_model
         self.scorecache: Optional[tuple[tuple[Tensor,float],Tensor]] = None
@@ -32,7 +38,7 @@ class ModelEval:
         else:
             grad_ctx = torch.no_grad
             x.requires_grad_(False)
-        
+
         with grad_ctx(): #not sure if this actually is that important, might be enough to just set requires grad to true/false. don't think it can hurt, though
             score = self.score_model(x, torch.as_tensor([t],device=x.device,dtype=x.dtype)).squeeze(0) #x is batched, but we assume with a size of 1
 
@@ -54,7 +60,7 @@ class ModelEval:
 
         self.divcache = ((x,t),trace)
 
-        return trace
+        return trace #essentially a float teehee
         
 
         
