@@ -41,15 +41,16 @@ class ODELikelihoodIntegrand(LikelihoodIntegrand[X]):
         ...
 
 
-    def tensor(self,a:ArrayLike):
-        return torch.as_tensor(a)
+    def tensor(self,a:ArrayLike,**kwargs):
+        return torch.as_tensor(a,**kwargs)
 
-    def to_tensor(self,x:X):
-        return self.tensor(self.to_arr(x))
+    def to_tensor(self,x:X,**kwargs):
+        return self.tensor(self.to_arr(x),**kwargs)
 
     #convenience function - given x:X and arbitrary sequence of tensorables n (read: time followed by integrand values), turn each into a tensor
     def xntensor(self,x:X,*n:ArrayLike):
-        return self.to_tensor(x),*map(self.tensor,n)
+        xt = self.to_tensor(x)
+        return xt,*map(functools.partial(self.tensor,device=xt.device),n)
 
     def diffintegrand(self, x: X, t: float, deltax: X, deltat: float) -> float | Array:
         I = self.odeintegrand(x, t, deltax, deltat)
@@ -126,15 +127,16 @@ class ODEIntegrablePath(IntegrablePath[X],ABC):
 
 
 
-    def tensor(self,a:ArrayLike):
-        return torch.as_tensor(a)
+    def tensor(self,a:ArrayLike,**kwargs):
+        return torch.as_tensor(a,**kwargs)
 
-    def to_tensor(self,x:X):
-        return self.tensor(self.to_arr(x))
+    def to_tensor(self,x:X,**kwargs):
+        return self.tensor(self.to_arr(x),**kwargs)
 
     #convenience function - given x:X and arbitrary sequence of tensorables n (read: time followed by integrand values), turn each into a tensor
     def xntensor(self,x:X,*n:ArrayLike):
-        return self.to_tensor(x),*map(self.tensor,n)
+        xt = self.to_tensor(x)
+        return xt,*map(functools.partial(self.tensor,device=xt.device),n)
 
     #integrate dx and dt to make a path through space based on the timeschedule
     def __iter__(self) -> Iterator[tuple[X, float]]:
@@ -162,7 +164,7 @@ class ODEIntegrablePath(IntegrablePath[X],ABC):
             dx,dt = self.dx(i,x,t),self.dt(i,x,t)
             return self.xntensor(dx,dt,*[integrand.odeintegrand(x,t,dx,dt) for integrand in integrands])
         
-        res = odeint(ode_func,self.xntensor(*self.initial,*([0]*len(integrands))),torch.tensor(self.timeschedule),rtol=self.rtol,atol=self.atol,method=self.method)
+        res = odeint(ode_func,self.xntensor(*self.initial,*([0]*len(integrands))),self.tensor(self.timeschedule),rtol=self.rtol,atol=self.atol,method=self.method)
         xs,ts,*I = res
 
         accpath = zip(map(self.from_arr,xs),map(Tensor.item,ts))
