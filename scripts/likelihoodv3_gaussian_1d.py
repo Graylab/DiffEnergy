@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, TypedDic
 
 import numpy as np
 from tqdm import tqdm
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LikelihoodResult, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
+from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LikelihoodResult, LinearPath, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
 from diffenergy.perturbation import FlowPerturbationIntegral
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
@@ -74,6 +74,13 @@ def load_test_data(data_path, batch_size, num_workers):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     return dataloader
+
+def load_endpoints(data_path:str):
+    df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
+    samples = df.iloc[:, 1].values  # Extract the second column as samples
+    return torch.tensor([samples[0]],dtype=torch.float32),torch.tensor([samples[-1]],dtype=torch.float32)
+    
+    
 
 T = TypeVar("T")
 def flatten_dict(d:Mapping[str,Mapping[str,T]],formatstr="{}_{}"):
@@ -193,7 +200,7 @@ def main(config: DictConfig):
             schedule = config.get("ode_timeschedule","uniform")
             match schedule:
                 case "uniform":
-                    times = list(np.linspace(0,1,config.ode_steps+1,endpoint=True));
+                    times = torch.linspace(0,1,config.ode_steps+1,device=device)
                 case _:
                     raise ValueError("Unknown timeschedule method:",schedule)
 
@@ -225,6 +232,40 @@ def main(config: DictConfig):
                 pathclass(map(lambda x: from_array(x["sample"]), loader),to_arr=to_array,from_arr=from_array,tmin=0,tmax=1)
                 for name,loader in tqdm(dataloaders.items())
             )
+        case "linear_trajectories":
+            import more_itertools
+
+            #ode integration: needs a timeschedule
+            schedule = config.get("ode_timeschedule","uniform")
+            match schedule:
+                case "uniform":
+                    times = torch.linspace(0,1,config.ode_steps+1,device=device)
+                case _:
+                    raise ValueError("Unknown timeschedule method:",schedule)
+
+            #linear: take sampled paths, and just make a straight line from start to end
+            with open(config.trajectory_index_file, 'r') as f:
+                data_lists = f.read().splitlines()
+            endpoints = (load_endpoints(data_list) for data_list in tqdm(data_lists))
+            
+            # def get_endpoints(l:Iterable[datapoint])->tuple[tuple[torch.Tensor,float],tuple[torch.Tensor,float]]:
+            #     it = iter(l)
+            #     start = next(it)
+            #     end = more_itertools.last(it,start)
+            #     return ((start["sample"],0),(end["sample"],1))
+
+            # endpoints = (get_endpoints(loader) for loader in dataloaders.values())
+
+            paths = (
+                LinearPath((from_array(start),0),(from_array(end),1),times,
+                            config.odeint_rtol,
+                            config.odeint_atol,
+                            config.odeint_method,
+                            to_array,
+                            from_array)
+                for start,end in endpoints
+            )
+
         case _:
             raise ValueError("Unknown path type:",config.path_type)
 
