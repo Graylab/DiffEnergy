@@ -1,18 +1,18 @@
 checkpoint: checkpoints/1d_trinormal.ckpt
-out_dir: ../likelihood_results/likelihoodv3/3integrand_odeTEST
+out_dir: ../likelihood_results/likelihoodv3/3integrand_diff
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
 data_samples: ../sample_results/trinormal_1d.csv
-trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index_1000.txt
+trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index.txt
 
 integrand_types:
   TotalIntegrand:
   TimeIntegrand:
   SpaceIntegrand:
-path_type: flow_ode
+path_type: sde_trajectories
 
-integral_type: 'ode'
+integral_type: 'diff'
 
 tr_type: non_conservative
 diffusion_steps: 1000
@@ -21,3 +21,6 @@ odeint_atol: 1e-5
 odeint_method: rk4
 ode_steps: 100
 num_workers: 4
+
+interpolate_trajectories: True
+num_interpolants: 5

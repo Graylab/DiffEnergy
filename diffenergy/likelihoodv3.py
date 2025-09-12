@@ -311,6 +311,36 @@ class FlowEquivalentODEPath(UniformODEIntegrablePath[X]):
 
         return self.from_arr(delta);
 
+class LinearPath(ODEIntegrablePath[X]):
+    def __init__(self, start:tuple[X,float], end:tuple[X,float], interpolants:Sequence[float], rtol: float, atol: float, method: str, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]):
+        super().__init__(interpolants,start,rtol,atol,method,to_arr,from_arr)
+        self.end = end
+        self.mini = interpolants[0]
+        self.maxi = interpolants[-1]
+        self.di = self.maxi-self.mini
+        self.xslope = self.from_arr((self.to_arr(end[0])-self.to_arr(start[0]))/self.di)
+        self.tslope = (end[1]-start[1])/self.di
+        
+
+    def dx(self, i: float, x: X, t: float) -> X:
+        return self.xslope
+    
+    def dt(self, i: float, x: X, t: float) -> float:
+        return self.tslope
+    
+    def __iter__(self) -> Iterator[tuple[X, float]]: #no need for integration
+        x0,t0 = self.initial; x0 = self.to_arr(x0)
+        x1,t1 = self.end; x1 = self.to_arr(x1)
+        for i in self.timeschedule:
+            interp = (i-self.mini)/self.di
+            yield (self.from_arr((1-interp)*x0 + interp*x1),(1-interp)*t0+interp*t1)
+
+    
+
+
+
+
+
 
 
 
