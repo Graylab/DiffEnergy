@@ -179,3 +179,4 @@ scripts/outputs/
 outputs/
 
 .vscode/
+plots/**/*.png
