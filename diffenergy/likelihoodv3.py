@@ -365,7 +365,7 @@ class LikelihoodResult(TypedDict):
     likelihood: float|ArrayLike
 
 
-def _run_likelihood(method:Literal['diff','ode'],path:IntegrablePath[X],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
+def _run_likelihood(method:Literal['diff','ode'],id:str,path:IntegrablePath[X],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
 
     if method == 'diff':
         trajectory, deltas = path.diffintegrate(*integrands)
@@ -375,7 +375,7 @@ def _run_likelihood(method:Literal['diff','ode'],path:IntegrablePath[X],integran
         trajectory, deltas = path.odeintegrate(*integrands)
 
     results:dict[str,LikelihoodResult] = {}
-    for integrand,prior_fn,delta in zip(integrands,prior_fns,deltas):
+    for integrand,prior_fn,delta in zip(integrands,prior_fns,deltas): #todo
         prior = prior_fn(*trajectory[-1])
 
         total = prior - delta #we integrated from unknown to known - so we need to negate the delta!
@@ -385,17 +385,17 @@ def _run_likelihood(method:Literal['diff','ode'],path:IntegrablePath[X],integran
         prior,negdelta,likelihood = map(Tensor.tolist,(prior,negdelta,likelihood))
         results[integrand.name()] = LikelihoodResult(prior=prior,negdelta=negdelta,likelihood=likelihood)
 
-    return results
+    return (id,results)
 
-def run_diff_likelihood(path:IntegrablePath[X],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
-    return _run_likelihood('diff',path,integrands,prior_fns)
+def run_diff_likelihood(id:str,path:IntegrablePath[X],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
+    return _run_likelihood('diff',id,path,integrands,prior_fns)
 
-def run_ode_likelihood(path:ODEIntegrablePath[X],integrands:Sequence[ODELikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
-    return _run_likelihood('ode',path,integrands,prior_fns)
+def run_ode_likelihood(id:str,path:ODEIntegrablePath[X],integrands:Sequence[ODELikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
+    return _run_likelihood('ode',id,path,integrands,prior_fns)
 
 
-def run_diff_likelihoods(paths:Iterable[IntegrablePath[X]],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
-    yield from (run_diff_likelihood(path,integrands,prior_fns) for path in paths)
+def run_diff_likelihoods(paths:Iterable[tuple[str,IntegrablePath[X]]],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
+    yield from (run_diff_likelihood(id,path,integrands,prior_fns) for id,path in paths)
 
-def run_ode_likelihoods(paths:Iterable[ODEIntegrablePath[X]],integrands:Sequence[ODELikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
-    yield from (run_ode_likelihood(path,integrands,prior_fns) for path in paths)
+def run_ode_likelihoods(paths:Iterable[tuple[str,ODEIntegrablePath[X]]],integrands:Sequence[ODELikelihoodIntegrand[X]],prior_fns:Iterable[Callable[[X,float],float|Array]]):
+    yield from (run_ode_likelihood(id,path,integrands,prior_fns) for id,path in paths)

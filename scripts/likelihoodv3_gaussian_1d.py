@@ -1,5 +1,6 @@
 from fileinput import filename
 from logging import warning
+import os
 from pathlib import Path
 import csv
 import functools
@@ -8,6 +9,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, TypedDic
 
 import numpy as np
 from tqdm import tqdm
+from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
 from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LikelihoodResult, LinearPath, LinearizedFlowPath, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
 from diffenergy.perturbation import FlowPerturbationIntegral
 from omegaconf import DictConfig, OmegaConf
@@ -16,7 +18,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 import hydra
 
-from diffenergy.helper import marginal_prob_std, diffusion_coeff, prior_gaussian_1d
+from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_1d
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.gaussian_1d.likelihood_helpers import ModelEval, to_array, from_array
 
@@ -75,10 +77,22 @@ def load_test_data(data_path, batch_size, num_workers):
 
     return dataloader
 
+def load_trajectories(trajectory_index_file:str|Path)->dict[str,str]:
+    trajectory_index_file = Path(trajectory_index_file)
+    assert trajectory_index_file.suffix == '.csv'
+    df = pd.read_csv(trajectory_index_file)
+    return df.set_index('index').T.to_dict(orient='records')[0] #make ids columnames, then convert to a dict of [{colname:value,colname:value}] and get the first result
+    
+
 def load_endpoints(data_path:str):
     df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
     samples = df.iloc[:, 1].values  # Extract the second column as samples
     return torch.tensor([samples[0]],dtype=torch.float32),torch.tensor([samples[-1]],dtype=torch.float32)
+
+def load_trajectory(data_path:str):
+    df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
+    samples = df.iloc[:, 1].values  # Extract the second column as samples
+    return torch.tensor(samples,dtype=torch.float32)
     
     
 
@@ -107,7 +121,8 @@ def main(config: DictConfig):
     print(OmegaConf.to_yaml(config))
 
     # set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
     from_array = functools.partial(from_array,device=device)
 
     # set sigma_values
@@ -134,20 +149,31 @@ def main(config: DictConfig):
 
     tr_type = config.tr_type
 
-    # Initialize score model
+    # Initialize score model, load the checkpoint weights into the model    
     if tr_type == 'non_conservative':
         score_model = ScoreNetMLP(
             input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
+        print("wow")
+        score_model.load_state_dict(ckpt)
+        model_eval = ModelEval(score_model)
     elif tr_type == 'conservative':
         score_model = NegativeGradientMLP(
             input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
+        score_model.load_state_dict(ckpt)
+        model_eval = ModelEval(score_model)
+    elif tr_type == 'ground_truth':
+        means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float)
+        variances = torch.tensor([8.0,5.0,10.0])**2
+        weights = torch.tensor([0.4,0.3,0.3])
+
+        model_eval = MultimodalGaussianGroundTruthScoreModel(means,variances,weights,sigma_min,sigma_max)
+        model_eval.to(device)
     else:
         raise ValueError(tr_type)
+    
+    
 
-    # Load the checkpoint weights into the model    
-    score_model.load_state_dict(ckpt)   
-
-    model_eval = ModelEval(score_model)
+    
 
     # load integrands
     integrands:list[LikelihoodIntegrand] = []
@@ -156,13 +182,17 @@ def main(config: DictConfig):
     if not isinstance(types,Mapping):
         types = DictConfig({t:{} for t in types}) #ensure types is a DictConfig of Dicts
 
+    def prior_likelihood_fn(x:torch.Tensor,t:float):
+        assert np.allclose(t, 1), t #diffeq errors might mean it's not *quite* 1 but that's fine
+        return torch.squeeze(prior_gaussian_1d({"sample":x},sigma_max)[0]).item()
+
     for integrand_type,params in config.integrand_types.items():
-        def param(p:str):
+        def param(p:str,*args):
             if params is not None:
                 if params.get(p,None) is not None:
                     return p
-                return config.get(p)
-
+            return config.get(p,*args)
+            
         match integrand_type:
             case TotalIntegrand.__name__:
                 integrand = TotalIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array)
@@ -172,11 +202,30 @@ def main(config: DictConfig):
                 integrand = SpaceIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array)
             case _:
                 raise ValueError("Unknown integrand type:",integrand_type)
-            
-        def prior_likelihood_fn(x:torch.Tensor,t:float):
-            assert np.allclose(t, 1), t #diffeq errors might mean it's not *quite* 1 but that's fine
-            return torch.squeeze(prior_gaussian_1d({"sample":x},sigma_max)[0]).item()
-        priors.append(prior_likelihood_fn)
+
+        match param("prior_fn","default"):
+            case "ground_truth":
+                means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float)
+                variances = torch.tensor([8.0,5.0,10.0])**2
+                weights = torch.tensor([0.4,0.3,0.3])
+
+                def prior_fn(x:torch.Tensor,t:float):
+                    assert np.allclose(t, 1), t
+                    currvar = variances + int_diffusion_coeff_sq(1.0,sigma_min=sigma_min,sigma_max=sigma_max)
+                    dx = x[:,None,...] - means[None,...]
+                    if variances.ndim == 1:
+                        probs = batched_normpdf_scalar(dx,currvar) #shape:BxN
+                    else:
+                        probs = batched_normpdf_matrix(dx,currvar) #shape:BxN
+                    logprob = torch.log(torch.sum(weights[None,...]*probs,dim=-1)) #shape:N
+                    return logprob.squeeze().item()
+                    
+                priors.append(prior_fn)
+
+                print("using ground truth prior fn")
+    
+            case "default":
+                priors.append(prior_likelihood_fn)
         integrands.append(integrand)
         
 
@@ -190,7 +239,7 @@ def main(config: DictConfig):
     
 
     # load path and associated dataset
-    paths:Iterable[IntegrablePath[torch.Tensor]]
+    paths:Iterable[tuple[str,IntegrablePath[torch.Tensor]]]
     match config.path_type:
         case "flow_ode":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
@@ -205,7 +254,7 @@ def main(config: DictConfig):
                     raise ValueError("Unknown timeschedule method:",schedule)
 
             paths = ( #maybe this should be a dataloader or something idk
-                FlowEquivalentODEPath[torch.Tensor](
+                (initial["id"],FlowEquivalentODEPath[torch.Tensor](
                     model_eval.score,
                     diffusion_coeff_fn,
                     times,
@@ -214,14 +263,12 @@ def main(config: DictConfig):
                     config.odeint_atol,
                     config.odeint_method,
                     to_array,
-                    from_array)
+                    from_array))
                     for initial in tqdm(dataloader)
                 )
         case "sde_trajectories":
             #sde: get paths from diffusion tajectories
-            with open(config.trajectory_index_file, 'r') as f:
-                data_lists = f.read().splitlines()
-            dataloaders = {data_list: load_test_data(data_list, batch_size=1, num_workers=config.num_workers) for data_list in data_lists}
+            trajectories = load_trajectories(config.trajectory_index_file)
 
             
             pathclass = UniformIntegrableSequence[torch.Tensor]
@@ -229,8 +276,12 @@ def main(config: DictConfig):
                 pathclass = functools.partial(InterpolatedUniformIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants)
             
             paths = (
-                pathclass(map(lambda x: from_array(x["sample"]), loader),to_arr=to_array,from_arr=from_array,tmin=0,tmax=1)
-                for name,loader in tqdm(dataloaders.items())
+                (id,pathclass(map(from_array,load_trajectory(path)[:,None]), #make 1dimensional, then turn to x
+                              to_arr=to_array,
+                              from_arr=from_array,
+                              tmin=0,
+                              tmax=1))
+                for id,path in tqdm(trajectories.items())
             )
         case "linear_trajectories":
             import more_itertools
@@ -244,10 +295,8 @@ def main(config: DictConfig):
                     raise ValueError("Unknown timeschedule method:",schedule)
 
             #linear: take sampled paths, and just make a straight line from start to end
-            with open(config.trajectory_index_file, 'r') as f:
-                data_lists = f.read().splitlines()
-            endpoints = (load_endpoints(data_list) for data_list in tqdm(data_lists))
-            
+            trajectories = load_trajectories(config.trajectory_index_file)
+            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in tqdm(trajectories.items()))
             # def get_endpoints(l:Iterable[datapoint])->tuple[tuple[torch.Tensor,float],tuple[torch.Tensor,float]]:
             #     it = iter(l)
             #     start = next(it)
@@ -257,13 +306,13 @@ def main(config: DictConfig):
             # endpoints = (get_endpoints(loader) for loader in dataloaders.values())
 
             paths = (
-                LinearPath((from_array(start),0),(from_array(end),1),times,
+                (id,LinearPath((from_array(start),0),(from_array(end),1),times,
                             config.odeint_rtol,
                             config.odeint_atol,
                             config.odeint_method,
                             to_array,
-                            from_array)
-                for start,end in endpoints
+                            from_array))
+                for (id,(start,end)) in endpoints
             )
         case "linearized_flow":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
@@ -278,7 +327,7 @@ def main(config: DictConfig):
                     raise ValueError("Unknown timeschedule method:",schedule)
 
             paths = ( #maybe this should be a dataloader or something idk
-                LinearizedFlowPath[torch.Tensor](
+                (initial["id"],LinearizedFlowPath[torch.Tensor](
                     model_eval.score,
                     diffusion_coeff_fn,
                     times,
@@ -287,7 +336,7 @@ def main(config: DictConfig):
                     config.odeint_atol,
                     config.odeint_method,
                     to_array,
-                    from_array)
+                    from_array))
                     for initial in tqdm(dataloader)
                 )
         case _:
@@ -310,8 +359,17 @@ def main(config: DictConfig):
         out_dir = Path(config.out_dir)
         file_name = out_dir/"likelihood.csv"
         
-        if out_dir.exists() and not config.get("overwrite_output",False):
-            raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
+        if out_dir.exists():
+            if not config.get("overwrite_output",False):
+                raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
+            else:
+                backup_out = out_dir.with_stem(out_dir.stem + "_backup")
+                warning(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
+                if backup_out.exists():
+                    shutil.rmtree(backup_out)
+                os.rename(out_dir,backup_out)
+            
+
 
         out_dir.mkdir(parents=True,exist_ok=True)
 
@@ -322,15 +380,28 @@ def main(config: DictConfig):
 
 
         with open(file_name, 'w', newline='') as f:
-            fieldnames = flatten_keys({integrand.name():(LikelihoodResult.__required_keys__) for integrand in integrands})
+            fieldnames = ['id'] + flatten_keys({integrand.name():(LikelihoodResult.__required_keys__) for integrand in integrands})
 
             writer = csv.DictWriter(f, fieldnames=fieldnames)
 
             writer.writeheader()
 
             # Write each dictionary in the list as a row
-            for result in likelihoods:
-                writer.writerow(flatten_dict(result))
+            # with torch.autograd.profiler.profile(record_shapes=True,with_stack=True,use_device='cuda',profile_memory=True) as p:
+            for id,result in likelihoods:
+                row = flatten_dict(result)
+                row.update(id=int(id))
+                writer.writerow(row)
+                    # break;
+        # averages = p.key_averages(group_by_stack_n=5)
+        # cpu_table = averages.table(sort_by='cpu_time_total',row_limit=-1,max_src_column_width=500,max_name_column_width=500)
+        # with open("cpu_table.txt","w") as f: f.write(cpu_table)
+        # cuda_table = averages.table(sort_by='cuda_time_total',row_limit=-1,max_src_column_width=500,max_name_column_width=500)
+        # with open("cuda_table.txt","w") as f: f.write(cuda_table)
+        
+        
+
+        # from IPython import embed; embed()
 
 if __name__ == '__main__':
     main()

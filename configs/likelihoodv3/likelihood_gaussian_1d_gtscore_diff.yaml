@@ -1,0 +1,25 @@
+checkpoint: checkpoints/1d_trinormal.ckpt
+out_dir: ../likelihood_results/likelihoodv3/ground_truth/3integrand_diff
+sigma_min: 0.1
+sigma_max: 30
+clamp_diffusion_coefficient: False
+data_samples: ../sample_results/trinormal_1d.csv
+trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index.csv
+
+integrand_types:
+  TotalIntegrand:
+  TimeIntegrand:
+  SpaceIntegrand:
+prior_fn: ground_truth
+path_type: sde_trajectories
+integral_type: 'diff'
+
+tr_type: ground_truth
+diffusion_steps: 1000
+odeint_rtol: 1e-5
+odeint_atol: 1e-5
+odeint_method: rk4
+ode_steps: 100
+num_workers: 4
+
+device: cpu
