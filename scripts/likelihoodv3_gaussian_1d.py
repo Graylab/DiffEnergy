@@ -93,10 +93,14 @@ def load_endpoints(data_path:str):
 
 def load_trajectory(data_path:str)->tuple[torch.Tensor,torch.Tensor]:
     df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
-    steps = torch.as_tensor(df.iloc[:,0].values,dtype=torch.float32) # Extract the first column as timesteps
-    samples = torch.as_tensor(df.iloc[:, 1].values,dtype=torch.float32)  # Extract the second column as samples
+    
+    # we reverse the trajectory so it matches flow, going from 0 to 1. 
+    # have to do this and numpy AND make a copy, cause tensors don't support negative stride -_-
+    steps = torch.as_tensor(df.iloc[:,0].values[::-1].copy(),dtype=torch.float32) # Extract the first column as timesteps
+    samples = torch.as_tensor(df.iloc[:, 1].values[::-1].copy(),dtype=torch.float32)  # Extract the second column as samples
+
     steps = 1 - steps/steps.max() #steps go from 0 to N, so divide by N and subtract from 1 to get time from 1 to 0
-    return samples[::-1], steps[::-1]  #reverse the trajectory so it matches flow, going from 0 to 1
+    return samples, steps  
 
 
 
