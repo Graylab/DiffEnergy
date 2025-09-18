@@ -1,16 +1,15 @@
 #bash sbatch_likelihood_v3_template_srun.sh likelihood_gaussian_1d_
-bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff_small.yaml
 
-# #NN
-# # bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_flow.yaml
-# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_diff.yaml &
-# # bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_linearized_flow.yaml
-# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_linearized_diff.yaml &
-# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_diff_interp.yaml &
+#NN
+# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_flow.yaml
+bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_diff.yaml &
+# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_linearized_flow.yaml
+bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_linearized_diff.yaml &
+bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_3integrand_diff_interp.yaml &
 
-# #GT
-# # bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_flow.yaml
-# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff.yaml &
-# # bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_linearized_flow.yaml
-# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_linearized_diff.yaml &
-# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff_interp.yaml &
+#GT
+# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_flow.yaml
+bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff.yaml &
+# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_linearized_flow.yaml
+bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_linearized_diff.yaml &
+bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff_interp.yaml &
