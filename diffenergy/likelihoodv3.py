@@ -368,8 +368,9 @@ def _run_likelihood(method:Literal['diff','ode'],id:str,path:IntegrablePath[X],i
             raise ValueError(f"Path {path} is not ODEIntegrable! Please use an ODEIntegrable path or set the integral_type to 'diff' to use the path in euclidean mode");
         trajectory, deltas = path.odeintegrate(*integrands)
 
-    integrand_results:dict[str,float|ArrayLike] = {integrand.name(): torch.tolist(-delta) for integrand,delta in zip(integrands,deltas)}
-    prior_results:dict[str,float|ArrayLike] = {name:torch.tolist(prior_fn(*trajectory[-1])) for name,prior_fn in prior_fns}
+    ##Since we assume the path goes from unknown to known, we use the last data point for the prior and negate the delta
+    integrand_results:dict[str,float|ArrayLike] = {integrand.name(): torch.Tensor.tolist(torch.as_tensor(-delta)) for integrand,delta in zip(integrands,deltas)}
+    prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*trajectory[-1]))) for name,prior_fn in prior_fns}
 
 
     return (id,prior_results,integrand_results)
