@@ -100,7 +100,7 @@ def load_trajectory(data_path:str)->tuple[torch.Tensor,torch.Tensor]:
     samples = torch.as_tensor(df.iloc[:, 1].values[::-1].copy(),dtype=torch.float32)  # Extract the second column as samples
 
     steps = 1 - steps/steps.max() #steps go from 0 to N, so divide by N and subtract from 1 to get time from 1 to 0
-    return samples, steps  
+    return samples[:,None], steps  #add dimension to samples so iteration of 1d vectors
 
 
 
@@ -294,7 +294,7 @@ def main(config: DictConfig):
 
             def get_trajectory(path):
                 samples,times = load_trajectory(path)
-                return zip(map(from_array,samples[:,None]),times) #add dimention to samples so it's tensor of vectors
+                return zip(map(from_array,samples),times)
             
             paths = (
                 (id,pathclass(list(get_trajectory(path)),
