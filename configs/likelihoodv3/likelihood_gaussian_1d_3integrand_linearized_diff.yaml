@@ -4,7 +4,7 @@ sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
 data_samples: ../sample_results/trinormal_1d.csv
-trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index.txt
+trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index.csv
 
 integrand_types:
   TotalIntegrand:
