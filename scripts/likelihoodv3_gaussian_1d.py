@@ -294,10 +294,10 @@ def main(config: DictConfig):
 
             def get_trajectory(path):
                 samples,times = load_trajectory(path)
-                return zip(map(to_array,samples[:,None]),times) #add dimention to samples so it's tensor of vectors
+                return zip(map(from_array,samples[:,None]),times) #add dimention to samples so it's tensor of vectors
             
             paths = (
-                (id,pathclass(get_trajectory(path),
+                (id,pathclass(list(get_trajectory(path)),
                               to_arr=to_array,
                               from_arr=from_array,))
                 for id,path in tqdm(trajectories.items())
