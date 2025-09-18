@@ -10,7 +10,9 @@ integrand_types:
   TotalIntegrand:
   TimeIntegrand:
   SpaceIntegrand:
-prior_fn: ground_truth
+prior_fns:
+  smax_gaussian
+  convolved_data
 path_type: sde_trajectories
 integral_type: 'diff'
 
