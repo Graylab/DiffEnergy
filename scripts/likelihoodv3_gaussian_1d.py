@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, TypedDic
 import numpy as np
 from tqdm import tqdm
 from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LikelihoodResult, LinearPath, LinearizedFlowPath, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
+from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
 from diffenergy.perturbation import FlowPerturbationIntegral
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
@@ -177,8 +177,9 @@ def main(config: DictConfig):
 
     # load integrands
     integrands:list[LikelihoodIntegrand] = []
-    priors:list[Callable[[torch.Tensor,float],float]] = []
     types:DictConfig = config.integrand_types
+    if isinstance(types,str):
+        types = types.split(" ")
     if not isinstance(types,Mapping):
         types = DictConfig({t:{} for t in types}) #ensure types is a DictConfig of Dicts
 
@@ -186,7 +187,7 @@ def main(config: DictConfig):
         assert np.allclose(t, 1), t #diffeq errors might mean it's not *quite* 1 but that's fine
         return torch.squeeze(prior_gaussian_1d({"sample":x},sigma_max)[0]).item()
 
-    for integrand_type,params in config.integrand_types.items():
+    for integrand_type,params in types.items():
         def param(p:str,*args):
             if params is not None:
                 if params.get(p,None) is not None:
@@ -202,14 +203,23 @@ def main(config: DictConfig):
                 integrand = SpaceIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array)
             case _:
                 raise ValueError("Unknown integrand type:",integrand_type)
+        integrands.append(integrand)
 
-        match param("prior_fn","default"):
-            case "ground_truth":
+    priors:list[tuple[str,Callable[[torch.Tensor,float],float]]] = []
+    functions:DictConfig = config.get("prior_fns","smax_gaussian")
+    if isinstance(functions,str):
+        functions = functions.split(" ")
+    if not isinstance(functions,Mapping):
+        functions = DictConfig({f:{} for f in functions}) #ensure types is a DictConfig of Dicts
+    
+    for prior_fn,params in functions.items():
+        match prior_fn:
+            case "convolved_data":
                 means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float)
                 variances = torch.tensor([8.0,5.0,10.0])**2
                 weights = torch.tensor([0.4,0.3,0.3])
 
-                def prior_fn(x:torch.Tensor,t:float):
+                def gt_prior_fn(x:torch.Tensor,t:float):
                     assert np.allclose(t, 1), t
                     currvar = variances + int_diffusion_coeff_sq(1.0,sigma_min=sigma_min,sigma_max=sigma_max)
                     dx = x[:,None,...] - means[None,...]
@@ -220,13 +230,12 @@ def main(config: DictConfig):
                     logprob = torch.log(torch.sum(weights[None,...]*probs,dim=-1)) #shape:N
                     return logprob.squeeze().item()
                     
-                priors.append(prior_fn)
+                priors.append((prior_fn,gt_prior_fn))
 
                 print("using ground truth prior fn")
     
-            case "default":
-                priors.append(prior_likelihood_fn)
-        integrands.append(integrand)
+            case "smax_gaussian":
+                priors.append((prior_fn,prior_likelihood_fn))
         
 
     if len(integrands) == 0:
@@ -284,7 +293,6 @@ def main(config: DictConfig):
                 for id,path in tqdm(trajectories.items())
             )
         case "linear_trajectories":
-            import more_itertools
 
             #ode integration: needs a timeschedule
             schedule = config.get("ode_timeschedule","uniform")
@@ -357,7 +365,7 @@ def main(config: DictConfig):
     # Write the data_list to a CSV file
     if likelihoods:
         out_dir = Path(config.out_dir)
-        file_name = out_dir/"likelihood.csv"
+        likelihoods_name = out_dir/"likelihood.csv"
         
         if out_dir.exists():
             if not config.get("overwrite_output",False):
@@ -379,8 +387,8 @@ def main(config: DictConfig):
             f.write(OmegaConf.to_yaml(config))
 
 
-        with open(file_name, 'w', newline='') as f:
-            fieldnames = ['id'] + flatten_keys({integrand.name():(LikelihoodResult.__required_keys__) for integrand in integrands})
+        with open(likelihoods_name, 'w', newline='') as f:
+            fieldnames = ['id'] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
 
             writer = csv.DictWriter(f, fieldnames=fieldnames)
 
@@ -388,20 +396,11 @@ def main(config: DictConfig):
 
             # Write each dictionary in the list as a row
             # with torch.autograd.profiler.profile(record_shapes=True,with_stack=True,use_device='cuda',profile_memory=True) as p:
-            for id,result in likelihoods:
-                row = flatten_dict(result)
-                row.update(id=int(id))
+            for id,prior_results,ingtegrand_results in likelihoods:
+                row = {"id":int(id),
+                       **{f"prior:{name}":val for name,val in prior_results.items()},
+                       **{f"integrand:{name}":val for name,val in ingtegrand_results.items()}}
                 writer.writerow(row)
-                    # break;
-        # averages = p.key_averages(group_by_stack_n=5)
-        # cpu_table = averages.table(sort_by='cpu_time_total',row_limit=-1,max_src_column_width=500,max_name_column_width=500)
-        # with open("cpu_table.txt","w") as f: f.write(cpu_table)
-        # cuda_table = averages.table(sort_by='cuda_time_total',row_limit=-1,max_src_column_width=500,max_name_column_width=500)
-        # with open("cuda_table.txt","w") as f: f.write(cuda_table)
-        
-        
-
-        # from IPython import embed; embed()
 
 if __name__ == '__main__':
     main()

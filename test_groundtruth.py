@@ -132,7 +132,7 @@ if __name__ == "__main__":
             div_errors[:,i] = (div - gt_div)
         fig,ax = plt.subplots(subplot_kw={"projection":"3d"})
         tm,xm = np.meshgrid(times,x)
-        ax.plot_surface(xm,tm,errors,label="score_error")
+        ax.plot_surface(xm,tm,score_errors,label="score_error")
         ax.set_xlabel("X")
         ax.set_ylabel("t")
         ax.set_title("score")
@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
         fig,ax = plt.subplots(subplot_kw={"projection":"3d"})
         tm,xm = np.meshgrid(times,x)
-        ax.plot_surface(xm,tm,errors,label="div_error")
+        ax.plot_surface(xm,tm,div_errors,label="div_error")
         ax.set_xlabel("X")
         ax.set_ylabel("t")
         ax.set_title("divergence")
