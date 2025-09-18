@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, TypedDic
 import numpy as np
 from tqdm import tqdm
 from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
+from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
 from diffenergy.perturbation import FlowPerturbationIntegral
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
@@ -87,16 +87,18 @@ def load_trajectories(trajectory_index_file:str|Path)->dict[str,str]:
     
 
 def load_endpoints(data_path:str):
-    df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
-    samples = df.iloc[:, 1].values  # Extract the second column as samples
-    return torch.tensor([samples[0]],dtype=torch.float32),torch.tensor([samples[-1]],dtype=torch.float32)
+    samples,steps = load_trajectory(data_path)
+    assert steps[0] == 0 and steps[-1] == 1
+    return samples[0], samples[1]
 
-def load_trajectory(data_path:str):
+def load_trajectory(data_path:str)->tuple[torch.Tensor,torch.Tensor]:
     df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
-    samples = df.iloc[:, 1].values  # Extract the second column as samples
-    return torch.tensor(samples,dtype=torch.float32)
-    
-    
+    steps = torch.as_tensor(df.iloc[:,0].values,dtype=torch.float32) # Extract the first column as timesteps
+    samples = torch.as_tensor(df.iloc[:, 1].values,dtype=torch.float32)  # Extract the second column as samples
+    steps = 1 - steps/steps.max() #steps go from 0 to N, so divide by N and subtract from 1 to get time from 1 to 0
+    return samples[::-1], steps[::-1]  #reverse the trajectory so it matches flow, going from 0 to 1
+
+
 
 T = TypeVar("T")
 def flatten_dict(d:Mapping[str,Mapping[str,T]],formatstr="{}_{}"):
@@ -282,16 +284,18 @@ def main(config: DictConfig):
             trajectories = load_trajectories(config.trajectory_index_file)
 
             
-            pathclass = UniformIntegrableSequence[torch.Tensor]
+            pathclass = IntegrableSequence[torch.Tensor]
             if config.get("interpolate_trajectories",False):
-                pathclass = functools.partial(InterpolatedUniformIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants)
+                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants)
+
+            def get_trajectory(path):
+                samples,times = load_trajectory(path)
+                return zip(map(to_array,samples[:,None]),times) #add dimention to samples so it's tensor of vectors
             
             paths = (
-                (id,pathclass(map(from_array,load_trajectory(path)[:,None]), #make 1dimensional, then turn to x
+                (id,pathclass(get_trajectory(path),
                               to_arr=to_array,
-                              from_arr=from_array,
-                              tmin=0,
-                              tmax=1))
+                              from_arr=from_array,))
                 for id,path in tqdm(trajectories.items())
             )
         case "linear_trajectories":
