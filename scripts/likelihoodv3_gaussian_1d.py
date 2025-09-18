@@ -81,7 +81,9 @@ def load_trajectories(trajectory_index_file:str|Path)->dict[str,str]:
     trajectory_index_file = Path(trajectory_index_file)
     assert trajectory_index_file.suffix == '.csv'
     df = pd.read_csv(trajectory_index_file)
-    return df.set_index('index').T.to_dict(orient='records')[0] #make ids columnames, then convert to a dict of [{colname:value,colname:value}] and get the first result
+    d = df.set_index('index').T.to_dict(orient='records')[0] #make ids columnames, then convert to a dict of [{colname:value,colname:value}] and get the first result
+    d = {id:trajectory_index_file.parent/p for id,p in d.items()}
+    return d
     
 
 def load_endpoints(data_path:str):
