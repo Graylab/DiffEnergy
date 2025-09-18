@@ -180,3 +180,9 @@ outputs/
 
 .vscode/
 plots/**/*.png
+cpu_table.txt
+cuda_table.txt
+dum.ipynb
+table.txt
+trace
+trace.json
