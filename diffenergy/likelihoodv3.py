@@ -108,6 +108,22 @@ class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X]): #where pat
     def __len__(self) -> int:
         return len(self.path)
     
+class InterpolatedIntegrableSequence(IntegrableSequence[X]):
+    def __init__(self, path:Sequence[tuple[X,float]], n_interp: int, to_arr: Callable[[X],Array], from_arr: Callable[[ArrayLike],X], tmin: float = 0, tmax: float = 1):
+        """n_interp of i means i-1 extra points in between each original points. n_interp of 1 is the original sequence"""
+        self.n_interp = n_interp
+        self.orig_sequence = path = list(path)
+        it = ((torch.as_tensor(to_arr(x)),t) for x,t in path)
+        x1,t1 = next(it)
+        accpath = [(from_arr(x1),t1)]
+        for x2,t2 in it:
+            interps = torch.linspace(0,1,n_interp+1,device=x1.device,dtype=x1.dtype)[1:]
+            interp_times = (1-interps)*t1 + interps*t2
+            interp_points = (1-interps[:,None])*x1[None,...] + interps[:,None]*x2[None,...] #stupid-ass manual linspace because worthless torch.linspace doesn't support vectors aaaaaa
+            accpath.extend(zip(map(from_arr,interp_points),interp_times))
+        super().__init__(accpath,to_arr,from_arr)
+
+    
 class ODEIntegrablePath(IntegrablePath[X],ABC):
     def __init__(self,timeschedule:Sequence[float],initial:tuple[X,float],rtol:float,atol:float,method:str,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]):
         self.timeschedule = timeschedule
@@ -283,22 +299,11 @@ class UniformIntegrableSequence(IntegrableSequence[X]):
         t = np.linspace(tmin,tmax,len(points),endpoint=True)
         super().__init__(list(zip(points,t)),to_arr,from_arr)
 
-class InterpolatedUniformIntegrableSequence(UniformIntegrableSequence[X]):    
-    def __init__(self, points: Iterable[X], n_interp: int, to_arr: Callable[[X],Array], from_arr: Callable[[ArrayLike],X], tmin: float = 0, tmax: float = 1):
-        """n_interp of i means i-1 extra points in between each original points. n_interp of 1 is the original sequence"""
-        self.n_interp = n_interp
-        self.orig_sequence = points = list(points)
-        it = map(torch.as_tensor,map(to_arr,points))
-        x1 = next(it)
-        accpath = [x1]
-        for x2 in it:
-            interps = torch.linspace(0,1,n_interp+1,device=x1.device,dtype=x1.dtype)[1:]
-            interp_points = (1-interps[:,None])*x1[None,...] + interps[:,None]*x2[None,...] #stupid-ass manual linspace because worthless torch.linspace doesn't support vectors aaaaaa
-            accpath.extend(interp_points)
-        interp = torch.stack(accpath,dim=0)
-        assert interp.shape[0] == (len(points)-1)*(n_interp)+1, interp.shape[0]
-        super().__init__(map(from_arr,interp),to_arr,from_arr)
-
+class InterpolatedUniformIntegrableSequence(InterpolatedIntegrableSequence[X]):
+    def __init__(self,points:Iterable[X], n_interp: int,  to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],tmin:float=0, tmax:float=1):
+        points = list(points)
+        t = np.linspace(tmin,tmax,len(points),endpoint=True)
+        super().__init__(list(zip(points,t)),n_interp,to_arr,from_arr)
 
 
 class UniformODEIntegrablePath(ODEIntegrablePath[X]):
