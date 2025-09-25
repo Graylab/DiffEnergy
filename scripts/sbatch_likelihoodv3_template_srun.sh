@@ -1,2 +1,2 @@
 #!/bin/bash
-srun --job-name=diffenergy_$1 --partition=a100 --account=jgray21_gpu --time=06:00:00 -o logs/$1-log.txt bash -c "module load anaconda; conda activate diffenergy; python scripts/likelihoodv3_gaussian_1d.py --config-name=$1"
+srun --job-name=diffenergy_$1 --partition=shared --account=jgray21 --time=04:00:00 -o logs/$1-log.txt bash -c "module load anaconda; conda activate diffenergy; python scripts/likelihoodv3_gaussian_1d.py --config-name=$1"
