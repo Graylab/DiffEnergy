@@ -189,7 +189,7 @@ def main(config: DictConfig):
 
     
 
-    # load integrands
+    ### LOAD INTEGRANDS
     integrands:list[LikelihoodIntegrand] = []
     types:DictConfig = config.integrand_types
     if isinstance(types,str):
@@ -219,6 +219,16 @@ def main(config: DictConfig):
                 raise ValueError("Unknown integrand type:",integrand_type)
         integrands.append(integrand)
 
+    
+    if len(integrands) == 0:
+        raise ValueError("""Must specify at least one integrand type!\n
+                         `integrand_types` can either be a list of strings (classnames) or a list of mappings from classnames to
+                         integrand-specific parameters. If an integrand parameter is not provided in the integrand-specific section,
+                         it will look for that parameter in the global scope instead (hence defaults/shared parameters can be provided globally).
+                         To specify an empty mapping, simply include the `ClassName:` line without any subitems below it.""")
+
+
+    ### LOAD PRIORS
     priors:list[tuple[str,Callable[[torch.Tensor,float],float]]] = []
     functions:DictConfig = config.get("prior_fns","smax_gaussian")
     if isinstance(functions,str):
@@ -233,9 +243,20 @@ def main(config: DictConfig):
                 variances = torch.tensor([8.0,5.0,10.0])**2
                 weights = torch.tensor([0.4,0.3,0.3])
 
+                gt_time = params.get("time",1)
+                if gt_time == "Any":
+                    gt_time = None
+                else:
+                    try:
+                        gt_time = float(gt_time)
+                    except:
+                        pass
+                    if not isinstance(gt_time,float) or not (0 <= gt_time and gt_time <= 1):
+                        raise ValueError(f"'time' parameter to the convolved_data prior can only be a float in [0,1] or \"Any\", received {gt_time}")
+
                 def gt_prior_fn(x:torch.Tensor,t:float):
-                    assert np.allclose(t, 1), t
-                    currvar = variances + int_diffusion_coeff_sq(1.0,sigma_min=sigma_min,sigma_max=sigma_max)
+                    if gt_time is not None: assert np.allclose(t, gt_time), t
+                    currvar = variances + int_diffusion_coeff_sq(t,sigma_min=sigma_min,sigma_max=sigma_max)
                     dx = x[:,None,...] - means[None,...]
                     if variances.ndim == 1:
                         probs = batched_normpdf_scalar(dx,currvar) #shape:BxN
@@ -247,19 +268,19 @@ def main(config: DictConfig):
                 priors.append((prior_fn,gt_prior_fn))
 
                 print("using ground truth prior fn")
+
     
             case "smax_gaussian":
                 priors.append((prior_fn,prior_likelihood_fn))
-        
 
-    if len(integrands) == 0:
-        raise ValueError("""Must specify at least one integrand type!\n
-                         `integrand_types` can either be a list of strings (classnames) or a list of mappings from classnames to
-                         integrand-specific parameters. If an integrand parameter is not provided in the integrand-specific section,
-                         it will look for that parameter in the global scope instead (hence defaults/shared parameters can be provided globally).
-                         To specify an empty mapping, simply include the `ClassName:` line without any subitems below it.""")
-    
-    
+    ### LOAD PATHS
+    #ode integration: needs a timeschedule. Unused if diffusion / other trajectory used
+    match config.get("ode_timeschedule","uniform"):
+        case "uniform":
+            ode_times = torch.linspace(0,1,config.ode_steps+1,device=device)
+        case default:
+            raise ValueError("Unknown timeschedule method:",default)
+
 
     # load path and associated dataset
     paths:Iterable[tuple[str,IntegrablePath[torch.Tensor]]]
@@ -268,19 +289,11 @@ def main(config: DictConfig):
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
             dataloader = load_test_data(config.data_samples, batch_size=1, num_workers=config.num_workers)
 
-            #ode integration: needs a timeschedule
-            schedule = config.get("ode_timeschedule","uniform")
-            match schedule:
-                case "uniform":
-                    times = torch.linspace(0,1,config.ode_steps+1,device=device)
-                case _:
-                    raise ValueError("Unknown timeschedule method:",schedule)
-
             paths = ( #maybe this should be a dataloader or something idk
                 (initial["id"],FlowEquivalentODEPath[torch.Tensor](
                     model_eval.score,
                     diffusion_coeff_fn,
-                    times,
+                    ode_times,
                     (from_array(initial["sample"]),0),
                     config.odeint_rtol,
                     config.odeint_atol,
@@ -292,7 +305,6 @@ def main(config: DictConfig):
         case "sde_trajectories":
             #sde: get paths from diffusion tajectories
             trajectories = load_trajectories(config.trajectory_index_file)
-
             
             pathclass = IntegrableSequence[torch.Tensor]
             if config.get("interpolate_trajectories",False):
@@ -309,28 +321,14 @@ def main(config: DictConfig):
                 for id,path in tqdm(trajectories.items())
             )
         case "linear_trajectories":
-
-            #ode integration: needs a timeschedule
-            schedule = config.get("ode_timeschedule","uniform")
-            match schedule:
-                case "uniform":
-                    times = torch.linspace(0,1,config.ode_steps+1,device=device)
-                case _:
-                    raise ValueError("Unknown timeschedule method:",schedule)
-
             #linear: take sampled paths, and just make a straight line from start to end
             trajectories = load_trajectories(config.trajectory_index_file)
-            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in tqdm(trajectories.items()))
-            # def get_endpoints(l:Iterable[datapoint])->tuple[tuple[torch.Tensor,float],tuple[torch.Tensor,float]]:
-            #     it = iter(l)
-            #     start = next(it)
-            #     end = more_itertools.last(it,start)
-            #     return ((start["sample"],0),(end["sample"],1))
-
-            # endpoints = (get_endpoints(loader) for loader in dataloaders.values())
+            
+            #we love inline generators
+            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in tqdm(trajectories.items())) 
 
             paths = (
-                (id,LinearPath((from_array(start),0),(from_array(end),1),times,
+                (id,LinearPath((from_array(start),0),(from_array(end),1),ode_times,
                             config.odeint_rtol,
                             config.odeint_atol,
                             config.odeint_method,
@@ -342,19 +340,11 @@ def main(config: DictConfig):
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
             dataloader = load_test_data(config.data_samples, batch_size=1, num_workers=config.num_workers)
 
-            #ode integration: needs a timeschedule
-            schedule = config.get("ode_timeschedule","uniform")
-            match schedule:
-                case "uniform":
-                    times = torch.linspace(0,1,config.ode_steps+1,device=device)
-                case _:
-                    raise ValueError("Unknown timeschedule method:",schedule)
-
             paths = ( #maybe this should be a dataloader or something idk
                 (initial["id"],LinearizedFlowPath[torch.Tensor](
                     model_eval.score,
                     diffusion_coeff_fn,
-                    times,
+                    ode_times,
                     (from_array(initial["sample"]),0),
                     config.odeint_rtol,
                     config.odeint_atol,
@@ -363,10 +353,31 @@ def main(config: DictConfig):
                     from_array))
                     for initial in tqdm(dataloader)
                 )
+        case "data_translation":
+            # Translation in data space: like linear_trajectories, but always at time=0. 
+            # Requires a prior function compatible with t0 sampling
+
+            # take sampled paths, and just make a straight line from start to end
+            trajectories = load_trajectories(config.trajectory_index_file)
+            
+            #we love inline generators
+            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in tqdm(trajectories.items())) 
+
+            paths = (
+                (id,LinearPath((from_array(start),0),(from_array(end),0),ode_times, #start and end both 0!
+                            config.odeint_rtol,
+                            config.odeint_atol,
+                            config.odeint_method,
+                            to_array,
+                            from_array))
+                for (id,(start,end)) in endpoints
+            )
+
         case _:
             raise ValueError("Unknown path type:",config.path_type)
 
-    #run integral
+
+    ### RUN LIKELIHOOD COMPUTATION
     int_type = config.get("integral_type")
     if int_type == "ode":
         #assume paths are ode integrable. error will be thrown otherwise
@@ -378,45 +389,46 @@ def main(config: DictConfig):
         raise ValueError(f"Unknown integral type: {int_type}. For standard (non-ode solver) numerical integration, use integral_type: \"diff\" (the default).")
 
 
-    # Write the data_list to a CSV file
-    if likelihoods:
-        out_dir = Path(config.out_dir)
-        likelihoods_name = out_dir/"likelihood.csv"
+    ### WRITE OUTPUT
+    out_dir = Path(config.out_dir)
+    likelihoods_name = out_dir/"likelihood.csv"
+    
+    if out_dir.exists():
+        if not config.get("overwrite_output",False):
+            raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
+        else:
+            backup_out = out_dir.with_stem(out_dir.stem + "_backup")
+            warning(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
+            if backup_out.exists():
+                shutil.rmtree(backup_out)
+            os.rename(out_dir,backup_out)
         
-        if out_dir.exists():
-            if not config.get("overwrite_output",False):
-                raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
-            else:
-                backup_out = out_dir.with_stem(out_dir.stem + "_backup")
-                warning(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
-                if backup_out.exists():
-                    shutil.rmtree(backup_out)
-                os.rename(out_dir,backup_out)
-            
 
 
-        out_dir.mkdir(parents=True,exist_ok=True)
+    out_dir.mkdir(parents=True,exist_ok=True)
 
 
-        config_copy = out_dir/"config.yaml"
-        with open(config_copy,"w") as f:
-            f.write(OmegaConf.to_yaml(config))
+    config_copy = out_dir/"config.yaml"
+    with open(config_copy,"w") as f:
+        f.write(OmegaConf.to_yaml(config))
 
 
-        with open(likelihoods_name, 'w', newline='') as f:
-            fieldnames = ['id'] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
+    with open(likelihoods_name, 'w', newline='') as f:
+        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
 
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
 
-            writer.writeheader()
+        writer.writeheader()
 
-            # Write each dictionary in the list as a row
-            # with torch.autograd.profiler.profile(record_shapes=True,with_stack=True,use_device='cuda',profile_memory=True) as p:
-            for id,prior_results,ingtegrand_results in likelihoods:
-                row = {"id":int(id),
-                       **{f"prior:{name}":val for name,val in prior_results.items()},
-                       **{f"integrand:{name}":val for name,val in ingtegrand_results.items()}}
-                writer.writerow(row)
+        # Write each dictionary in the list as a row
+        # with torch.autograd.profiler.profile(record_shapes=True,with_stack=True,use_device='cuda',profile_memory=True) as p:
+        for id,prior_pt,prior_results,ingtegrand_results in likelihoods:
+            row = {"id":int(id),
+                   "prior_position":prior_pt[0].item(),  #since here we're in 1d, let's make it a scalar w/ item()
+                    "prior_time":torch.as_tensor(prior_pt[1]).item(), 
+                    **{f"prior:{name}":val for name,val in prior_results.items()},
+                    **{f"integrand:{name}":val for name,val in ingtegrand_results.items()}}
+            writer.writerow(row)
 
 if __name__ == '__main__':
     main()
