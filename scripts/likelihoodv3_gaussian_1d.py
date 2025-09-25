@@ -93,14 +93,20 @@ def load_endpoints(data_path:str):
 
 def load_trajectory(data_path:str)->tuple[torch.Tensor,torch.Tensor]:
     df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
-    
-    # we reverse the trajectory so it matches flow, going from 0 to 1. 
-    # have to do this and numpy AND make a copy, cause tensors don't support negative stride -_-
-    steps = torch.as_tensor(df.iloc[:,0].values[::-1].copy(),dtype=torch.float32) # Extract the first column as timesteps
-    samples = torch.as_tensor(df.iloc[:, 1].values[::-1].copy(),dtype=torch.float32)  # Extract the second column as samples
 
-    steps = 1 - steps/steps.max() #steps go from 0 to N, so divide by N and subtract from 1 to get time from 1 to 0
-    return samples[:,None], steps  #add dimension to samples so iteration of 1d vectors
+    # we reverse the trajectory so it matches flow, with time going from 0 to 1. 
+    # have to do this and numpy AND make a copy, cause tensors don't support negative stride -_-
+    df = df.iloc[::-1].copy()
+
+    if "Timestep" in df.columns:
+        times = torch.as_tensor(df.loc[:, "Timestep"].values,dtype=torch.float32) #Extract Timestep column as times.
+    else:
+        steps = torch.as_tensor(df.loc[:,"Index"].values,dtype=torch.float32) # Extract the Index column, convert to timesteps
+        times = 1 - steps/steps.max() #steps go from 0 to N, so divide by N and subtract from 1 to get time from 1 to 0
+    
+    samples = torch.as_tensor(df.loc[:, "Sample"].values,dtype=torch.float32)  # Extract the Sample column
+    
+    return samples[:,None], times  #add dimension to samples so iteration of 1d vectors
 
 
 
