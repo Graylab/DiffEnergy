@@ -353,8 +353,30 @@ def main(config: DictConfig):
                     from_array))
                     for initial in tqdm(dataloader)
                 )
+        case "diff_data_translation":
+            # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
+            # Requires a prior function compatible with t0 sampling
+            
+            #sde: get paths from diffusion tajectories
+            trajectories = load_trajectories(config.trajectory_index_file)
+            
+            pathclass = IntegrableSequence[torch.Tensor]
+            if config.get("interpolate_trajectories",False):
+                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants)
+
+            def get_trajectory(path):
+                samples,times = load_trajectory(path)
+                return zip(map(from_array,samples),times)
+            
+            paths = (
+                (id,pathclass([(x,0) for x,t in (get_trajectory(path))],
+                              to_arr=to_array,
+                              from_arr=from_array,))
+                for id,path in tqdm(trajectories.items())
+            )
+
         case "data_translation":
-            # Translation in data space: like linear_trajectories, but always at time=0. 
+            # Linear translation in data space: like linear_trajectories, but always at time=0. 
             # Requires a prior function compatible with t0 sampling
 
             # take sampled paths, and just make a straight line from start to end
