@@ -53,8 +53,7 @@ class ODELikelihoodIntegrand(LikelihoodIntegrand[X]):
         return xt,*map(functools.partial(self.tensor,device=xt.device),n)
 
     def diffintegrand(self, x: X, t: float, deltax: X, deltat: float) -> float | Array:
-        I = self.odeintegrand(x, t, deltax, deltat)
-        return I*deltat
+        return self.odeintegrand(x, t, deltax, deltat)
 
 #### Integration Paths and Numerical Integration ####
 
@@ -218,19 +217,19 @@ class TotalIntegrand(ScoreDivDiffIntegrand[X]):
         """[dlogp(x(i),t(i))/di] = grad_x(logp) dot dx/di + dlogp/dt*dt/di. Function of x, t, dx/dy, and dt/di.
         """
 
-        gradxlogp = self.scorefn(x,t)
+        gradxlogp = self.tensor(self.scorefn(x,t))
         divergence = self.divfn(x,t)
         g = self.diffcoefffn(t)
         g2 = g**2
         
         ##dx term: grad_x(logp) dot dx/di
-        dxterm = torch.dot(self.tensor(gradxlogp),self.to_tensor(dx))
+        dxterm = torch.dot(gradxlogp,self.to_tensor(dx))
 
         ##divergence term: 1/2g(t)^2*divergence
-        divterm = 1/2*g2*divergence
+        divterm = 1/2*g2*divergence*dt
 
         ##gradient norm term: 1/2g(t)^2*||grad_x(logp)||^2
-        gradnormterm = 1/2*g2*torch.dot(self.tensor(gradxlogp),self.tensor(gradxlogp))
+        gradnormterm = 1/2*g2*torch.dot(gradxlogp,gradxlogp)*dt
 
         return dxterm + divterm + gradnormterm #not a float, teehee. scalar tensor though!
 
@@ -245,19 +244,19 @@ class TimeIntegrand(ScoreDivDiffIntegrand[X]):
         """[dlogp(x(i),t(i))/di] = -grad_x(f(x(t),t))dt/di [=0 since f is 0] + 1/2 g(t)^2laplacian(logp(x(t),t))dt/di. Function of x, t, dx/dy, and dt/di.
         """
 
-        # gradxlogp = self.scorefn(x,t)
+        # gradxlogp = self.tensor(self.scorefn(x,t))
         divergence = self.divfn(x,t)
         g = self.diffcoefffn(t)
         g2 = g**2
         
-        # ##dx term: grad_x(logp) dot dx/di
-        # dxterm = torch.dot(self.tensor(gradxlogp),self.to_tensor(dx))
+        ##dx term: grad_x(logp) dot dx/di
+        # dxterm = torch.dot(gradxlogp,self.to_tensor(dx))
 
         ##divergence term: 1/2g(t)^2*divergence
-        divterm = 1/2*g2*divergence
+        divterm = 1/2*g2*divergence*dt
 
-        # ##gradient norm term: 1/2g(t)^2*||grad_x(logp)||^2
-        # gradnormterm = 1/2*g2*torch.dot(self.tensor(gradxlogp),self.tensor(gradxlogp))
+        ##gradient norm term: 1/2g(t)^2*||grad_x(logp)||^2
+        # gradnormterm = 1/2*g2*torch.dot(gradxlogp,gradxlogp)*dt
 
         return divterm #not a float, teehee. scalar tensor though!
 
@@ -273,19 +272,19 @@ class SpaceIntegrand(ScoreDivDiffIntegrand[X]):
         """[dlogp(x(i),t(i))/di] = grad_x(logp) dot dx/di + dlogp/dt*dt/di [=0 by assumption]. Function of x, t, dx/dy, and dt/di.
         """
 
-        gradxlogp = self.scorefn(x,t)
+        gradxlogp = self.tensor(self.scorefn(x,t))
         # divergence = self.divfn(x,t)
         # g = self.diffcoefffn(t)
         # g2 = g**2
         
         ##dx term: grad_x(logp) dot dx/di
-        dxterm = torch.dot(self.tensor(gradxlogp),self.to_tensor(dx))
+        dxterm = torch.dot(gradxlogp,self.to_tensor(dx))
 
         ##divergence term: 1/2g(t)^2*divergence
-        # divterm = 1/2*g2*divergence
+        # divterm = 1/2*g2*divergence*dt
 
-        # ##gradient norm term: 1/2g(t)^2*||grad_x(logp)||^2
-        # gradnormterm = 1/2*g2*torch.dot(self.tensor(gradxlogp),self.tensor(gradxlogp))
+        ##gradient norm term: 1/2g(t)^2*||grad_x(logp)||^2
+        # gradnormterm = 1/2*g2*torch.dot(gradxlogp,gradxlogp)*dt
 
         return dxterm #not a float, teehee. scalar tensor though!        
         
@@ -375,10 +374,11 @@ def _run_likelihood(method:Literal['diff','ode'],id:str,path:IntegrablePath[X],i
 
     ##Since we assume the path goes from unknown to known, we use the last data point for the prior and negate the delta
     integrand_results:dict[str,float|ArrayLike] = {integrand.name(): torch.Tensor.tolist(torch.as_tensor(-delta)) for integrand,delta in zip(integrands,deltas)}
-    prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*trajectory[-1]))) for name,prior_fn in prior_fns}
+    prior_endpoint:tuple[X,float] = trajectory[-1]
+    prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in prior_fns}
 
 
-    return (id,prior_results,integrand_results)
+    return (id,prior_endpoint,prior_results,integrand_results)
 
 def run_diff_likelihood(id:str,path:IntegrablePath[X],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[tuple[str,Callable[[X,float],float|Array]]]):
     return _run_likelihood('diff',id,path,integrands,prior_fns)
