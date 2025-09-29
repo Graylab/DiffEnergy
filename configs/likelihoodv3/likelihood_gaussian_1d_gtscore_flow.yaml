@@ -23,4 +23,9 @@ odeint_method: rk4
 ode_steps: 100
 num_workers: 4
 
+save_trajectories: True
+
 device: cpu
+
+batched: True
+batch_size: 64

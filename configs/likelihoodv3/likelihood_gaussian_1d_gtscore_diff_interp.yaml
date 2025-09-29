@@ -28,3 +28,8 @@ interpolate_trajectories: True
 num_interpolants: 10
 
 device: cpu
+
+save_trajectories: True
+
+batched: True
+batch_size: 64
