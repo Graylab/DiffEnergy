@@ -1,8 +1,6 @@
 
 
-# code from https://gist.github.com/delta2323/6bb572d9473f3b523e6e
-# generate a random ["Brownian Bridge"](https://en.wikipedia.org/wiki/Brownian_bridge); e.g., a random walk
-# with both t=0 and t=N pinned at 0
+
 import numpy as np
 import six
 import torch
@@ -10,6 +8,10 @@ from torchdiffeq import odeint
 from tqdm import tqdm
 
 
+
+# code from https://gist.github.com/delta2323/6bb572d9473f3b523e6e
+# generate a random ["Brownian Bridge"](https://en.wikipedia.org/wiki/Brownian_bridge); e.g., a random walk
+# with both t=0 and t=N pinned at 0
 def brownian_bridge(N:int, in_shape:tuple[int,...]|int,sigma=1):
     if not isinstance(in_shape,tuple):
         in_shape = (in_shape,)

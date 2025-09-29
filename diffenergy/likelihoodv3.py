@@ -350,13 +350,35 @@ class LinearizedFlowPath(LinearPath[X]):
         self.path = list(self.flowpath)
         end = self.path[-1]
         super().__init__(initial,end,interpolants or timeschedule,rtol,atol,method,to_arr,from_arr);
-    
 
+def brownian_bridge(timepoints:Sequence[float], in_shape:tuple[int,...]|int,sigma=1):
+    if not isinstance(in_shape,tuple):
+        in_shape = (in_shape,)
+    t0, t1 = timepoints[0],timepoints[-1]
+    times = (np.subtract(timepoints,t0))/(t1-t0) #make times start at 0 and end at 12
+    Dt = np.diff(times)
+    Dt_sqrt = np.sqrt(Dt)
+    B = np.empty((len(times),) + in_shape, dtype=np.float32)
+    B[0] = np.zeros(in_shape)
+    for i in range(len(times) - 2):
+         xi = np.random.randn(*in_shape) * sigma * Dt_sqrt[i]
+         B[i + 1] = B[i] * (1 - Dt[i] / (1 - times[i])) + xi
+    B[-1] = 0                                                 
+    return B
 
+class PerturbedPath(IntegrableSequence[X]):
+    def __init__(self, path: IntegrablePath[X], perturbation_schedule:Literal["uniform","data"], sigma: float):
+        points = list(path)
+        shape = path.to_arr(points[0][0]).shape
+        if perturbation_schedule == "data":
+            times = [torch.as_tensor(point[1]).item() for point in points]
+        elif perturbation_schedule == "uniform":
+            times = np.linspace(0,1,len(points))
+        else:
+            raise ValueError(perturbation_schedule)
+        offsets = brownian_bridge(times, shape, sigma=sigma)
 
-
-
-
+        super().__init__([(x + offset, t) for (x,t),offset in zip(points,offsets)],to_arr=path.to_arr,from_arr=path.from_arr)
 
 
 
