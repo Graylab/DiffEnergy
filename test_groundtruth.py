@@ -79,6 +79,15 @@ if __name__ == "__main__":
     xt_cpu = torch.as_tensor(x,device='cpu',dtype=torch.float)[:,None] #make 1d not 0d
     gt_model_eval.to(dtype=xt_cpu.dtype,device=xt_cpu.device)
 
+    if True:
+        ## compare convolved_gaussian prior with assumed smax prior
+        prior_pdf = get_gaussian(x,means=[0],sigmas=[sigma_max],weights=[1.0])
+
+        # plt.plot(x,pdf,label="pdf")
+        plt.plot(x,pdf2,label="convolved_trimodal",linestyle='-')
+        # plt.plot(x,gt_pdf,label="gt_pdf",linestyle=':')
+        plt.plot(x,prior_pdf,label='prior_fn',linestyle='-')
+    
     if False:
         ## Match analytical score and model score with the numerical score
         
@@ -106,7 +115,7 @@ if __name__ == "__main__":
         plt.legend()
         plt.show()
 
-    if True:
+    if False:
         ## plot scores and error over time
 
         times = np.linspace(0,1,40)
