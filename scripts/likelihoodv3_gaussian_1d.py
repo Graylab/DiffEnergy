@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, TypedDic
 import numpy as np
 from tqdm import tqdm
 from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
+from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
 from diffenergy.perturbation import FlowPerturbationIntegral
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
@@ -397,6 +397,13 @@ def main(config: DictConfig):
 
         case _:
             raise ValueError("Unknown path type:",config.path_type)
+
+    if config.get("perturb_path",False):
+        if config.integral_type == "ode":
+            raise ValueError("Can't stochastically perturb an ODE! However, ODEIntegrablePaths can be used in discrete integral mode. Please set integral_type to 'diff' or disable perturbation")
+        sigma:float = config.perturbation_sigma
+        schedule:str = config.get("perturbation_schedule","data")
+        paths = ((id,PerturbedPath(path,schedule,sigma)) for id,path in paths) #god I love generators
 
 
     ### RUN LIKELIHOOD COMPUTATION
