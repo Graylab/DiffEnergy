@@ -1,2 +1,4 @@
 #!/bin/bash
-srun --job-name=diffenergy_$1 --partition=shared --account=jgray21 --time=04:00:00 -o logs/$1-log.txt bash -c "module load anaconda; conda activate diffenergy; python scripts/likelihoodv3_gaussian_1d.py --config-name=$1"
+name = $1
+shift
+srun --job-name=diffenergy_$name --partition=shared --account=jgray21 --time=04:00:00 -o logs/$name-log.txt bash -c "module load anaconda; conda activate diffenergy; python scripts/likelihoodv3_gaussian_1d.py --config-name=$name" $@
