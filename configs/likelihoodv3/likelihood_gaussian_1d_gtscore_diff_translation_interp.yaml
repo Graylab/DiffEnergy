@@ -1,20 +1,21 @@
 checkpoint: checkpoints/1d_trinormal.ckpt
-out_dir: ../likelihood_results/likelihoodv3/3integrand_linearized_flow
+out_dir: ../likelihood_results/likelihoodv3/ground_truth/3integrand_diff_translation_25interp
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
 data_samples: ../sample_results/trinormal_1d.csv
+trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index.csv
 
 integrand_types:
   TotalIntegrand:
   TimeIntegrand:
   SpaceIntegrand:
 prior_fns:
-  smax_gaussian
-  convolved_data
-path_type: linearized_flow
-
-integral_type: 'ode'
+  # smax_gaussian
+  convolved_data:
+    time: 0 #use gt data prior (since we're starting at time=0)
+path_type: diff_data_translation
+integral_type: 'diff'
 
 tr_type: ground_truth
 diffusion_steps: 1000
@@ -24,7 +25,12 @@ odeint_method: rk4
 ode_steps: 100
 num_workers: 4
 
+interpolate_trajectories: True
+num_interpolants: 25
+
 save_trajectories: True
+
+device: cpu
 
 batched: True
 batch_size: 64

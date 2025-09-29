@@ -14,9 +14,10 @@ prior_fns:
   smax_gaussian
   convolved_data
 path_type: linear_trajectories
+
 integral_type: 'ode'
 
-tr_type: ground_truth
+tr_type: non_conservative
 diffusion_steps: 1000
 odeint_rtol: 1e-5
 odeint_atol: 1e-5
@@ -24,4 +25,9 @@ odeint_method: rk4
 ode_steps: 100
 num_workers: 4
 
+save_trajectories: True
+
 device: cpu
+
+batched: True
+batch_size: 64

@@ -15,7 +15,7 @@ prior_fns:
   convolved_data:
     time: 0 #use gt data prior (since we're starting at time=0)
 path_type: diff_data_translation
-integral_type: 'ode'
+integral_type: 'diff'
 
 tr_type: ground_truth
 diffusion_steps: 1000
@@ -25,4 +25,9 @@ odeint_method: rk4
 ode_steps: 100
 num_workers: 4
 
+save_trajectories: True
+
 device: cpu
+
+batched: True
+batch_size: 64

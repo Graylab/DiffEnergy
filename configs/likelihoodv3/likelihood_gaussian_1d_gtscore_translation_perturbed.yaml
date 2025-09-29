@@ -32,3 +32,6 @@ perturbation_schedule: uniform
 save_trajectories: True
 
 device: cpu
+
+batched: True
+batch_size: 64
