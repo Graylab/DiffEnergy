@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import functools
 import itertools
 from decorator import decorator
-from typing import Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Optional, Protocol, Sequence, Sized, TypeVar, TypedDict, Union, overload
+from typing import Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Optional, Protocol, Sequence, Sized, TypeVar, TypeVarTuple, TypedDict, Union, overload
 from numpy.typing import ArrayLike
 
 import torch
@@ -14,6 +14,7 @@ import numpy as np
 Array = Union[np.ndarray,Tensor]
 
 X = TypeVar("X")
+XB = TypeVar("XB")
 
 ##### Abstract Classes / Helpers #####
 
@@ -40,6 +41,13 @@ class ODELikelihoodIntegrand(LikelihoodIntegrand[X]):
         """integrand as a function of x(i), t(i), dx/di, and dt/di"""
         ...
 
+    @abstractmethod
+    def shape(self,x:X)->tuple[int,...]: 
+        ...
+
+    def zero(self,x:X)->Tensor:
+        xt = self.to_tensor(x)
+        return torch.zeros(self.shape(x),dtype=xt.dtype,device=xt.device);
 
     def tensor(self,a:ArrayLike,**kwargs):
         return torch.as_tensor(a,**kwargs)
@@ -65,11 +73,12 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X]):
     def delta(self)->Iterable[tuple[X,float]]:
         return map(lambda xt: (self.from_arr(self.to_arr(xt[1][0]) - self.to_arr(xt[0][0])),xt[1][1]-xt[0][1]), itertools.pairwise(self))
     
-    def diffintegrate(self, *integrands: LikelihoodIntegrand[X])->tuple[Sequence[tuple[X,float]],list[float|Array]]:
+    def diffintegrate(self, *integrands: LikelihoodIntegrand[X])->tuple[Sequence[X],Sequence[float],list[float|Array]]:
         acc:list[None|float|Array] = [None]*len(integrands)
         it = iter(self)
         (x,t) = next(it)
-        accpath = [(x,t)]
+        accx = [x]
+        acct = [t]
         for (x2,t2) in it:
             xarr,x2arr = self.to_arr(x), self.to_arr(x2)
             dxarr = x2arr-xarr
@@ -84,13 +93,14 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X]):
                     acc[i] += I
 
             (x,t) = (x2,t2)
-            accpath.append((x,t))
-        
+            accx.append(x)
+            acct.append(t)
+
         for i in range(len(acc)): #don't think this would ever happen but /shrug
             if acc[i] is None:
                 acc[i] = 0
 
-        return accpath,acc
+        return accx,acct,acc
 
 class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X]): #where path is an explicit sequence of x and t
     def __init__(self,path:Sequence[tuple[X,float]],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],):
@@ -118,8 +128,12 @@ class InterpolatedIntegrableSequence(IntegrableSequence[X]):
         for x2,t2 in it:
             interps = torch.linspace(0,1,n_interp+1,device=x1.device,dtype=x1.dtype)[1:]
             interp_times = (1-interps)*t1 + interps*t2
-            interp_points = (1-interps[:,None])*x1[None,...] + interps[:,None]*x2[None,...] #stupid-ass manual linspace because worthless torch.linspace doesn't support vectors aaaaaa
+
+            #stupid-ass manual linspace because worthless torch.linspace doesn't support vectors aaaaaa
+            interps = interps.view((-1,)+(1,)*x1.ndim) #add dimensions to properly multiply arbitrarily-shaped x
+            interp_points = (1-interps)*x1[None,...] + interps*x2[None,...] 
             accpath.extend(zip(map(from_arr,interp_points),interp_times))
+            x1,t1 = x2,t2
         super().__init__(accpath,to_arr,from_arr)
 
     
@@ -169,22 +183,20 @@ class ODEIntegrablePath(IntegrablePath[X],ABC):
         return len(self.timeschedule)
     
     
-    def odeintegrate(self,*integrands:ODELikelihoodIntegrand[X])->tuple[Sequence[tuple[X,float]],list[float|Array]]:
+    def odeintegrate(self,*integrands:ODELikelihoodIntegrand[X])->tuple[Sequence[X],Sequence[float],list[float|Array]]:
         def ode_func(i:float,v:tuple[Tensor,...]):
             x,t,*_ = v
-            
             x,t = self.from_arr(x), t.item()
-            
-
+        
             dx,dt = self.dx(i,x,t),self.dt(i,x,t)
             return self.xntensor(dx,dt,*[integrand.odeintegrand(x,t,dx,dt) for integrand in integrands])
         
-        res = odeint(ode_func,self.xntensor(*self.initial,*([0]*len(integrands))),self.tensor(self.timeschedule),rtol=self.rtol,atol=self.atol,method=self.method)
+        ## add a dimension to each integrand's zero to allow "scalar" integrands; odeint throws a fit with scalar tensors since they can't be concatenated
+        res = odeint(ode_func,self.xntensor(*self.initial,*(integrand.zero(self.initial[0])[None,...] for integrand in integrands)),self.tensor(self.timeschedule),rtol=self.rtol,atol=self.atol,method=self.method)
         xs,ts,*I = res
 
-        accpath = zip(map(self.from_arr,xs),map(Tensor.item,ts))
-
-        return list(accpath),[i[-1].item() for i in I]
+        ## make sure to remove the dimension from each integrand
+        return list(map(self.from_arr,xs)),list(map(Tensor.item,ts)),[i[-1][0] for i in I]
     
 
 ##### Concrete Classes #####
@@ -199,11 +211,20 @@ class ScoreDivDiffIntegrand(ODELikelihoodIntegrand[X]):
     divfn: (x,t) -> laplacian_x(logp(x,t)) = sum((d/dx_i)^2 logp(x,t))
     diffcoefffn: (t) -> g(t)
     """
-    def __init__(self,scorefn:Callable[[X,float],Array], divfn:Callable[[X,float],float], diffcoefffn:Callable[[float],float],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]):
+    def __init__(self,scorefn:Callable[[X,float],Array], divfn:Callable[[X,float],float|Array], diffcoefffn:Callable[[float],float],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]):
         self.scorefn = scorefn
         self.divfn = divfn
         self.diffcoefffn =diffcoefffn
         super().__init__(to_arr,from_arr)
+
+    def shape(self, x: X) -> tuple[int, ...]:
+        arr = self.to_tensor(x)
+        if arr.ndim == 0:
+            raise ValueError
+        elif arr.ndim == 1: #single unbatched vector, scalar output
+            return tuple() #scalar has shape 0. Technically this is the same as 1d_shape[:-1] but I want to make it explicit
+        else:
+            return arr.shape[:-1] #return all batch dimensions
 
 
 class TotalIntegrand(ScoreDivDiffIntegrand[X]):
@@ -217,19 +238,19 @@ class TotalIntegrand(ScoreDivDiffIntegrand[X]):
         """[dlogp(x(i),t(i))/di] = grad_x(logp) dot dx/di + dlogp/dt*dt/di. Function of x, t, dx/dy, and dt/di.
         """
 
-        gradxlogp = self.tensor(self.scorefn(x,t))
-        divergence = self.divfn(x,t)
-        g = self.diffcoefffn(t)
+        gradxlogp = self.tensor(self.scorefn(x,t)) #can be batched! Either D or BxD array
+        divergence = self.divfn(x,t) #can be batched! either scalar or size-B array
+        g = self.diffcoefffn(t) #always a scalar
         g2 = g**2
         
         ##dx term: grad_x(logp) dot dx/di
-        dxterm = torch.dot(gradxlogp,self.to_tensor(dx))
+        dxterm = torch.linalg.vecdot(gradxlogp,self.to_tensor(dx))
 
         ##divergence term: 1/2g(t)^2*divergence
         divterm = 1/2*g2*divergence*dt
 
         ##gradient norm term: 1/2g(t)^2*||grad_x(logp)||^2
-        gradnormterm = 1/2*g2*torch.dot(gradxlogp,gradxlogp)*dt
+        gradnormterm = 1/2*g2*torch.linalg.vecdot(gradxlogp,gradxlogp)*dt
 
         return dxterm + divterm + gradnormterm #not a float, teehee. scalar tensor though!
 
@@ -244,19 +265,19 @@ class TimeIntegrand(ScoreDivDiffIntegrand[X]):
         """[dlogp(x(i),t(i))/di] = -grad_x(f(x(t),t))dt/di [=0 since f is 0] + 1/2 g(t)^2laplacian(logp(x(t),t))dt/di. Function of x, t, dx/dy, and dt/di.
         """
 
-        # gradxlogp = self.tensor(self.scorefn(x,t))
-        divergence = self.divfn(x,t)
-        g = self.diffcoefffn(t)
+        # gradxlogp = self.tensor(self.scorefn(x,t)) #can be batched! Either D or BxD array
+        divergence = self.divfn(x,t) #can be batched! either scalar or size-B array
+        g = self.diffcoefffn(t) #always a scalar
         g2 = g**2
         
         ##dx term: grad_x(logp) dot dx/di
-        # dxterm = torch.dot(gradxlogp,self.to_tensor(dx))
+        # dxterm = torch.linalg.vecdot(gradxlogp,self.to_tensor(dx))
 
         ##divergence term: 1/2g(t)^2*divergence
         divterm = 1/2*g2*divergence*dt
 
         ##gradient norm term: 1/2g(t)^2*||grad_x(logp)||^2
-        # gradnormterm = 1/2*g2*torch.dot(gradxlogp,gradxlogp)*dt
+        # gradnormterm = 1/2*g2*torch.linalg.vecdot(gradxlogp,gradxlogp)*dt
 
         return divterm #not a float, teehee. scalar tensor though!
 
@@ -272,19 +293,19 @@ class SpaceIntegrand(ScoreDivDiffIntegrand[X]):
         """[dlogp(x(i),t(i))/di] = grad_x(logp) dot dx/di + dlogp/dt*dt/di [=0 by assumption]. Function of x, t, dx/dy, and dt/di.
         """
 
-        gradxlogp = self.tensor(self.scorefn(x,t))
-        # divergence = self.divfn(x,t)
-        # g = self.diffcoefffn(t)
+        gradxlogp = self.tensor(self.scorefn(x,t)) #can be batched! Either D or BxD array
+        # divergence = self.divfn(x,t) #can be batched! either scalar or size-B array
+        # g = self.diffcoefffn(t) #always a scalar
         # g2 = g**2
         
         ##dx term: grad_x(logp) dot dx/di
-        dxterm = torch.dot(gradxlogp,self.to_tensor(dx))
+        dxterm = torch.linalg.vecdot(gradxlogp,self.to_tensor(dx))
 
         ##divergence term: 1/2g(t)^2*divergence
         # divterm = 1/2*g2*divergence*dt
 
         ##gradient norm term: 1/2g(t)^2*||grad_x(logp)||^2
-        # gradnormterm = 1/2*g2*torch.dot(gradxlogp,gradxlogp)*dt
+        # gradnormterm = 1/2*g2*torch.linalg.vecdot(gradxlogp,gradxlogp)*dt
 
         return dxterm #not a float, teehee. scalar tensor though!        
         
@@ -385,32 +406,56 @@ class PerturbedPath(IntegrableSequence[X]):
 
 #### Likelihood Calculation ####
 
-def _run_likelihood(method:Literal['diff','ode'],id:str,path:IntegrablePath[X],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[tuple[str,Callable[[X,float],float|Array]]]):
+_I = TypeVar("_I") # id type
+def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X],integrands:Sequence[LikelihoodIntegrand[X]]):
 
     if method == 'diff':
-        trajectory, deltas = path.diffintegrate(*integrands)
+        trajectory, times, deltas = path.diffintegrate(*integrands)
     elif method == 'ode':
         if not isinstance(path,ODEIntegrablePath):
             raise ValueError(f"Path {path} is not ODEIntegrable! Please use an ODEIntegrable path or set the integral_type to 'diff' to use the path in euclidean mode");
-        trajectory, deltas = path.odeintegrate(*integrands)
+        trajectory, times, deltas = path.odeintegrate(*integrands)
 
     ##Since we assume the path goes from unknown to known, we use the last data point for the prior and negate the delta
     integrand_results:dict[str,float|ArrayLike] = {integrand.name(): torch.Tensor.tolist(torch.as_tensor(-delta)) for integrand,delta in zip(integrands,deltas)}
-    prior_endpoint:tuple[X,float] = trajectory[-1]
-    prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in prior_fns}
+    # prior_endpoint:tuple[X,float] = trajectory[-1]
+    # prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in prior_fns}
+
+    return (id,trajectory, times, integrand_results)
+
+def run_diff_likelihood(id:_I,path:IntegrablePath[X],integrands:Sequence[LikelihoodIntegrand[X]]):
+    return _run_likelihood('diff',id,path,integrands)
+
+def run_ode_likelihood(id:_I,path:ODEIntegrablePath[X],integrands:Sequence[ODELikelihoodIntegrand[X]]):
+    return _run_likelihood('ode',id,path,integrands)
+
+try:
+    from ray.util.joblib import register_ray
+    from ray.util.joblib.ray_backend import RayBackend
+    RayBackend.supports_return_generator = True
+    register_ray()
+except ImportError:
+    pass
+
+# Parallelism with joblib, w/ ray for keeping things in the cluster. remote_kwargs are passed to each actor and can specify resource requirements;
+# set the ray cluster args to impose limits on the cluster based on the slurm spec.
+_T = TypeVarTuple("_T")
+_R = TypeVar("_R")
+def istarmap_joblib(func:Callable[[*_T],_R],starargs:Iterable[tuple[*_T]],parallel:bool,remote_kwargs:dict):
+    if parallel:
+        from joblib import Parallel, delayed, parallel_backend
+        with parallel_backend("ray",ray_remote_args=remote_kwargs):
+            print("pre-parallel")
+            res:Iterable[_R] = Parallel(return_as="generator")(delayed(func)(*args) for args in starargs)
+            print("post-parallel")
+            print(res,type(res))
+            yield from res
+    else:
+        yield from (func(*args) for args in starargs)
 
 
-    return (id,prior_endpoint,prior_results,integrand_results)
+def run_diff_likelihoods(paths:Iterable[tuple[_I,IntegrablePath[X]]],integrands:Sequence[LikelihoodIntegrand[X]],parallel=False,remote_kwargs={}):
+    yield from istarmap_joblib(run_diff_likelihood,((id,path,integrands) for id,path in paths),parallel,remote_kwargs)
 
-def run_diff_likelihood(id:str,path:IntegrablePath[X],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[tuple[str,Callable[[X,float],float|Array]]]):
-    return _run_likelihood('diff',id,path,integrands,prior_fns)
-
-def run_ode_likelihood(id:str,path:ODEIntegrablePath[X],integrands:Sequence[ODELikelihoodIntegrand[X]],prior_fns:Iterable[tuple[str,Callable[[X,float],float|Array]]]):
-    return _run_likelihood('ode',id,path,integrands,prior_fns)
-
-
-def run_diff_likelihoods(paths:Iterable[tuple[str,IntegrablePath[X]]],integrands:Sequence[LikelihoodIntegrand[X]],prior_fns:Iterable[tuple[str,Callable[[X,float],float|Array]]]):
-    yield from (run_diff_likelihood(id,path,integrands,prior_fns) for id,path in paths)
-
-def run_ode_likelihoods(paths:Iterable[tuple[str,ODEIntegrablePath[X]]],integrands:Sequence[ODELikelihoodIntegrand[X]],prior_fns:Iterable[tuple[str,Callable[[X,float],float|Array]]]):
-    yield from (run_ode_likelihood(id,path,integrands,prior_fns) for id,path in paths)
+def run_ode_likelihoods(paths:Iterable[tuple[_I,ODEIntegrablePath[X]]],integrands:Sequence[ODELikelihoodIntegrand[X]],parallel=False,remote_kwargs={}):
+    yield from istarmap_joblib(run_ode_likelihood,((id,path,integrands) for id,path in paths),parallel,remote_kwargs)

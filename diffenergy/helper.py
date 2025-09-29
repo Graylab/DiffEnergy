@@ -82,3 +82,10 @@ def prior_gaussian_1d(batch, sigma):
     N = z.numel()
     prior_logp = -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - (z**2) / (2 * sigma**2)
     return prior_logp, N
+
+def prior_gaussian_nd(x, sigma):
+    """The likelihood of a D-dimensional Gaussian distribution with mean zero and 
+            uniform standard deviation sigma. Assumes x is a D-dimensional or (*B)xD-dimensional array"""
+    D = x.shape[-1]
+    prior_logp = -D / 2. * torch.log(torch.as_tensor(2 * np.pi * sigma ** 2, device = x.device)) - (torch.linalg.vecdot(x,x)) / (2 * sigma**2)
+    return prior_logp, D
