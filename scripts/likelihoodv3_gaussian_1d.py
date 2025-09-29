@@ -105,8 +105,8 @@ def load_trajectories(trajectory_index_file:str|Path,batch_size:int|None=None)->
 
 
 
-def load_endpoints(data_path:str|Path|tuple[str|Path,...]):
-    samples,steps = load_trajectory(data_path)
+def load_endpoints(data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda'):
+    samples,steps = load_trajectory(data_path,device=device)
     assert steps[0] == 0 and steps[-1] == 1
     return samples[0], samples[-1] #Time dimension is always first, even in batching
 
@@ -351,7 +351,7 @@ def main(config: DictConfig):
                 pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants)
 
             def get_trajectory(path):
-                samples,times = load_trajectory(path)
+                samples,times = load_trajectory(path,device=device)
                 return zip(map(from_array,samples),times)
             
             paths = (
@@ -365,7 +365,7 @@ def main(config: DictConfig):
             trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
             
             #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in trajectories) 
+            endpoints = ((id,load_endpoints(trajectory,device=device)) for id,trajectory in trajectories) 
 
             paths = (
                 (id,LinearPath[torch.Tensor]((from_array(start),0),(from_array(end),1),ode_times,
@@ -405,7 +405,7 @@ def main(config: DictConfig):
                 pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants)
 
             def get_trajectory(path):
-                samples,times = load_trajectory(path)
+                samples,times = load_trajectory(path,device=device)
                 return zip(map(from_array,samples),times)
             
             paths = (
@@ -423,7 +423,7 @@ def main(config: DictConfig):
             trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
             
             #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in tqdm(trajectories)) 
+            endpoints = ((id,load_endpoints(trajectory,device=device)) for id,trajectory in tqdm(trajectories)) 
 
             paths = (
                 (id,LinearPath((from_array(start),0),(from_array(end),0),ode_times, #start and end both 0!
