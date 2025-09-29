@@ -1,11 +1,13 @@
 from fileinput import filename
+import itertools
 from logging import warning
+import math
 import os
 from pathlib import Path
 import csv
 import functools
 import shutil
-from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, TypedDict
+from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, TypeVar, TypeVarTuple, TypedDict, overload
 
 import numpy as np
 from tqdm import tqdm
@@ -18,9 +20,9 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 import hydra
 
-from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_1d
+from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_1d, prior_gaussian_nd
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.gaussian_1d.likelihood_helpers import ModelEval, to_array, from_array
+from diffenergy.gaussian_1d.likelihood_helpers import ModelEval, from_array_batch, to_array as to_array_nobatch, from_array as from_array_nobatch, to_array_batch
 
 class datapoint(TypedDict):
     id:torch.Tensor
@@ -61,52 +63,80 @@ class interpolated_gaussian_1d_dataset(Dataset[datapoint]):
         return {'id': id, 'sample': samp}
 
 
-def load_test_data(data_path, batch_size, num_workers):
-    """Loads dataset from a CSV file and returns a DataLoader."""
+@overload
+def load_test_data(data_path, batch_size:None,device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]: ...
+@overload
+def load_test_data(data_path, batch_size:int,device:str|torch.device='cuda')->list[tuple[Sequence[str],torch.Tensor]]: ...
+def load_test_data(data_path, batch_size:int|None=None, device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]|list[tuple[Sequence[str],torch.Tensor]]:
+    """Loads dataset from a CSV file and returns an iterable of tuples ('id',x).
+    if batch_size is None, each x will be an array of shape D. Otherwise, x has shape batch_sizexD
+    """
 
     df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
-    ids = df.iloc[:, 0].values  # Extract the first column as ids
-    samples = df.iloc[:, 1].values  # Extract the second column as samples
+    ids = df.loc[:, "index"].values  # Extract the first column as ids
+    samples = df.loc[:, "Samples"].values  # Extract the second column as samples
 
     # Convert to tensors
     ids = torch.tensor(ids, dtype=torch.int64)  # ids as integers
-    samples = torch.tensor(samples, dtype=torch.float32)  # samples as integers 
+    samples = torch.tensor(samples, dtype=torch.float32, device=device)[...,None]  # samples as floats, add a dimension to make them vectors
 
-    dataset = gaussian_1d_dataset(ids, samples)  # Create a dataset
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    if batch_size is None:
+        return [(str(int(id.item())),x) for id,x in zip(ids,samples)]
+    else:
+        assert batch_size > 0
+        return [([str(int(id)) for id in ids[i*batch_size:(i+1)*batch_size].tolist()],samples[i*batch_size:(i+1)*batch_size]) 
+                for i in range(math.ceil(len(samples)/batch_size))]
 
-    return dataloader
 
-def load_trajectories(trajectory_index_file:str|Path)->dict[str,str]:
+@overload
+def load_trajectories(trajectory_index_file:str|Path,batch_size:int)->list[tuple[tuple[str,...],tuple[Path,...]]]: ...
+@overload
+def load_trajectories(trajectory_index_file:str|Path,batch_size:None)->list[tuple[str,Path]]: ...
+def load_trajectories(trajectory_index_file:str|Path,batch_size:int|None=None)->list[tuple[str,Path]]|list[tuple[tuple[str,...],tuple[Path,...]]]:
     trajectory_index_file = Path(trajectory_index_file)
     assert trajectory_index_file.suffix == '.csv'
     df = pd.read_csv(trajectory_index_file)
-    d = df.set_index('index').T.to_dict(orient='records')[0] #make ids columnames, then convert to a dict of [{colname:value,colname:value}] and get the first result
-    d = {id:trajectory_index_file.parent/p for id,p in d.items()}
-    return d
-    
+    dlist:dict[str,str] = df.set_index('index').T.to_dict(orient='records')[0] #make ids columnames, then convert to a dict of [{colname:value,colname:value}] and get the first result
+    res = [(str(id),trajectory_index_file.parent/p) for id,p in dlist.items()]
+    if batch_size is None:
+        return res
+    else:
+        return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch)) for batch in itertools.batched(res,batch_size)]
 
-def load_endpoints(data_path:str):
+
+
+def load_endpoints(data_path:str|Path|tuple[str|Path,...]):
     samples,steps = load_trajectory(data_path)
     assert steps[0] == 0 and steps[-1] == 1
-    return samples[0], samples[1]
+    return samples[0], samples[-1] #Time dimension is always first, even in batching
 
-def load_trajectory(data_path:str)->tuple[torch.Tensor,torch.Tensor]:
-    df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
+def load_trajectory(data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda')->tuple[torch.Tensor,torch.Tensor]:
+    batched = isinstance(data_path,tuple)
+    paths = data_path if batched else [data_path]
+    alltimes:Optional[torch.Tensor] = None
+    sampleslist:list[torch.Tensor] = []
+    for path in paths:
+        df = pd.read_csv(path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
 
-    # we reverse the trajectory so it matches flow, with time going from 0 to 1. 
-    # have to do this and numpy AND make a copy, cause tensors don't support negative stride -_-
-    df = df.iloc[::-1].copy()
+        # we reverse the trajectory so it matches flow, with time going from 0 to 1. 
+        # have to do this and numpy AND make a copy, cause tensors don't support negative stride -_-
+        df = df.iloc[::-1].copy()
 
-    if "Timestep" in df.columns:
-        times = torch.as_tensor(df.loc[:, "Timestep"].values,dtype=torch.float32) #Extract Timestep column as times.
-    else:
-        steps = torch.as_tensor(df.loc[:,"Index"].values,dtype=torch.float32) # Extract the Index column, convert to timesteps
-        times = 1 - steps/steps.max() #steps go from 0 to N, so divide by N and subtract from 1 to get time from 1 to 0
-    
-    samples = torch.as_tensor(df.loc[:, "Sample"].values,dtype=torch.float32)  # Extract the Sample column
-    
-    return samples[:,None], times  #add dimension to samples so iteration of 1d vectors
+        if "Timestep" in df.columns:
+            times = torch.as_tensor(df.loc[:, "Timestep"].values,dtype=torch.float32) #Extract Timestep column as times.
+        else:
+            steps = torch.as_tensor(df.loc[:,"Index"].values,dtype=torch.float32) # Extract the Index column, convert to timesteps
+            times = 1 - steps/steps.max() #steps go from 0 to N, so divide by N and subtract from 1 to get time from 1 to 0
+
+        if alltimes is not None:
+            assert torch.allclose(alltimes,times)
+        else:
+            alltimes = times
+        
+        sampleslist.append(torch.as_tensor(df.loc[:, "Sample"].values,dtype=torch.float32,device=device))  # Extract the Sample column
+    assert alltimes is not None
+    samples = torch.stack(sampleslist,dim=1) if batched else sampleslist[0] #needs to be NxB 
+    return samples[...,None],alltimes  #add dimension to samples so iteration of 1d vectors
 
 
 
@@ -137,7 +167,12 @@ def main(config: DictConfig):
     # set device
     
     device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
-    from_array = functools.partial(from_array,device=device)
+
+    batched = config.get("batched",False)
+    batch_size = int(config.batch_size) if batched else None
+
+    to_array = to_array_nobatch if not batched else to_array_batch
+    from_array = functools.partial(from_array_nobatch if not batched else from_array_batch,device=device)
 
     # set sigma_values
     sigma_min = config.sigma_min
@@ -185,21 +220,16 @@ def main(config: DictConfig):
     else:
         raise ValueError(tr_type)
     
-    
-
-    
+    scorefn = model_eval.score if not batched else model_eval.batch_score
+    divergencefn = model_eval.divergence if not batched else model_eval.batch_divergence
 
     ### LOAD INTEGRANDS
     integrands:list[LikelihoodIntegrand] = []
     types:DictConfig = config.integrand_types
-    if isinstance(types,str):
-        types = types.split(" ")
+    if types is None:
+        types = []
     if not isinstance(types,Mapping):
         types = DictConfig({t:{} for t in types}) #ensure types is a DictConfig of Dicts
-
-    def prior_likelihood_fn(x:torch.Tensor,t:float):
-        assert np.allclose(t, 1), t #diffeq errors might mean it's not *quite* 1 but that's fine
-        return torch.squeeze(prior_gaussian_1d({"sample":x},sigma_max)[0]).item()
 
     for integrand_type,params in types.items():
         def param(p:str,*args):
@@ -208,15 +238,14 @@ def main(config: DictConfig):
                     return p
             return config.get(p,*args)
             
-        match integrand_type:
-            case TotalIntegrand.__name__:
-                integrand = TotalIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array)
-            case TimeIntegrand.__name__:
-                integrand = TimeIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array)
-            case SpaceIntegrand.__name__:
-                integrand = SpaceIntegrand(model_eval.score,model_eval.divergence,diffusion_coeff_fn,to_array,from_array)
-            case _:
-                raise ValueError("Unknown integrand type:",integrand_type)
+        intclasses:dict[str,type[ScoreDivDiffIntegrand]] = {cls.__name__:cls for cls in [TotalIntegrand,TimeIntegrand,SpaceIntegrand]}
+
+        if integrand_type in intclasses:
+            intcls = intclasses[integrand_type]
+            integrand = intcls(scorefn,divergencefn,diffusion_coeff_fn,to_array,from_array)
+        else:
+            raise ValueError("Unknown integrand type:",integrand_type)
+        
         integrands.append(integrand)
 
     
@@ -239,9 +268,9 @@ def main(config: DictConfig):
     for prior_fn,params in functions.items():
         match prior_fn:
             case "convolved_data":
-                means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float)
-                variances = torch.tensor([8.0,5.0,10.0])**2
-                weights = torch.tensor([0.4,0.3,0.3])
+                means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float, device=device)
+                variances = torch.tensor([8.0,5.0,10.0], device=device)**2
+                weights = torch.tensor([0.4,0.3,0.3], device=device)
 
                 gt_time = params.get("time",1)
                 if gt_time == "Any":
@@ -253,17 +282,23 @@ def main(config: DictConfig):
                         pass
                     if not isinstance(gt_time,float) or not (0 <= gt_time and gt_time <= 1):
                         raise ValueError(f"'time' parameter to the convolved_data prior can only be a float in [0,1] or \"Any\", received {gt_time}")
+                gt_time = torch.as_tensor(gt_time, dtype=torch.float, device=device)
 
                 def gt_prior_fn(x:torch.Tensor,t:float):
-                    if gt_time is not None: assert np.allclose(t, gt_time), t
-                    currvar = variances + int_diffusion_coeff_sq(t,sigma_min=sigma_min,sigma_max=sigma_max)
+                    tt = torch.as_tensor(t)
+                    if gt_time is not None: assert torch.allclose(tt, gt_time), t
+                    currvar = variances + int_diffusion_coeff_sq(tt,sigma_min=sigma_min,sigma_max=sigma_max)
+
+                    assert x.ndim == 2,x.shape #BxD
+                    assert means.ndim == 2,x.shape #NxD
                     dx = x[:,None,...] - means[None,...]
                     if variances.ndim == 1:
                         probs = batched_normpdf_scalar(dx,currvar) #shape:BxN
                     else:
                         probs = batched_normpdf_matrix(dx,currvar) #shape:BxN
-                    logprob = torch.log(torch.sum(weights[None,...]*probs,dim=-1)) #shape:N
-                    return logprob.squeeze().item()
+                    logprob = torch.log(torch.sum(weights[None,...]*probs,dim=-1)) #shape:B
+                    
+                    return logprob.squeeze().item() if not batched else logprob.numpy(force=True)
                     
                 priors.append((prior_fn,gt_prior_fn))
 
@@ -271,6 +306,11 @@ def main(config: DictConfig):
 
     
             case "smax_gaussian":
+                def prior_likelihood_fn(x:torch.Tensor,t:float):
+                    tt = torch.as_tensor(t)
+                    assert torch.allclose(tt, torch.ones_like(tt)), t #diffeq errors might mean it's not *quite* 1 but that's fine
+                    res = (prior_gaussian_nd(x,sigma_max)[0])
+                    return res.numpy(force=True) if batched else res.item()
                 priors.append((prior_fn,prior_likelihood_fn))
 
     ### LOAD PATHS
@@ -283,28 +323,28 @@ def main(config: DictConfig):
 
 
     # load path and associated dataset
-    paths:Iterable[tuple[str,IntegrablePath[torch.Tensor]]]
+    paths:Iterable[tuple[str|Sequence[str],IntegrablePath[torch.Tensor]]]
     match config.path_type:
         case "flow_ode":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_test_data(config.data_samples, batch_size=1, num_workers=config.num_workers)
+            dataloader = load_test_data(config.data_samples,batch_size=batch_size, device=device)
 
             paths = ( #maybe this should be a dataloader or something idk
-                (initial["id"],FlowEquivalentODEPath[torch.Tensor](
-                    model_eval.score,
+                (id,FlowEquivalentODEPath[torch.Tensor](
+                    scorefn,
                     diffusion_coeff_fn,
                     ode_times,
-                    (from_array(initial["sample"]),0),
+                    (from_array(initial),0),
                     config.odeint_rtol,
                     config.odeint_atol,
                     config.odeint_method,
                     to_array,
                     from_array))
-                    for initial in tqdm(dataloader)
+                    for (id,initial) in tqdm(dataloader)
                 )
         case "sde_trajectories":
             #sde: get paths from diffusion tajectories
-            trajectories = load_trajectories(config.trajectory_index_file)
+            trajectories = load_trajectories(config.trajectory_index_file,batch_size=batch_size)
             
             pathclass = IntegrableSequence[torch.Tensor]
             if config.get("interpolate_trajectories",False):
@@ -318,47 +358,47 @@ def main(config: DictConfig):
                 (id,pathclass(list(get_trajectory(path)),
                               to_arr=to_array,
                               from_arr=from_array,))
-                for id,path in tqdm(trajectories.items())
+                for id,path in tqdm(trajectories)
             )
         case "linear_trajectories":
             #linear: take sampled paths, and just make a straight line from start to end
-            trajectories = load_trajectories(config.trajectory_index_file)
+            trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
             
             #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in tqdm(trajectories.items())) 
+            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in trajectories) 
 
             paths = (
-                (id,LinearPath((from_array(start),0),(from_array(end),1),ode_times,
+                (id,LinearPath[torch.Tensor]((from_array(start),0),(from_array(end),1),ode_times,
                             config.odeint_rtol,
                             config.odeint_atol,
                             config.odeint_method,
                             to_array,
                             from_array))
-                for (id,(start,end)) in endpoints
+                for (id,(start,end)) in tqdm(endpoints)
             )
         case "linearized_flow":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_test_data(config.data_samples, batch_size=1, num_workers=config.num_workers)
+            dataloader = load_test_data(config.data_samples, batch_size=batch_size, device=device)
 
             paths = ( #maybe this should be a dataloader or something idk
-                (initial["id"],LinearizedFlowPath[torch.Tensor](
-                    model_eval.score,
+                (id,LinearizedFlowPath[torch.Tensor](
+                    scorefn,
                     diffusion_coeff_fn,
                     ode_times,
-                    (from_array(initial["sample"]),0),
+                    (from_array(sample),0),
                     config.odeint_rtol,
                     config.odeint_atol,
                     config.odeint_method,
                     to_array,
                     from_array))
-                    for initial in tqdm(dataloader)
+                    for id,sample in tqdm(dataloader)
                 )
         case "diff_data_translation":
             # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
             # Requires a prior function compatible with t0 sampling
             
             #sde: get paths from diffusion tajectories
-            trajectories = load_trajectories(config.trajectory_index_file)
+            trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
             
             pathclass = IntegrableSequence[torch.Tensor]
             if config.get("interpolate_trajectories",False):
@@ -372,7 +412,7 @@ def main(config: DictConfig):
                 (id,pathclass([(x,0) for x,t in (get_trajectory(path))],
                               to_arr=to_array,
                               from_arr=from_array,))
-                for id,path in tqdm(trajectories.items())
+                for id,path in tqdm(trajectories)
             )
 
         case "data_translation":
@@ -380,10 +420,10 @@ def main(config: DictConfig):
             # Requires a prior function compatible with t0 sampling
 
             # take sampled paths, and just make a straight line from start to end
-            trajectories = load_trajectories(config.trajectory_index_file)
+            trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
             
             #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in tqdm(trajectories.items())) 
+            endpoints = ((id,load_endpoints(trajectory)) for id,trajectory in tqdm(trajectories)) 
 
             paths = (
                 (id,LinearPath((from_array(start),0),(from_array(end),0),ode_times, #start and end both 0!
@@ -408,12 +448,20 @@ def main(config: DictConfig):
 
     ### RUN LIKELIHOOD COMPUTATION
     int_type = config.get("integral_type")
+    parallel = config.get("parallel",False)
+    cluster_kwargs = config.get("cluster_kwargs",{})
+    if parallel:
+        import ray
+        ray.init(**cluster_kwargs)
+    actor_kwargs = config.get("actor_kwargs",{})
+    if device.type == 'cuda' and 'num_gpus' not in actor_kwargs:
+        actor_kwargs['num_gpus'] = 1 #assume each actor will consume an entire gpu
     if int_type == "ode":
         #assume paths are ode integrable. error will be thrown otherwise
-        likelihoods = run_ode_likelihoods(paths,integrands,priors)
+        likelihoods = run_ode_likelihoods(paths,integrands,parallel=parallel,remote_kwargs=actor_kwargs)
     elif int_type == "diff":
         #use standard integration
-        likelihoods = run_diff_likelihoods(paths,integrands,priors)
+        likelihoods = run_diff_likelihoods(paths,integrands,parallel=parallel,remote_kwargs=actor_kwargs)
     else:
         raise ValueError(f"Unknown integral type: {int_type}. For standard (non-ode solver) numerical integration, use integral_type: \"diff\" (the default).")
 
@@ -431,33 +479,89 @@ def main(config: DictConfig):
             if backup_out.exists():
                 shutil.rmtree(backup_out)
             os.rename(out_dir,backup_out)
-        
-
-
+    
     out_dir.mkdir(parents=True,exist_ok=True)
 
-
+    ## WRITE CONFIG
     config_copy = out_dir/"config.yaml"
     with open(config_copy,"w") as f:
         f.write(OmegaConf.to_yaml(config))
 
+    ## WRITE TRAJECTORIES PREP
+    if config.get("save_trajectories",False):
+        trajectory_folder = out_dir/"trajectories"
+        try:
+            next(trajectory_folder.glob("*")) #if any files in directory, clear directory
+            shutil.rmtree(trajectory_folder)
+        except StopIteration:
+            pass
+        trajectory_folder.mkdir(exist_ok=True)
+    else:
+        trajectory_folder = None
 
+    ## WRITE LIKELIHOODS
     with open(likelihoods_name, 'w', newline='') as f:
         fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
-
         writer = csv.DictWriter(f, fieldnames=fieldnames)
-
         writer.writeheader()
 
-        # Write each dictionary in the list as a row
-        # with torch.autograd.profiler.profile(record_shapes=True,with_stack=True,use_device='cuda',profile_memory=True) as p:
-        for id,prior_pt,prior_results,ingtegrand_results in likelihoods:
-            row = {"id":int(id),
-                   "prior_position":prior_pt[0].item(),  #since here we're in 1d, let's make it a scalar w/ item()
-                    "prior_time":torch.as_tensor(prior_pt[1]).item(), 
-                    **{f"prior:{name}":val for name,val in prior_results.items()},
-                    **{f"integrand:{name}":val for name,val in ingtegrand_results.items()}}
-            writer.writerow(row)
+        for ids,trajectories,times,integrand_resultss in likelihoods:
+
+            ##Calculate priors
+            prior_endpoint:tuple[torch.Tensor,float] = (trajectories[-1], times[-1])
+
+            prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in priors}
+
+
+
+
+            ## Unbatch results for writing
+            if not batched:
+                ids:Iterable[str] = [ids]
+                trajectories = [trajectories]
+                times = [times]
+                integrand_resultss = [integrand_resultss]
+                prior_resultss = [prior_result]
+                prior_endpoints = [prior_endpoint]
+            else:
+                batch = len(prior_endpoint[0]) #size of this batch, could be smaller than batch_size if last batch
+                ids: Iterable[str] = ids
+                trajectories = torch.stack(trajectories,dim=1) #put time-axis in dimension 1 so we can iterate over the batch dimension
+                assert trajectories.ndim == 3 #BxNxD
+                times = itertools.repeat(times)
+                integrand_resultss = [
+                    {name:result[i] for name,result in integrand_resultss.items()}
+                    for i in range(batch)
+                ]
+                prior_resultss = [
+                    {name:result[i] for name,result in prior_result.items()}
+                    for i in range(batch)
+                ]
+                prior_endpoints = [(prior_endpoint[0][i],prior_endpoint[1]) for i in range(batch)]
+
+                
+            
+            for id, trajectory, time, integrand_results, prior_results, prior_endpoint \
+                in zip(ids,trajectories,times, integrand_resultss, prior_resultss, prior_endpoints):
+                assert isinstance(id,str),id
+                if trajectory_folder: #save trajectory to folder
+                    trajectory_file = trajectory_folder/f"trajectory_{id}.csv"
+                    xtraj = torch.as_tensor(trajectory).numpy(force=True)
+                    assert xtraj.ndim == 2
+                    assert xtraj.shape[1] == 1
+                    xtraj = xtraj[:,0] #1d position into scalar
+                    ttraj = torch.as_tensor(time).numpy(force=True)
+                    trajectory_df = pd.DataFrame({"Timestep":ttraj,"Sample":xtraj})
+                    trajectory_df.to_csv(trajectory_file,index_label="Index")
+
+                row = {"id":int(id),
+                    "prior_position":prior_endpoint[0].item(),  #since here we're in 1d, let's make it a scalar w/ item()
+                        "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
+                        **{f"prior:{name}":val for name,val in prior_results.items()},
+                        **{f"integrand:{name}":val for name,val in integrand_results.items()}}
+                writer.writerow(row)
+
+                f.flush()
 
 if __name__ == '__main__':
     main()
