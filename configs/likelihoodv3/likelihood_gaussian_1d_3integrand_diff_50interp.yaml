@@ -1,5 +1,5 @@
 checkpoint: checkpoints/1d_trinormal.ckpt
-out_dir: ../likelihood_results/likelihoodv3/3integrand_diff_10interp_1000
+out_dir: ../likelihood_results/likelihoodv3/3integrand_diff_50interp_1000
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
@@ -26,9 +26,9 @@ ode_steps: 100
 num_workers: 4
 
 interpolate_trajectories: True
-num_interpolants: 10
+num_interpolants: 50
 
 save_trajectories: True
 
 batched: True
-batch_size: 12
+batch_size: 8
