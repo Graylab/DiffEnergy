@@ -365,7 +365,7 @@ def main(config: DictConfig):
             trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
             
             #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory,device=device)) for id,trajectory in trajectories) 
+            endpoints = ((id,load_endpoints(trajectory,device=device)) for id,trajectory in tqdm(trajectories))
 
             paths = (
                 (id,LinearPath[torch.Tensor]((from_array(start),0),(from_array(end),1),ode_times,
@@ -374,7 +374,7 @@ def main(config: DictConfig):
                             config.odeint_method,
                             to_array,
                             from_array))
-                for (id,(start,end)) in tqdm(endpoints)
+                for (id,(start,end)) in endpoints
             )
         case "linearized_flow":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
