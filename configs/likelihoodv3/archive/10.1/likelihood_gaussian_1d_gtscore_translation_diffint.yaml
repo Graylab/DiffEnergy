@@ -1,19 +1,21 @@
-checkpoint: checkpoints/1d_trinormal_smax70.ckpt
-out_dir: ../likelihood_results/likelihoodv3/ground_truth/3integrand_flow
+checkpoint: checkpoints/1d_trinormal.ckpt
+out_dir: ../likelihood_results/likelihoodv3/ground_truth/3integrand_translation_diffint
 sigma_min: 0.1
-sigma_max: 70
+sigma_max: 30
 clamp_diffusion_coefficient: False
 data_samples: ../sample_results/trinormal_1d.csv
+trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index.csv
 
 integrand_types:
   TotalIntegrand:
   TimeIntegrand:
   SpaceIntegrand:
 prior_fns:
-  smax_gaussian
-  convolved_data
-path_type: flow_ode
-integral_type: 'ode'
+  # smax_gaussian
+  convolved_data:
+    time: 0 #use gt data prior (since we're starting at time=0)
+path_type: data_translation
+integral_type: 'diff'
 
 tr_type: ground_truth
 diffusion_steps: 1000
