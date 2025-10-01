@@ -1,9 +1,10 @@
-checkpoint: checkpoints/1d_trinormal_smax70.ckpt
-out_dir: ../likelihood_results/likelihoodv3/ground_truth/3integrand_flow
+checkpoint: checkpoints/1d_trinormal.ckpt
+out_dir: ../likelihood_results/likelihoodv3/ground_truth/3integrand_diff_10interp_1000
 sigma_min: 0.1
-sigma_max: 70
+sigma_max: 30
 clamp_diffusion_coefficient: False
 data_samples: ../sample_results/trinormal_1d.csv
+trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index_1000.csv
 
 integrand_types:
   TotalIntegrand:
@@ -12,8 +13,8 @@ integrand_types:
 prior_fns:
   smax_gaussian
   convolved_data
-path_type: flow_ode
-integral_type: 'ode'
+path_type: sde_trajectories
+integral_type: 'diff'
 
 tr_type: ground_truth
 diffusion_steps: 1000
@@ -23,9 +24,12 @@ odeint_method: rk4
 ode_steps: 100
 num_workers: 4
 
-save_trajectories: True
+interpolate_trajectories: True
+num_interpolants: 10
 
 device: cpu
+
+save_trajectories: True
 
 batched: True
 batch_size: 64
