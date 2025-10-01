@@ -1,7 +1,7 @@
-checkpoint: checkpoints/1d_trinormal.ckpt
+checkpoint: checkpoints/1d_trinormal_smax70.ckpt
 out_dir: ../likelihood_results/likelihoodv3/ground_truth/3integrand_diff_50interp_1000
 sigma_min: 0.1
-sigma_max: 30
+sigma_max: 70
 clamp_diffusion_coefficient: False
 data_samples: ../sample_results/trinormal_1d.csv
 trajectory_index_file: ../sample_results/trinormal_1d_traj/trajectory_index_1000.csv
