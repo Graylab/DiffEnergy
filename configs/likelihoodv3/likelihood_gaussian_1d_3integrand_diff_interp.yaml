@@ -31,4 +31,4 @@ num_interpolants: 10
 save_trajectories: True
 
 batched: True
-batch_size: 12
+batch_size: 32
