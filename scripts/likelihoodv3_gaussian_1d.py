@@ -275,14 +275,14 @@ def main(config: DictConfig):
 
 
     # load path and associated dataset
-    paths:Iterable[tuple[str|Sequence[str],IntegrablePath[torch.Tensor]]]
+    paths:Iterable[tuple[str|Sequence[str],IntegrablePath[torch.Tensor,None]]]
     match config.path_type:
         case "flow_ode":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
             dataloader = load_test_data(config.data_samples,batch_size=batch_size, device=device)
 
             paths = ( #maybe this should be a dataloader or something idk
-                (id,FlowEquivalentODEPath[torch.Tensor](
+                (id,FlowEquivalentODEPath[torch.Tensor,None](
                     scorefn,
                     diffusion_coeff_fn,
                     ode_times,
@@ -291,16 +291,17 @@ def main(config: DictConfig):
                     config.odeint_atol,
                     config.odeint_method,
                     to_array,
-                    from_array))
+                    from_array,
+                    None))
                     for (id,initial) in tqdm(dataloader)
                 )
         case "sde_trajectories":
             #sde: get paths from diffusion tajectories
             trajectories = load_trajectories(config.trajectory_index_file,batch_size=batch_size)
             
-            pathclass = IntegrableSequence[torch.Tensor]
+            pathclass = IntegrableSequence[torch.Tensor,None]
             if config.get("interpolate_trajectories",False):
-                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants)
+                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor,None],n_interp=config.num_interpolants)
 
             def get_trajectory(path):
                 samples,times = load_trajectory(path,device=device)
@@ -308,8 +309,9 @@ def main(config: DictConfig):
             
             paths = (
                 (id,pathclass(list(get_trajectory(path)),
-                              to_arr=to_array,
-                              from_arr=from_array,))
+                              to_array,
+                              from_array,
+                              None))
                 for id,path in tqdm(trajectories)
             )
         case "linear_trajectories":
@@ -320,12 +322,13 @@ def main(config: DictConfig):
             endpoints = ((id,load_endpoints(trajectory,device=device)) for id,trajectory in tqdm(trajectories))
 
             paths = (
-                (id,LinearPath[torch.Tensor]((from_array(start),0),(from_array(end),1),ode_times,
+                (id,LinearPath[torch.Tensor,None]((from_array(start),0),(from_array(end),1),ode_times,
                             config.odeint_rtol,
                             config.odeint_atol,
                             config.odeint_method,
                             to_array,
-                            from_array))
+                            from_array,
+                            None))
                 for (id,(start,end)) in endpoints
             )
         case "linearized_flow":
@@ -333,7 +336,7 @@ def main(config: DictConfig):
             dataloader = load_test_data(config.data_samples, batch_size=batch_size, device=device)
 
             paths = ( #maybe this should be a dataloader or something idk
-                (id,LinearizedFlowPath[torch.Tensor](
+                (id,LinearizedFlowPath[torch.Tensor,None](
                     scorefn,
                     diffusion_coeff_fn,
                     ode_times,
@@ -342,7 +345,8 @@ def main(config: DictConfig):
                     config.odeint_atol,
                     config.odeint_method,
                     to_array,
-                    from_array))
+                    from_array,
+                    None))
                     for id,sample in tqdm(dataloader)
                 )
         case "diff_data_translation":
@@ -352,9 +356,9 @@ def main(config: DictConfig):
             #sde: get paths from diffusion tajectories
             trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
             
-            pathclass = IntegrableSequence[torch.Tensor]
+            pathclass = IntegrableSequence[torch.Tensor,None]
             if config.get("interpolate_trajectories",False):
-                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor],n_interp=config.num_interpolants)
+                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor,None],n_interp=config.num_interpolants)
 
             def get_trajectory(path):
                 samples,times = load_trajectory(path,device=device)
@@ -362,8 +366,8 @@ def main(config: DictConfig):
             
             paths = (
                 (id,pathclass([(x,0) for x,t in (get_trajectory(path))],
-                              to_arr=to_array,
-                              from_arr=from_array,))
+                              to_array,
+                              from_array,None))
                 for id,path in tqdm(trajectories)
             )
 
@@ -383,7 +387,8 @@ def main(config: DictConfig):
                             config.odeint_atol,
                             config.odeint_method,
                             to_array,
-                            from_array))
+                            from_array,
+                            None))
                 for (id,(start,end)) in endpoints
             )
 
@@ -395,7 +400,7 @@ def main(config: DictConfig):
             raise ValueError("Can't stochastically perturb an ODE! However, ODEIntegrablePaths can be used in discrete integral mode. Please set integral_type to 'diff' or disable perturbation")
         sigma:float = config.perturbation_sigma
         schedule:str = config.get("perturbation_schedule","data")
-        paths = ((id,PerturbedPath(path,schedule,sigma)) for id,path in paths) #god I love generators
+        paths = ((id,PerturbedPath[torch.Tensor,None](path,schedule,sigma,path.condition)) for id,path in paths) #god I love generators
 
 
     ### RUN LIKELIHOOD COMPUTATION
