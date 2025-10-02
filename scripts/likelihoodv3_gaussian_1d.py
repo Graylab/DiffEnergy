@@ -7,60 +7,34 @@ from pathlib import Path
 import csv
 import functools
 import shutil
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, TypeVar, TypeVarTuple, TypedDict, overload
+from typing import Callable, Iterable, Mapping, Optional, Sequence, overload
 
-import numpy as np
 from tqdm import tqdm
 from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, InterpolatedUniformIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, UniformIntegrableSequence, run_diff_likelihoods, run_ode_likelihoods
-from diffenergy.perturbation import FlowPerturbationIntegral
+from diffenergy.likelihoodv3 import (
+    FlowEquivalentODEPath, 
+    IntegrablePath, 
+    IntegrableSequence, 
+    InterpolatedIntegrableSequence, 
+    LikelihoodIntegrand, 
+    LinearPath, 
+    LinearizedFlowPath, 
+    PerturbedPath, 
+    ScoreDivDiffIntegrand, 
+    SpaceIntegrand, 
+    TimeIntegrand, 
+    TotalIntegrand, 
+    run_diff_likelihoods, 
+    run_ode_likelihoods)
+
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, Dataset
 import hydra
 
-from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_1d, prior_gaussian_nd
+from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_nd
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.gaussian_1d.likelihood_helpers import ModelEval, from_array_batch, to_array as to_array_nobatch, from_array as from_array_nobatch, to_array_batch
-
-class datapoint(TypedDict):
-    id:torch.Tensor
-    sample:torch.Tensor
-
-class gaussian_1d_dataset(Dataset[datapoint]):
-    def __init__(self, ids:torch.Tensor, samples:torch.Tensor):
-        self.ids = ids
-        self.samples = samples
-
-    def __len__(self):
-        return len(self.ids)
-
-    def __getitem__(self, idx)->datapoint:
-        return {'id': self.ids[idx], 'sample': self.samples[idx]}
-    
-class interpolated_gaussian_1d_dataset(Dataset[datapoint]):
-    def __init__(self,ids,samples,num_interp):
-        self.ids = ids
-        self.samples = samples
-        self.num_interp = num_interp
-
-    def __len__(self):
-        return len(self.ids)*(self.num_interp - 1) + 1
-
-    def __getitem__(self, idx)->datapoint:
-        idx1 = idx // self.num_interp
-        idx2 = idx1 + 1
-
-        if idx2 >= len(self.ids): #final point
-            return {'id': self.ids[idx1], 'sample': self.samples[idx1]}
-
-        frac1 = (idx % self.num_interp) / self.num_interp
-        frac2 = 1 - frac1
-
-        id = self.ids[idx1]*frac1 + self.ids[idx2]*frac2 #we love numeric ids
-        samp = self.samples[idx1]*frac1 + self.samples[idx2]*frac2
-        return {'id': id, 'sample': samp}
 
 
 @overload
@@ -104,12 +78,6 @@ def load_trajectories(trajectory_index_file:str|Path,batch_size:int|None=None)->
         return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch)) for batch in itertools.batched(res,batch_size)]
 
 
-
-def load_endpoints(data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda'):
-    samples,steps = load_trajectory(data_path,device=device)
-    assert steps[0] == 0 and steps[-1] == 1
-    return samples[0], samples[-1] #Time dimension is always first, even in batching
-
 def load_trajectory(data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda')->tuple[torch.Tensor,torch.Tensor]:
     batched = isinstance(data_path,tuple)
     paths = data_path if batched else [data_path]
@@ -139,33 +107,20 @@ def load_trajectory(data_path:str|Path|tuple[str|Path,...],device:str|torch.devi
     return samples[...,None],alltimes  #add dimension to samples so iteration of 1d vectors
 
 
+def load_endpoints(data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda'):
+    samples,steps = load_trajectory(data_path,device=device)
+    assert steps[0] == 0 and steps[-1] == 1
+    return samples[0], samples[-1] #Time dimension is always first, even in batching
 
-T = TypeVar("T")
-def flatten_dict(d:Mapping[str,Mapping[str,T]],formatstr="{}_{}"):
-    return {
-        formatstr.format(outname,inname): val
-        for outname, inner in d.items()
-        for inname,val in inner.items()
-    }
-
-def flatten_keys(d:Mapping[str,Iterable[str]],formatstr="{}_{}"):
-    return [
-        formatstr.format(outname,inname)
-        for outname, inner in d.items()
-        for inname in inner
-    ]
 
 
 
 @hydra.main(version_base=None, config_path="../configs/likelihoodv3", config_name="likelihood_gaussian_1d")
 def main(config: DictConfig):
-    global from_array
-
     # Print the entire configuration
     print(OmegaConf.to_yaml(config))
 
     # set device
-    
     device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
 
     batched = config.get("batched",False)
@@ -184,9 +139,6 @@ def main(config: DictConfig):
 
     diffusion_coeff_fn = functools.partial(
         diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.clamp_diffusion_coefficient)
-    # if config.path_type == 'FlowTimeIntegral':
-    #     diffusion_coeff_fn = functools.partial(
-    #         diffusion_coeff_fn, clamp = True)
 
     # set models
     weights_path = config.checkpoint
@@ -447,7 +399,6 @@ def main(config: DictConfig):
 
 
     ### RUN LIKELIHOOD COMPUTATION
-    int_type = config.get("integral_type")
     parallel = config.get("parallel",False)
     cluster_kwargs = config.get("cluster_kwargs",{})
     if parallel:
@@ -456,6 +407,8 @@ def main(config: DictConfig):
     actor_kwargs = config.get("actor_kwargs",{})
     if device.type == 'cuda' and 'num_gpus' not in actor_kwargs:
         actor_kwargs['num_gpus'] = 1 #assume each actor will consume an entire gpu
+
+    int_type = config.get("integral_type")
     if int_type == "ode":
         #assume paths are ode integrable. error will be thrown otherwise
         likelihoods = run_ode_likelihoods(paths,integrands,parallel=parallel,remote_kwargs=actor_kwargs)

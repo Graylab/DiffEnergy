@@ -63,7 +63,9 @@ class ODELikelihoodIntegrand(LikelihoodIntegrand[X]):
     def diffintegrand(self, x: X, t: float, deltax: X, deltat: float) -> float | Array:
         return self.odeintegrand(x, t, deltax, deltat)
 
-#### Integration Paths and Numerical Integration ####
+
+
+#### Integration Paths and Numerical Integration Methods ####
 
 class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X]):
     def __init__(self,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]):
