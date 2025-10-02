@@ -13,8 +13,12 @@ import numpy as np
 
 Array = Union[np.ndarray,Tensor]
 
-X = TypeVar("X")
-XB = TypeVar("XB")
+X = TypeVar("X") #X
+C = TypeVar("C") #Condition
+
+# TODO: ADD CONDITIONING, ASSIGNED ON PATH INITIALIZATION AND PASSED TO INTEGRAND AND EVAL.
+# TODO: Also, evaluate whether I really need this to_arr/from_arr stuff now that conditioning is going to be separate?
+## Maybe something to do with more complicated noising / representation theory? Talk to Jeff V maybe
 
 ##### Abstract Classes / Helpers #####
 
