@@ -83,8 +83,8 @@ def Euler_Maruyama_sampler(score_model,
             df_traj.to_csv(path, index=False)
         
         index_file = f"{outpath}/trajectory_index.csv"
-        df_index = pd.DataFrame({"index":ids,"filename":filepaths})
-        df_index.to_csv(index_file)        
+        df_index = pd.DataFrame({"index":ids,"filename":[Path(path).name for path in filepaths]})
+        df_index.to_csv(index_file,index=False)
 
     return x
 
