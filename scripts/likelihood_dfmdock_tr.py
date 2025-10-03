@@ -44,24 +44,10 @@ def batch_process_fn(batch, device):
         "rec_x": rec_x.to(device),
         "lig_x": lig_x.to(device),
         "rec_pos": rec_pos.to(device),
-        "lig_pos": lig_pos.to(device),
+        "sample": lig_pos.to(device),
         "position_matrix": position_matrix.to(device),
     }
-    batch['sample'] = batch['lig_pos']
     return batch
-
-class DockingDatasetWrapper(Dataset):
-    def __init__(self, dataset):
-        self.dataset = dataset
-
-    def __len__(self):
-        return len(self.dataset)
-
-    def __getitem__(self, idx):
-        item = self.dataset[idx]
-        item['sample'] = item['lig_pos']
-        
-        return item
 
 @hydra.main(version_base=None, config_path="../configs", config_name="likelihood_dfmdock_tr")
 def main(config: DictConfig):
@@ -100,14 +86,12 @@ def main(config: DictConfig):
     # load dataset
     if inference_type == 'FlowTimeIntegral':
         testset = DockingDataset(data_dir=data_dir, data_list=config.data_listpdb, esm_model=esm_model, esm_alphabet=esm_model.alphabet)
-        testset = DockingDatasetWrapper(testset)
         dataloader = DataLoader(testset, batch_size=1, num_workers=config.num_workers, shuffle=False)
     else:
         with open(config.data_listpdb, 'r') as f:
             data_lists = f.read().splitlines()
         testsets = [DockingDataset(data_dir=data_dir, data_list=data_list, esm_model=esm_model, esm_alphabet=esm_model.alphabet) 
                     for data_list in data_lists]
-        testsets = [DockingDatasetWrapper(testset) for testset in testsets]
         dataloaders = {data_list: DataLoader(testset, batch_size=1, shuffle=False, num_workers=config.num_workers) 
                        for data_list, testset in zip(data_lists, testsets)}
     
