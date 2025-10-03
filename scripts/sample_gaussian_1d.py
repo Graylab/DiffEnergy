@@ -76,17 +76,15 @@ def Euler_Maruyama_sampler(score_model,
         if not traj_dir.exists():
             traj_dir.mkdir()
 
-        filepaths = [f"{traj_dir}/lp{i+1}.csv" for i in range(len(trajectory))]
+        ids = range(1,len(trajectory)+1)
+        filepaths = [f"{traj_dir}/lp{id}.csv" for id in ids]
         for traj,path in zip(trajectory,filepaths):
-            df_traj = pd.DataFrame({"Index": np.arange(num_steps), "Timestep": time_steps.numpy(), "Sample": traj})
+            df_traj = pd.DataFrame({"Index": np.arange(num_steps), "Timestep": time_steps.numpy(force=True), "Sample": traj})
             df_traj.to_csv(path, index=False)
         
-        index_file = f"{outpath}/trajectory_index.txt"
-        with open(index_file,"w") as f:
-            f.write("\n".join(filepaths))
-        
-
-        
+        index_file = f"{outpath}/trajectory_index.csv"
+        df_index = pd.DataFrame({"index":ids,"filename":filepaths})
+        df_index.to_csv(index_file)        
 
     return x
 
