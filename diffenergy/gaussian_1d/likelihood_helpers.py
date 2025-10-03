@@ -19,8 +19,10 @@ def to_array_batch(x:Tensor)->Tensor:
 def from_array_batch(a,device:str|torch.device='cuda')->Tensor:
     return torch.as_tensor(a,dtype=torch.float,device=torch.device(device)) #don't re-batch
 
-X = TypeVar("X",contravariant=True)
-XB = TypeVar("XB")
+X = TypeVar("X",contravariant=True) #X 
+XB = TypeVar("XB") #X Batched (e.g. Iterable[X])
+C = TypeVar("C",contravariant=True) #Conditioning
+CB = TypeVar("CB",contravariant=True) #Batched Conditioning (e.g. Iterable[C])
 
 
 def getcache(x:Tensor,t:float,cache:Optional[tuple[tuple[Tensor,float],X]])->Optional[X]:
@@ -28,15 +30,15 @@ def getcache(x:Tensor,t:float,cache:Optional[tuple[tuple[Tensor,float],X]])->Opt
         return cache[1]
     return None
 
-class ScoreModelEvaluator(Protocol,Generic[X]):
-    def score(self,x:X,t:float)->Tensor:  ...
-    def divergence(self,x:X,t:float)->float:  ...
+class ScoreModelEvaluator(Protocol,Generic[X,C]):
+    def score(self,x:X,t:float,conditioning:C)->Tensor:  ...
+    def divergence(self,x:X,t:float,conditioning:C)->float:  ...
 
-class BatchScoreModelEvaluator(ScoreModelEvaluator[X],Generic[X,XB]):
-    def batch_score(self,batch:XB,t:float)->Iterable[Tensor]:  ...
-    def batch_divergence(self,batch:XB,t:float)->Iterable[float]:  ...
+class BatchScoreModelEvaluator(ScoreModelEvaluator[X,C],Generic[X,XB,C,CB]):
+    def batch_score(self,batch:XB,t:float,conditioning:CB)->Iterable[Tensor]:  ...
+    def batch_divergence(self,batch:XB,t:float,conditioning:CB)->Iterable[float]:  ...
 
-class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor]): #unbatched has a size of 1 in first dim, batched has size of N
+class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor,None,None]): #unbatched has a size of 1 in first dim, batched has size of N
     def __init__(self,score_model:ScoreNetMLP|NegativeGradientMLP, always_grad:bool=True) -> None:
         self.score_model = score_model
         self.scorecache: Optional[tuple[tuple[Tensor,float],Tensor]] = None
@@ -45,7 +47,7 @@ class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor]): #unbatched has a size 
         self.dtype = self.score_model.parameters()
 
 
-    def batch_score(self,batch:Tensor,t:float,grad:bool=False):
+    def batch_score(self,batch:Tensor,t:float,conditioning:None,grad:bool=False):
         cache = getcache(batch,t,self.scorecache)
         if cache is not None: return cache
         
@@ -66,14 +68,14 @@ class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor]): #unbatched has a size 
         return batchscore
     
 
-    def score(self,x:Tensor,t:float,grad:bool=False):
-        score = self.batch_score(x,t,grad=grad)
+    def score(self,x:Tensor,t:float,conditioning:None,grad:bool=False):
+        score = self.batch_score(x,t,conditioning,grad=grad)
         if score.shape[0] == 1:
             return score[0]
         else:
-            raise ValueError("x must have size 1 in dimension 1 to use unbatched score! Call batch_score otherwise!")
+            raise ValueError("x must have size 1 in dimension 1 to use unbatched score! Noneall batch_score otherwise!")
     
-    def batch_divergence(self,batch:Tensor,t:float)->Tensor:
+    def batch_divergence(self,batch:Tensor,t:float,conditioning:None)->Tensor:
         cache = getcache(batch,t,self.divcache)
         if cache is not None: return cache
 
@@ -82,7 +84,7 @@ class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor]): #unbatched has a size 
         batchscore = getcache(x,t,self.scorecache)
         if batchscore is None:
             self.scorecache = None #make sure to invalidate a bad cache
-            batchscore = self.batch_score(x,t,grad=True)
+            batchscore = self.batch_score(x,t,conditioning,grad=True)
 
         grad_scores = torch.empty(x.shape,dtype=x.dtype,device=x.device)
         for b in range(x.shape[0]):
@@ -94,8 +96,8 @@ class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor]): #unbatched has a size 
 
         return batchtrace #essentially a float teehee
 
-    def divergence(self,x:Tensor,t:float)->float:
-        div = self.batch_divergence(x,t)
+    def divergence(self,x:Tensor,t:float,conditioning:None)->float:
+        div = self.batch_divergence(x,t,conditioning)
         if div.shape[0] == 1:
             return div[0]
         else:

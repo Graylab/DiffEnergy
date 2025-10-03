@@ -8,7 +8,7 @@ from torch import Tensor
 from torch.profiler import record_function
 import torch
 
-from diffenergy.gaussian_1d.likelihood_helpers import ScoreModelEvaluator
+from diffenergy.gaussian_1d.likelihood_helpers import BatchScoreModelEvaluator, ScoreModelEvaluator
 from diffenergy.helper import int_diffusion_coeff_sq
 
 
@@ -49,7 +49,7 @@ def getcache(x:Tensor,t:float,cache:Optional[tuple[tuple[Tensor,float],X]])->Opt
         return cache[1]
     return None
 
-class MultimodalGaussianGroundTruthScoreModel(ScoreModelEvaluator[Tensor]):
+class MultimodalGaussianGroundTruthScoreModel(BatchScoreModelEvaluator[Tensor,Tensor,None,None]):
     def __init__(self,means,variances,weights,sigma_min:float,sigma_max:float) -> None:
 
         self.means = means
@@ -109,36 +109,36 @@ class MultimodalGaussianGroundTruthScoreModel(ScoreModelEvaluator[Tensor]):
         self.intcache = ((x,t),intermediates)
         return intermediates
 
-    def score(self, x: Tensor, t: float) -> Tensor:
+    def score(self, x: Tensor, t: float, conditioning:None) -> Tensor:
         assert x.shape[0] == 1
-        return self.batch_score(x,t).squeeze(0)
+        return self.batch_score(x,t,conditioning).squeeze(0)
     
-    def divergence(self, x: Tensor, t: float) -> float:
+    def divergence(self, x: Tensor, t: float, conditioning:None) -> float:
         assert x.shape[0] == 1
-        return self.batch_divergence(x,t).squeeze(0)
+        return self.batch_divergence(x,t,conditioning).squeeze(0)
     
-    def batch_pdf(self, x: Tensor, t:float) -> Tensor:
+    def batch_pdf(self, x: Tensor, t:float, conditioning:None) -> Tensor:
         return self._intermediates(x,t)["wprobs_sum"]
 
-    def batch_score(self, x: Tensor, t: float) -> Tensor:
-        cache = getcache(x,t,self.scorecache)
+    def batch_score(self, batch: Tensor, t: float, conditioning:None) -> Tensor:
+        cache = getcache(batch,t,self.scorecache)
         if cache is not None: return cache
         
-        ints = self._intermediates(x,t)
+        ints = self._intermediates(batch,t)
         wprobs = ints["wprobs"]; transf_dx = ints["transf_dx"]; wprobs_sum = ints["wprobs_sum"]
         
         with record_function("scoresum"):
             score = -torch.sum(wprobs[...,None]*transf_dx,dim=-2)/wprobs_sum[...,None]
 
-        self.scorecache = ((x,t),score)
+        self.scorecache = ((batch,t),score)
         return score
     
-    def batch_divergence(self, x: Tensor, t: float) -> float:
-        cache = getcache(x,t,self.divcache)
+    def batch_divergence(self, batch: Tensor, t: float, conditioning:None) -> Tensor:
+        cache = getcache(batch,t,self.divcache)
         if cache is not None: return cache
         
-        ints = self._intermediates(x,t)
-        score = self.batch_score(x,t) 
+        ints = self._intermediates(batch,t)
+        score = self.batch_score(batch,t,conditioning) 
 
         wprobs = ints["wprobs"]; transf_dx = ints["transf_dx"]; 
         currvar_inv = ints["currvar_inv"]; wprobs_sum = ints["wprobs_sum"]
@@ -156,5 +156,5 @@ class MultimodalGaussianGroundTruthScoreModel(ScoreModelEvaluator[Tensor]):
         
             div = dfoverg - scoresq
 
-        self.divcache = ((x,t),div)
+        self.divcache = ((batch,t),div)
         return div
