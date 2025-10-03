@@ -1,0 +1,37 @@
+checkpoint: checkpoints/1d_trinormal_smax70.ckpt
+out_dir: ../likelihood_results/likelihoodv3/ground_truth/3integrand_translation_perturbed_dense
+sigma_min: 0.1
+sigma_max: 70
+clamp_diffusion_coefficient: False
+data_samples: ../sample_results/trinormal_1d_smax70.csv
+trajectory_index_file: ../sample_results/trinormal_1d_smax70_traj/trajectory_index.csv
+
+integrand_types:
+  TotalIntegrand:
+  TimeIntegrand:
+  SpaceIntegrand:
+prior_fns:
+  # smax_gaussian
+  convolved_data:
+    time: 0 #use gt data prior (since we're starting at time=0)
+path_type: data_translation
+integral_type: 'diff'
+
+tr_type: ground_truth
+
+odeint_rtol: 1e-5
+odeint_atol: 1e-5
+odeint_method: rk4
+ode_steps: 1000
+num_workers: 4
+
+perturb_path: True
+perturbation_sigma: 5
+perturbation_schedule: uniform
+
+save_trajectories: True
+
+device: cpu
+
+batched: True
+batch_size: 64

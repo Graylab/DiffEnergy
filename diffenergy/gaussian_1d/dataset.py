@@ -7,6 +7,7 @@ def sample_trimodal_gaussian(n, mu1, sigma1, w1, mu2, sigma2, w2, mu3, sigma3, w
         n: Number of points
         mu1, sigma1: Mean and standard deviation of first Gaussian
         mu2, sigma2: Mean and standard deviation of second Gaussian
+        mu3, sigma3: Mean and standard deviation of third Gaussian
         weight: w1, w2, w3
     Outputs:
         x: A vector of n points, torch.tensor
@@ -55,7 +56,7 @@ class TrimodalGaussianDataset(Dataset):
     def __init__(self, sampler, noise_std, num_samples=1000):
         """
         Args: 
-            sampler: Instance of BimodalGaussianSampler
+            sampler: Instance of TrimodalGaussianSampler
             noise_std: Standard deviation of the noise
             num_samples: Number of samples to generate
         """
