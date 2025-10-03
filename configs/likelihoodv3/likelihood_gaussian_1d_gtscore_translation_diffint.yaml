@@ -18,7 +18,7 @@ path_type: data_translation
 integral_type: 'diff'
 
 tr_type: ground_truth
-diffusion_steps: 1000
+
 odeint_rtol: 1e-5
 odeint_atol: 1e-5
 odeint_method: rk4

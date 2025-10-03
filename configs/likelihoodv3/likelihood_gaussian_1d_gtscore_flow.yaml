@@ -16,7 +16,7 @@ path_type: flow_ode
 integral_type: 'ode'
 
 tr_type: ground_truth
-diffusion_steps: 1000
+
 odeint_rtol: 1e-5
 odeint_atol: 1e-5
 odeint_method: rk4
