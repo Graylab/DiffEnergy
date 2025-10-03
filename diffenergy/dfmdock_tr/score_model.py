@@ -62,7 +62,7 @@ class Score_Model(pl.LightningModule):
         
         # grab some input 
         rec_pos = batch["rec_pos"]
-        lig_pos = batch["lig_pos"]
+        lig_pos = batch["sample"]
 
         # move the lig center to origin 
         center = lig_pos[..., 1, :].mean(dim=0)
