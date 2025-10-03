@@ -70,7 +70,7 @@ def main(config: DictConfig):
         raise NotImplementedError("Laplace dataset is not implemented yet.")
     elif tr_data == 'trimodal_gaussian':
         sampler = TrimodalGaussianSampler(mu1=-30, sigma1=8.0, w1=0.4 , mu2=0, sigma2=5.0, w2=0.3, mu3=40, sigma3=10.0, w3=0.3)
-        dataset = TrimodalGaussianDataset(sampler, noise_std=0.1, num_samples=20000)
+        dataset = TrimodalGaussianDataset(sampler, noise_std=0.1, num_samples=60000)
         train_loader = DataLoader(dataset, batch_size = batch_size, shuffle = True, num_workers = num_workers)
 
     tr_type = config.tr_type
@@ -98,16 +98,16 @@ def main(config: DictConfig):
         avg_train_loss = 0.
         num_train_items = 0
 
-        for noisy_data, clean_data in train_loader:
-            noisy_data = noisy_data.to(device)
-            loss = loss_fn(score_model, noisy_data, marginal_prob_std_fn)
+        for sample_data, mean in train_loader:
+            sample_data = sample_data.to(device)
+            loss = loss_fn(score_model, sample_data, marginal_prob_std_fn)
             optimizer.zero_grad()
             loss.backward()
             # Add gradient clipping
             torch.nn.utils.clip_grad_norm_(score_model.parameters(), max_norm=1.0)
             optimizer.step()
-            avg_train_loss += loss.item() * noisy_data.shape[0]
-            num_train_items += noisy_data.shape[0]
+            avg_train_loss += loss.item() * sample_data.shape[0]
+            num_train_items += sample_data.shape[0]
 
         avg_train_loss /= num_train_items
         scheduler.step(avg_train_loss)

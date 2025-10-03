@@ -43,13 +43,17 @@ def Euler_Maruyama_sampler(score_model,
         Final samples, optionally saves full trajectory
     """
 
+    if save_trajectory:
+        if outpath is None:
+            raise ValueError("outpath must be provided if save_trajectory is True")
+
     t = torch.ones(batch_size, device=device)
     init_x = torch.randn(batch_size, 1, device=device) * marginal_prob_std(t)[:, None]
-    time_steps = torch.linspace(1., eps, num_steps, device=device)
+    time_steps = torch.linspace(1., eps, num_steps-1, device=device)
     step_size = time_steps[0] - time_steps[1]
     x = init_x
 
-    trajectory = [[] for _ in range(batch_size)] if save_trajectory else None  # Store trajectory per sample
+    trajectory = [[x[i].item()] for i in range(batch_size)] if save_trajectory else None  # Store trajectory per sample
 
     for time_step in tqdm(time_steps):      
         batch_time_step = torch.ones(batch_size, device=device) * time_step
@@ -65,20 +69,26 @@ def Euler_Maruyama_sampler(score_model,
             
             if save_trajectory:
                 for i in range(batch_size):
-                    trajectory[i].append(x[i].cpu().item())  # Store per-sample trajectory
+                    trajectory[i].append(x[i].item())  # Store per-sample trajectory
 
     if save_trajectory:
-        if outpath is None:
-            raise ValueError("outpath must be provided if save_trajectory is True")
-        traj_dir = outpath / "traj"
+        traj_dir = outpath
         if not traj_dir.exists():
             traj_dir.mkdir()
 
-        for i, traj in enumerate(trajectory):
-            df_traj = pd.DataFrame({"Index": np.arange(num_steps), "Sample": traj})
-            df_traj.to_csv(f"{traj_dir}/lp{i+1}.csv", index=False)
+        time_steps = np.concatenate((time_steps.numpy(force=True),[0]))
 
-    return mean_x
+        ids = range(1,len(trajectory)+1)
+        filepaths = [f"{traj_dir}/lp{id}.csv" for id in ids]
+        for traj,path in zip(trajectory,filepaths):
+            df_traj = pd.DataFrame({"Index": np.arange(num_steps), "Timestep": time_steps, "Sample": traj})
+            df_traj.to_csv(path, index=False)
+        
+        index_file = f"{outpath}/trajectory_index.csv"
+        df_index = pd.DataFrame({"index":ids,"filename":[Path(path).name for path in filepaths]})
+        df_index.to_csv(index_file,index=False)
+
+    return x
 
 # ----------------------------------------------------------------------------------
 # Main
@@ -95,7 +105,7 @@ def main(config: DictConfig):
     marginal_prob_std_fn = functools.partial(marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
     diffusion_coeff_fn = functools.partial(diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max)
 
-    device = 'cuda'
+    device = 'cuda'# if torch.cuda.is_available() else 'cpu'
     wt_file = config.wt_file
     ckpt = torch.load(wt_file, map_location = device)
 
@@ -121,6 +131,8 @@ def main(config: DictConfig):
     sample_batch_size = config.sample_num
     save_trajectory = config.save_trajectory
 
+    traj_outpath = outpath / (Path(config.sample_file).stem + "_traj")
+
     # Generate samples using Euler-Maruyama sampler
     samples = Euler_Maruyama_sampler(score_model,
                         marginal_prob_std_fn,
@@ -129,7 +141,7 @@ def main(config: DictConfig):
                         num_steps,
                         device = device,
                         save_trajectory=save_trajectory,
-                        outpath=outpath)
+                        outpath=traj_outpath)
 
     samples_np = samples.cpu().detach().numpy()
     if samples_np.ndim == 1:
@@ -138,7 +150,8 @@ def main(config: DictConfig):
     # Create a DataFrame with 'index' and 'Samples' columns
     df = pd.DataFrame(samples_np, columns=["Samples"])
     df.reset_index(inplace=True)
-    df.rename(columns={"index":"index"}, inplace=True)
+    df.rename(columns={"index":"index"}, inplace=True) #name the index as an actual column
+    df['index'] += 1 #match trajectory indexing
     sample_file = config.sample_file
     df.to_csv(outpath / sample_file, index=False)
 
