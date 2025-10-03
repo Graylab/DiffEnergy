@@ -125,7 +125,7 @@ class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X,C]): #where p
         return len(self.path)
     
 class InterpolatedIntegrableSequence(IntegrableSequence[X,C]):
-    def __init__(self, path:Sequence[tuple[X,float]], n_interp: int, to_arr: Callable[[X],Array], from_arr: Callable[[ArrayLike],X], conditioning:C, tmin: float = 0, tmax: float = 1):
+    def __init__(self,  n_interp: int, path:Sequence[tuple[X,float]], to_arr: Callable[[X],Array], from_arr: Callable[[ArrayLike],X], conditioning:C, tmin: float = 0, tmax: float = 1):
         """n_interp of i means i-1 extra points in between each original points. n_interp of 1 is the original sequence"""
         self.n_interp = n_interp
         self.orig_sequence = path = list(path)

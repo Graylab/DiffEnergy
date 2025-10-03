@@ -301,7 +301,7 @@ def main(config: DictConfig):
             
             pathclass = IntegrableSequence[torch.Tensor,None]
             if config.get("interpolate_trajectories",False):
-                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor,None],n_interp=config.num_interpolants)
+                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor,None],config.num_interpolants)
 
             def get_trajectory(path):
                 samples,times = load_trajectory(path,device=device)
