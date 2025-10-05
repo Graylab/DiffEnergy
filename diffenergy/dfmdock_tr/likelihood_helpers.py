@@ -1,34 +1,43 @@
 
 
 import abc
-from typing import Optional, TypeVar, TypedDict
+from typing import Generic, Iterable, Optional, Protocol, Sequence, TypeVar, TypedDict
 
 import IPython
 from torch import FloatTensor, Tensor
 import torch
+from diffenergy.dfmdock_tr.score_model import Score_Model
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.likelihoodv3 import BatchScoreModelEvaluator
+from diffenergy.likelihoodv3 import ScoreModelEvaluator
+
+class DFMDict(TypedDict):
+    rec_x: Tensor
+    lig_x: Tensor
+    rec_pos: Tensor
+    lig_pos: Tensor
+    position_matrix: Tensor
+    t: Tensor
+
+class LigDict(TypedDict):
+    lig_pos: Tensor
+    
+# not gonna deal with shape nonsense, just gonna keep everything in its default (batched?) shape.
+# all the likelihood stuff can use arrays of any shape so it's fine
+def to_array(x:LigDict)->Tensor:
+    return x['lig_pos']
+def from_array(a,device:str|torch.device='cuda')->LigDict:
+    return {'lig_pos':torch.as_tensor(a,dtype=torch.float,device=torch.device(device))}
 
 
-def to_array(x:Tensor)->Tensor:
-    return x.squeeze(0)
-def from_array(a,device:str|torch.device='cuda')->Tensor:
-    return torch.as_tensor(a,dtype=torch.float,device=torch.device(device))[None,...]
-
-def to_array_batch(x:Tensor)->Tensor:
-    return x #don't un-batch
-def from_array_batch(a,device:str|torch.device='cuda')->Tensor:
-    return torch.as_tensor(a,dtype=torch.float,device=torch.device(device)) #don't re-batch
-
-X = TypeVar("X") #X 
-
+X = TypeVar("X")
 def getcache(x:Tensor,t:float,cache:Optional[tuple[tuple[Tensor,float],X]])->Optional[X]:
     if cache and (x is cache[0][0]) and t == cache[0][1]: #don't bother checking tensor equality - assume it never comes up (shouldn't)
         return cache[1]
     return None
 
-class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor,None,None]): #unbatched has a size of 1 in first dim, batched has size of N
-    def __init__(self,score_model:ScoreNetMLP|NegativeGradientMLP, always_grad:bool=True) -> None:
+
+class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 1 in first dim, batched has size of N
+    def __init__(self,score_model:Score_Model, always_grad:bool=True) -> None:
         self.score_model = score_model
         self.scorecache: Optional[tuple[tuple[Tensor,float],Tensor]] = None
         self.divcache: Optional[tuple[tuple[Tensor,float],Tensor]] = None
@@ -94,7 +103,28 @@ class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor,None,None]): #unbatched h
         
 
         
+def divergence_eval_tr(batch, score_model:Score_Model):
+    # Compute the divergence of the score-based model
 
+    # grab some input
+    lig_pos = batch["lig_pos"]
+
+    with torch.enable_grad():
+        lig_pos.requires_grad_(True)
+        tr_score = score_model(batch)["tr_score"].squeeze()
+
+        # Compute the gradient of tr_score w.r.t lig_pos
+        grad_score_lig = []
+        for i in range(tr_score.shape[0]):
+            grad = torch.autograd.grad(tr_score[i], lig_pos, retain_graph=True, create_graph=False)[0]
+            grad_score_lig.append(grad)
+        grad_score_lig = torch.stack(grad_score_lig, dim=0)  # shape[3,107,3,3]
+        grad_score_lig_ca = grad_score_lig[:,:,1,:].squeeze() # shape[3,107,3]
+        grad_score_lig_ca_mean = grad_score_lig_ca.mean(dim=1).squeeze() # shape[3,3]
+        diagonal = torch.diagonal(grad_score_lig_ca_mean)
+        trace = torch.sum(diagonal).unsqueeze(0)
+
+    return trace
 
     
 
