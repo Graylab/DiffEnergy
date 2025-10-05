@@ -9,7 +9,10 @@
 import biotite.structure
 from biotite.structure.io import pdbx, pdb
 from biotite.structure.residues import get_residues
-from biotite.structure import filter_backbone
+try:
+    from biotite.structure import filter_backbone
+except ImportError:
+    from biotite.structure import filter_peptide_backbone as filter_backbone
 from biotite.structure import get_chains
 from biotite.sequence import ProteinSequence
 import numpy as np
