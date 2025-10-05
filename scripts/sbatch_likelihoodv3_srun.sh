@@ -2,16 +2,16 @@
 
 #NN
 bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh likelihood_gaussian_1d_3integrand_flow.yaml               &
-bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh likelihood_gaussian_1d_3integrand_diff.yaml               &
+# bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh likelihood_gaussian_1d_3integrand_diff.yaml               &
 bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh likelihood_gaussian_1d_3integrand_linearized_flow.yaml    &
-bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh likelihood_gaussian_1d_3integrand_linearized_diff.yaml    &
+# bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh likelihood_gaussian_1d_3integrand_linearized_diff.yaml    &
 # bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh likelihood_gaussian_1d_3integrand_diff_interp.yaml   '++overwrite_output=True'     &
 # bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh likelihood_gaussian_1d_3integrand_diff_50interp.yaml '++overwrite_output=True'     &
 
 #GT
 bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_flow.yaml                      &
-bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff.yaml                      &
+# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff.yaml                      &
 bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_linearized_flow.yaml           &
-bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_linearized_diff.yaml           &
-bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff_interp.yaml               &
-bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff_50interp.yaml             &
+# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_linearized_diff.yaml           &
+# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff_interp.yaml               &
+# bash scripts/sbatch_likelihoodv3_template_srun.sh likelihood_gaussian_1d_gtscore_diff_50interp.yaml             &
