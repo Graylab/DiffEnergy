@@ -1,4 +1,5 @@
 ### inspired from Leeshin Chu's dips_dataset.py
+from typing import TypedDict
 import torch
 import torch.nn.functional as F
 import os.path as path
@@ -7,8 +8,19 @@ from diffenergy.dfmdock_tr.utils.esm_utils import load_coords # Utils file from 
 from diffenergy.dfmdock_tr.utils.pdb import save_PDB, place_fourth_atom
 from diffenergy.dfmdock_tr.utils import residue_constants
 
+class DockedDatum(TypedDict):
+    id: str
+    rec_seq: str
+    lig_seq: str
+    rec_x: torch.Tensor
+    lig_x: torch.Tensor
+    rec_pos: torch.Tensor
+    lig_pos: torch.Tensor
+    position_matrix: torch.Tensor
+
+
 #----------------------------------------------------------------------------
-class DockingDataset(data.Dataset):
+class DockingDataset(data.Dataset[DockedDatum]):
     def __init__(
         self, 
         data_dir: str,
@@ -31,7 +43,7 @@ class DockingDataset(data.Dataset):
         # model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
         # self.batch_converter = alphabet.get_batch_converter()
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int)->DockedDatum:
         # Get info from pdb_files and pt files
         pdb_file = path.join(self.data_dir, self.file_list[idx])
         _id = self.file_list[idx]
@@ -91,7 +103,7 @@ class DockingDataset(data.Dataset):
         position_matrix = self.relpos(res_id, asym_id)
 
         # Output
-        output = {
+        output:DockedDatum = {
             'id': _id,
             'rec_seq': rec_seq,
             'lig_seq': lig_seq,
@@ -102,9 +114,10 @@ class DockingDataset(data.Dataset):
             'position_matrix': position_matrix,
         }
         
-        return {key: value for key, value in output.items()}
+        return output
 
-    def relpos(self, res_id, asym_id, use_chain_relative=True):
+    @classmethod
+    def relpos(cls, res_id, asym_id, use_chain_relative=True):
         max_relative_idx = 32
         pos = res_id
         asym_id_same = (asym_id[..., None] == asym_id[..., None, :])
@@ -126,7 +139,7 @@ class DockingDataset(data.Dataset):
             boundaries = torch.arange(
                 start=0, end=2 * max_relative_idx + 2
             )
-            rel_pos = self.one_hot(
+            rel_pos = cls.one_hot(
                 final_offset,
                 boundaries,
             )
@@ -137,7 +150,7 @@ class DockingDataset(data.Dataset):
             boundaries = torch.arange(
                 start=0, end=2 * max_relative_idx + 1
             )
-            rel_pos = self.one_hot(
+            rel_pos = cls.one_hot(
                 clipped_offset, boundaries,
             )
             rel_feats.append(rel_pos)
@@ -146,7 +159,8 @@ class DockingDataset(data.Dataset):
 
         return rel_feat
 
-    def one_hot(self, x, v_bins):
+    @classmethod
+    def one_hot(cls, x, v_bins):
         reshaped_bins = v_bins.view(((1,) * len(x.shape)) + (len(v_bins),))
         diffs = x[..., None] - reshaped_bins
         am = torch.argmin(torch.abs(diffs), dim=-1)
