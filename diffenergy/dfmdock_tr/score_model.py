@@ -61,17 +61,23 @@ class Score_Model(pl.LightningModule):
     def forward(self, batch):
         
         # grab some input 
-        rec_pos = batch["rec_pos"]
-        lig_pos = batch["sample"]
+        lig_pos_orig = batch["lig_pos_orig"]
+        lig_pos_offset_tr = batch.get("offset_tr",None)
+        lig_pos_offset_rot = batch.get("offset_rot",None)
+        if lig_pos_offset_tr is None and lig_pos_offset_rot is None:
+            raise ValueError("Must specify at least one offset of 'offset_tr' or 'offset_rot'")
 
-        # move the lig center to origin 
-        center = lig_pos[..., 1, :].mean(dim=0)
+        lig_pos_offset_rot = torch.zeros((3,),device=lig_pos_orig.device,dtype=lig_pos_orig.dtype) if lig_pos_offset_rot is None else lig_pos_offset_rot
+        lig_pos_offset_tr = torch.zeros((3,),device=lig_pos_orig.device,dtype=lig_pos_orig.dtype) if lig_pos_offset_tr is None else lig_pos_offset_tr
 
+        lig_pos = self.modify_coords(lig_pos_orig,lig_pos_offset_rot,lig_pos_offset_tr)
+
+        # no need to center the ligand position - the Score_Net does that for us
         new_batch = {
             "rec_x": batch["rec_x"],
             "lig_x": batch["lig_x"],
-            "rec_pos": rec_pos - center,
-            "lig_pos": lig_pos - center,
+            "rec_pos": batch["rec_pos"],
+            "lig_pos": lig_pos, 
             "position_matrix": batch["position_matrix"],
             "t": batch["t"],
         }
