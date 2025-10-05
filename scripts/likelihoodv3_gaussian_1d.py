@@ -38,10 +38,10 @@ from diffenergy.gaussian_1d.likelihood_helpers import ModelEval, from_array_batc
 
 
 @overload
-def load_test_data(data_path, batch_size:None,device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]: ...
+def load_sample_endpoints(data_path, batch_size:None,device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]: ...
 @overload
-def load_test_data(data_path, batch_size:int,device:str|torch.device='cuda')->list[tuple[Sequence[str],torch.Tensor]]: ...
-def load_test_data(data_path, batch_size:int|None=None, device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]|list[tuple[Sequence[str],torch.Tensor]]:
+def load_sample_endpoints(data_path, batch_size:int,device:str|torch.device='cuda')->list[tuple[Sequence[str],torch.Tensor]]: ...
+def load_sample_endpoints(data_path, batch_size:int|None=None, device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]|list[tuple[Sequence[str],torch.Tensor]]:
     """Loads dataset from a CSV file and returns an iterable of tuples ('id',x).
     if batch_size is None, each x will be an array of shape D. Otherwise, x has shape batch_sizexD
     """
@@ -279,7 +279,7 @@ def main(config: DictConfig):
     match config.path_type:
         case "flow_ode":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_test_data(config.data_samples,batch_size=batch_size, device=device)
+            dataloader = load_sample_endpoints(config.data_samples,batch_size=batch_size, device=device)
 
             paths = ( #maybe this should be a dataloader or something idk
                 (id,FlowEquivalentODEPath[torch.Tensor,None](
@@ -333,7 +333,7 @@ def main(config: DictConfig):
             )
         case "linearized_flow":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_test_data(config.data_samples, batch_size=batch_size, device=device)
+            dataloader = load_sample_endpoints(config.data_samples, batch_size=batch_size, device=device)
 
             paths = ( #maybe this should be a dataloader or something idk
                 (id,LinearizedFlowPath[torch.Tensor,None](
@@ -469,9 +469,6 @@ def main(config: DictConfig):
             prior_endpoint:tuple[torch.Tensor,float] = (trajectories[-1], times[-1])
 
             prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in priors}
-
-
-
 
             ## Unbatch results for writing
             if not batched:
