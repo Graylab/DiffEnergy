@@ -319,6 +319,39 @@ class SpaceIntegrand(ScoreDivDiffIntegrand[X,C]):
 
 #### Paths ####
 
+# Reverse SDE Path generator. Only goes from tnoise to tdata, should be equivalent to neural network inference 
+# (meant to replace the euler_maruyama sampler for trajectory generation)
+class ReverseSDEPath(IntegrablePath[X,C]):
+    def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], times: Sequence[float], initial: X, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning:C):
+        self.scorefn = scorefn
+        self.diffcoefffn = diffcoefffn
+        self.times = times
+        self.initial = initial
+        
+        super().__init__(to_arr,from_arr,conditioning=conditioning)
+
+    def __iter__(self) -> Iterator[tuple[X, float]]:
+        x = self.initial
+        time_iter = iter(self.times)
+        time_step = next(time_iter)
+        for t2 in time_iter:
+            yield (x,time_step)
+            dt = (t2 - time_step) #note that this means dt is negative!!! so we've gotta negate it when we use it
+            g = self.diffcoefffn(time_step)
+            score = self.scorefn(x,time_step,self.condition)
+
+            with torch.no_grad():
+                x_arr = self.to_arr(x) - (g**2) * score * dt #negative because dt is negative
+                x_arr = x_arr + torch.sqrt(-dt) * g * torch.randn_like(x_arr) #negate dt so real sqrt
+                x = self.from_arr(x_arr)
+
+            time_step = t2
+
+        yield (x,time_step)
+
+
+
+
 #just pass in a sequence of points. time schedule is interpreted to be tmin..tmax linearly
 class UniformIntegrableSequence(IntegrableSequence[X,C]):
     def __init__(self,points:Iterable[X], to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C,tmin:float=0, tmax:float=1):
