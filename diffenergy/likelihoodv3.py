@@ -468,3 +468,15 @@ def run_diff_likelihoods(paths:Iterable[tuple[_I,IntegrablePath[X,C]]],integrand
 
 def run_ode_likelihoods(paths:Iterable[tuple[_I,ODEIntegrablePath[X,C]]],integrands:Sequence[ODELikelihoodIntegrand[X,C]],parallel=False,remote_kwargs={}):
     yield from istarmap_joblib(run_ode_likelihood,((id,path,integrands) for id,path in paths),parallel,remote_kwargs)
+
+XB = TypeVar("XB") #X Batched (e.g. Iterable[X])
+CB = TypeVar("CB",contravariant=True) #Batched Conditioning (e.g. Iterable[C])
+
+class ScoreModelEvaluator(Protocol,Generic[X,C]):
+    def score(self,x:X,t:float,conditioning:C)->Tensor:  ...
+    def divergence(self,x:X,t:float,conditioning:C)->float:  ...
+
+
+class BatchScoreModelEvaluator(ScoreModelEvaluator[X,C],Generic[X,XB,C,CB]):
+    def batch_score(self,batch:XB,t:float,conditioning:CB)->Iterable[Tensor]:  ...
+    def batch_divergence(self,batch:XB,t:float,conditioning:CB)->Iterable[float]:  ...

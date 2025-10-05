@@ -1,12 +1,13 @@
 
 
 import abc
-from typing import Generic, Iterable, Optional, Protocol, Sequence, TypeVar, TypedDict
+from typing import Optional, TypeVar, TypedDict
 
 import IPython
 from torch import FloatTensor, Tensor
 import torch
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
+from diffenergy.likelihoodv3 import BatchScoreModelEvaluator
 
 
 def to_array(x:Tensor)->Tensor:
@@ -19,24 +20,12 @@ def to_array_batch(x:Tensor)->Tensor:
 def from_array_batch(a,device:str|torch.device='cuda')->Tensor:
     return torch.as_tensor(a,dtype=torch.float,device=torch.device(device)) #don't re-batch
 
-X = TypeVar("X",contravariant=True) #X 
-XB = TypeVar("XB") #X Batched (e.g. Iterable[X])
-C = TypeVar("C",contravariant=True) #Conditioning
-CB = TypeVar("CB",contravariant=True) #Batched Conditioning (e.g. Iterable[C])
-
+X = TypeVar("X") #X 
 
 def getcache(x:Tensor,t:float,cache:Optional[tuple[tuple[Tensor,float],X]])->Optional[X]:
     if cache and (x is cache[0][0]) and t == cache[0][1]: #don't bother checking tensor equality - assume it never comes up (shouldn't)
         return cache[1]
     return None
-
-class ScoreModelEvaluator(Protocol,Generic[X,C]):
-    def score(self,x:X,t:float,conditioning:C)->Tensor:  ...
-    def divergence(self,x:X,t:float,conditioning:C)->float:  ...
-
-class BatchScoreModelEvaluator(ScoreModelEvaluator[X,C],Generic[X,XB,C,CB]):
-    def batch_score(self,batch:XB,t:float,conditioning:CB)->Iterable[Tensor]:  ...
-    def batch_divergence(self,batch:XB,t:float,conditioning:CB)->Iterable[float]:  ...
 
 class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor,None,None]): #unbatched has a size of 1 in first dim, batched has size of N
     def __init__(self,score_model:ScoreNetMLP|NegativeGradientMLP, always_grad:bool=True) -> None:

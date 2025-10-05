@@ -150,8 +150,8 @@ def main(config: DictConfig):
     # Create a DataFrame with 'index' and 'Samples' columns
     df = pd.DataFrame(samples_np, columns=["Samples"])
     df.reset_index(inplace=True)
-    df.index += 1 #match trajectory indexing
     df.rename(columns={"index":"index"}, inplace=True) #name the index as an actual column
+    df['index'] += 1 #match trajectory indexing
     sample_file = config.sample_file
     df.to_csv(outpath / sample_file, index=False)
 
