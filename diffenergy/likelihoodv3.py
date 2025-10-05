@@ -198,11 +198,11 @@ class ODEIntegrablePath(IntegrablePath[X,C],ABC):
             dx,dt = self.dx(i,x,t),self.dt(i,x,t)
             return self.xntensor(dx,dt,*[integrand.odeintegrand(x,t,dx,dt,self.condition) for integrand in integrands])
         
-        ## add a dimension to each integrand's zero to allow "scalar" integrands; odeint throws a fit with scalar tensors since they can't be concatenated
+        ## add a null dimension to each integrand's zero ([None,...]) to allow "scalar" integrands; odeint throws a fit with scalar tensors since they can't be concatenated
         res = odeint(ode_func,self.xntensor(*self.initial,*(integrand.zero(self.initial[0])[None,...] for integrand in integrands)),self.tensor(self.timeschedule),rtol=self.rtol,atol=self.atol,method=self.method)
         xs,ts,*I = res
 
-        ## make sure to remove the dimension from each integrand
+        ## make sure to remove the null dimension from each integrand via [0]
         return list(map(self.from_arr,xs)),list(map(Tensor.item,ts)),[i[-1][0] for i in I]
     
 
