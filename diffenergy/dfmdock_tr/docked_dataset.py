@@ -6,6 +6,8 @@ from torch.utils import data
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords # Utils file from ESM https://github.com/facebookresearch/esm/blob/main/esm/inverse_folding/util.py
 from diffenergy.dfmdock_tr.utils.pdb import save_PDB, place_fourth_atom
 from diffenergy.dfmdock_tr.utils import residue_constants
+from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel 
+from esm.data import Alphabet
 
 #----------------------------------------------------------------------------
 class DockingDataset(data.Dataset):
@@ -13,9 +15,9 @@ class DockingDataset(data.Dataset):
         self, 
         data_dir: str,
         data_list: str,
+        esm_model:ESMLanguageModel,
+        esm_alphabet:Alphabet,
         out_pdb: bool = False,
-        esm_model = None,
-        esm_alphabet = None,
     ):
         # Path to the data directory 
         self.data_dir = data_dir
@@ -201,10 +203,13 @@ class DockingDataset(data.Dataset):
         return full_coords
 
 if __name__ == '__main__':
-    data_dir = "/scratch4/jgray21/ssarma4/pdbs"
-    data_list = "/scratch4/jgray21/ssarma4/pdbs/filenames.txt"
+    # data_dir = "/scratch4/jgray21/ssarma4/pdbs"
+    data_dir = "/home/dxu39/scr4_jgray21/dxu39/projects/diffenergy/dfmdock_perturb_tr_likelihood/dfmdock_inference/results/trjs/db5_test_DFMDock_model_0_0.5_120_samples_40_steps_dips/splits"
+    # data_list = "/scratch4/jgray21/ssarma4/pdbs/filenames.txt"
+    data_list = "/home/dxu39/scr4_jgray21/dxu39/projects/diffenergy/dfmdock_perturb_tr_likelihood/dfmdock_inference/results/trjs/dfmdock_perturb_tr_likelihood_db5_test_trj.txt"
     dataset = DockingDataset(
         data_dir=data_dir, 
         data_list=data_list, 
         out_pdb=False,
     )
+    from IPython import embed; embed()
