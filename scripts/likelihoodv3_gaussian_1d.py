@@ -9,39 +9,23 @@ import functools
 import shutil
 from typing import Callable, Iterable, Mapping, Optional, Sequence, overload
 
-from tqdm import tqdm
 from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
-from diffenergy.likelihoodv3 import (
-    FlowEquivalentODEPath, 
-    IntegrablePath, 
-    IntegrableSequence, 
-    InterpolatedIntegrableSequence, 
-    LikelihoodIntegrand, 
-    LinearPath, 
-    LinearizedFlowPath, 
-    PerturbedPath, 
-    ScoreDivDiffIntegrand, 
-    SpaceIntegrand, 
-    TimeIntegrand, 
-    TotalIntegrand, 
-    run_diff_likelihoods, 
-    run_ode_likelihoods)
 
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
 import torch
 import hydra
 
-from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_nd
+from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, prior_gaussian_nd
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.gaussian_1d.likelihood_helpers import ModelEval, from_array_batch, to_array as to_array_nobatch, from_array as from_array_nobatch, to_array_batch
-
+from scripts.likelihoodv3 import get_likelihoods, SizedIter
 
 @overload
-def load_sample_endpoints(data_path, batch_size:None,device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]: ...
+def load_samples(data_path, batch_size:None,device:str|torch.device='cuda')->SizedIter[tuple[str,torch.Tensor,None]]: ...
 @overload
-def load_sample_endpoints(data_path, batch_size:int,device:str|torch.device='cuda')->list[tuple[Sequence[str],torch.Tensor]]: ...
-def load_sample_endpoints(data_path, batch_size:int|None=None, device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]|list[tuple[Sequence[str],torch.Tensor]]:
+def load_samples(data_path, batch_size:int,device:str|torch.device='cuda')->SizedIter[tuple[Sequence[str],torch.Tensor,None]]: ...
+def load_samples(data_path, batch_size:int|None=None, device:str|torch.device='cuda')->SizedIter[tuple[str,torch.Tensor,None]]|SizedIter[tuple[Sequence[str],torch.Tensor,None]]:
     """Loads dataset from a CSV file and returns an iterable of tuples ('id',x).
     if batch_size is None, each x will be an array of shape D. Otherwise, x has shape batch_sizexD
     """
@@ -55,27 +39,27 @@ def load_sample_endpoints(data_path, batch_size:int|None=None, device:str|torch.
     samples = torch.tensor(samples, dtype=torch.float32, device=device)[...,None]  # samples as floats, add a dimension to make them vectors
 
     if batch_size is None:
-        return [(str(int(id.item())),x) for id,x in zip(ids,samples)]
+        return [(str(int(id.item())),x,None) for id,x in zip(ids,samples)]
     else:
         assert batch_size > 0
-        return [([str(int(id)) for id in ids[i*batch_size:(i+1)*batch_size].tolist()],samples[i*batch_size:(i+1)*batch_size]) 
+        return [([str(int(id)) for id in ids[i*batch_size:(i+1)*batch_size].tolist()],samples[i*batch_size:(i+1)*batch_size],None) 
                 for i in range(math.ceil(len(samples)/batch_size))]
 
 
 @overload
-def load_trajectories(trajectory_index_file:str|Path,batch_size:int)->list[tuple[tuple[str,...],tuple[Path,...]]]: ...
+def load_trajectories(trajectory_index_file:str|Path,batch_size:int)->list[tuple[tuple[str,...],tuple[Path,...],None]]: ...
 @overload
-def load_trajectories(trajectory_index_file:str|Path,batch_size:None)->list[tuple[str,Path]]: ...
-def load_trajectories(trajectory_index_file:str|Path,batch_size:int|None=None)->list[tuple[str,Path]]|list[tuple[tuple[str,...],tuple[Path,...]]]:
+def load_trajectories(trajectory_index_file:str|Path,batch_size:None)->list[tuple[str,Path,None]]: ...
+def load_trajectories(trajectory_index_file:str|Path,batch_size:int|None=None)->list[tuple[str,Path,None]]|list[tuple[tuple[str,...],tuple[Path,...],None]]:
     trajectory_index_file = Path(trajectory_index_file)
     assert trajectory_index_file.suffix == '.csv'
     df = pd.read_csv(trajectory_index_file)
     dlist:dict[str,str] = df.set_index('index').T.to_dict(orient='records')[0] #make ids columnames, then convert to a dict of [{colname:value,colname:value}] and get the first result
-    res = [(str(id),trajectory_index_file.parent/p) for id,p in dlist.items()]
+    res = [(str(id),trajectory_index_file.parent/p,None) for id,p in dlist.items()]
     if batch_size is None:
         return res
     else:
-        return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch)) for batch in itertools.batched(res,batch_size)]
+        return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch),None) for batch in itertools.batched(res,batch_size)]
 
 
 def load_trajectory(data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda')->tuple[torch.Tensor,torch.Tensor]:
@@ -107,14 +91,6 @@ def load_trajectory(data_path:str|Path|tuple[str|Path,...],device:str|torch.devi
     return samples[...,None],alltimes  #add dimension to samples so iteration of 1d vectors
 
 
-def load_endpoints(data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda'):
-    samples,steps = load_trajectory(data_path,device=device)
-    assert steps[0] == 0 and steps[-1] == 1
-    return samples[0], samples[-1] #Time dimension is always first, even in batching
-
-
-
-
 @hydra.main(version_base=None, config_path="../configs/likelihoodv3", config_name="likelihood_gaussian_1d")
 def main(config: DictConfig):
     # Print the entire configuration
@@ -137,9 +113,6 @@ def main(config: DictConfig):
     marginal_prob_std_fn = functools.partial(
         marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
 
-    diffusion_coeff_fn = functools.partial(
-        diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.clamp_diffusion_coefficient)
-
     # set models
     weights_path = config.checkpoint
     ckpt = torch.load(weights_path, map_location = device)
@@ -148,9 +121,8 @@ def main(config: DictConfig):
     if any(key.startswith("module.") for key in ckpt.keys()):
         ckpt = {key.replace("module.", ""): value for key, value in ckpt.items()}
 
-    tr_type = config.tr_type
-
     # Initialize score model, load the checkpoint weights into the model    
+    tr_type = config.tr_type
     if tr_type == 'non_conservative':
         score_model = ScoreNetMLP(
             input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
@@ -174,41 +146,7 @@ def main(config: DictConfig):
     
     scorefn = model_eval.score if not batched else model_eval.batch_score
     divergencefn = model_eval.divergence if not batched else model_eval.batch_divergence
-
-    ### LOAD INTEGRANDS
-    integrands:list[LikelihoodIntegrand] = []
-    types:DictConfig = config.integrand_types
-    if types is None:
-        types = []
-    if not isinstance(types,Mapping):
-        types = DictConfig({t:{} for t in types}) #ensure types is a DictConfig of Dicts
-
-    for integrand_type,params in types.items():
-        def param(p:str,*args):
-            if params is not None:
-                if params.get(p,None) is not None:
-                    return p
-            return config.get(p,*args)
-            
-        intclasses:dict[str,type[ScoreDivDiffIntegrand]] = {cls.__name__:cls for cls in [TotalIntegrand,TimeIntegrand,SpaceIntegrand]}
-
-        if integrand_type in intclasses:
-            intcls = intclasses[integrand_type]
-            integrand = intcls(scorefn,divergencefn,diffusion_coeff_fn,to_array,from_array)
-        else:
-            raise ValueError("Unknown integrand type:",integrand_type)
-        
-        integrands.append(integrand)
-
     
-    if len(integrands) == 0:
-        raise ValueError("""Must specify at least one integrand type!\n
-                         `integrand_types` can either be a list of strings (classnames) or a list of mappings from classnames to
-                         integrand-specific parameters. If an integrand parameter is not provided in the integrand-specific section,
-                         it will look for that parameter in the global scope instead (hence defaults/shared parameters can be provided globally).
-                         To specify an empty mapping, simply include the `ClassName:` line without any subitems below it.""")
-
-
     ### LOAD PRIORS
     priors:list[tuple[str,Callable[[torch.Tensor,float],float]]] = []
     functions:DictConfig = config.get("prior_fns","smax_gaussian")
@@ -265,165 +203,25 @@ def main(config: DictConfig):
                     return res.numpy(force=True) if batched else res.item()
                 priors.append((prior_fn,prior_likelihood_fn))
 
-    ### LOAD PATHS
-    #ode integration: needs a timeschedule. Unused if diffusion / other trajectory used
-    match config.get("ode_timeschedule","uniform"):
-        case "uniform":
-            ode_times = torch.linspace(0,1,config.ode_steps+1,device=device)
-        case default:
-            raise ValueError("Unknown timeschedule method:",default)
+    load_samples_fn = lambda: load_samples(config.data_samples, batch_size=batch_size, device=device)
+    load_trajectories_fn = lambda: load_trajectories(config.trajectory_index_file,batch_size=batch_size)
+    
+    def get_trajectory(path)->list[tuple[torch.Tensor,float]]:
+        samples,times = load_trajectory(path,device=device)
+        return list(zip(map(from_array,samples),times))
 
-
-    # load path and associated dataset
-    paths:Iterable[tuple[str|Sequence[str],IntegrablePath[torch.Tensor,None]]]
-    match config.path_type:
-        case "flow_ode":
-            #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_sample_endpoints(config.data_samples,batch_size=batch_size, device=device)
-
-            paths = ( #maybe this should be a dataloader or something idk
-                (id,FlowEquivalentODEPath[torch.Tensor,None](
-                    scorefn,
-                    diffusion_coeff_fn,
-                    ode_times,
-                    (from_array(initial),0),
-                    config.odeint_rtol,
-                    config.odeint_atol,
-                    config.odeint_method,
-                    to_array,
-                    from_array,
-                    None))
-                    for (id,initial) in tqdm(dataloader)
-                )
-        case "sde_trajectories":
-            #sde: get paths from diffusion tajectories
-            trajectories = load_trajectories(config.trajectory_index_file,batch_size=batch_size)
-            
-            pathclass = IntegrableSequence[torch.Tensor,None]
-            if config.get("interpolate_trajectories",False):
-                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor,None],config.num_interpolants)
-
-            def get_trajectory(path):
-                samples,times = load_trajectory(path,device=device)
-                return zip(map(from_array,samples),times)
-            
-            paths = (
-                (id,pathclass(list(get_trajectory(path)),
-                              to_array,
-                              from_array,
-                              None))
-                for id,path in tqdm(trajectories)
-            )
-        case "linear_trajectories":
-            #linear: take sampled paths, and just make a straight line from start to end
-            trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
-            
-            #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory,device=device)) for id,trajectory in tqdm(trajectories))
-
-            paths = (
-                (id,LinearPath[torch.Tensor,None]((from_array(start),0),(from_array(end),1),ode_times,
-                            config.odeint_rtol,
-                            config.odeint_atol,
-                            config.odeint_method,
-                            to_array,
-                            from_array,
-                            None))
-                for (id,(start,end)) in endpoints
-            )
-        case "linearized_flow":
-            #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_sample_endpoints(config.data_samples, batch_size=batch_size, device=device)
-
-            paths = ( #maybe this should be a dataloader or something idk
-                (id,LinearizedFlowPath[torch.Tensor,None](
-                    scorefn,
-                    diffusion_coeff_fn,
-                    ode_times,
-                    (from_array(sample),0),
-                    config.odeint_rtol,
-                    config.odeint_atol,
-                    config.odeint_method,
-                    to_array,
-                    from_array,
-                    None))
-                    for id,sample in tqdm(dataloader)
-                )
-        case "diff_data_translation":
-            # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
-            # Requires a prior function compatible with t0 sampling
-            
-            #sde: get paths from diffusion tajectories
-            trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
-            
-            pathclass = IntegrableSequence[torch.Tensor,None]
-            if config.get("interpolate_trajectories",False):
-                pathclass = functools.partial(InterpolatedIntegrableSequence[torch.Tensor,None],n_interp=config.num_interpolants)
-
-            def get_trajectory(path):
-                samples,times = load_trajectory(path,device=device)
-                return zip(map(from_array,samples),times)
-            
-            paths = (
-                (id,pathclass([(x,0) for x,t in (get_trajectory(path))],
-                              to_array,
-                              from_array,None))
-                for id,path in tqdm(trajectories)
-            )
-
-        case "data_translation":
-            # Linear translation in data space: like linear_trajectories, but always at time=0. 
-            # Requires a prior function compatible with t0 sampling
-
-            # take sampled paths, and just make a straight line from start to end
-            trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
-            
-            #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory,device=device)) for id,trajectory in tqdm(trajectories)) 
-
-            paths = (
-                (id,LinearPath((from_array(start),0),(from_array(end),0),ode_times, #start and end both 0!
-                            config.odeint_rtol,
-                            config.odeint_atol,
-                            config.odeint_method,
-                            to_array,
-                            from_array,
-                            None))
-                for (id,(start,end)) in endpoints
-            )
-
-        case _:
-            raise ValueError("Unknown path type:",config.path_type)
-
-    if config.get("perturb_path",False):
-        if config.integral_type == "ode":
-            raise ValueError("Can't stochastically perturb an ODE! However, ODEIntegrablePaths can be used in discrete integral mode. Please set integral_type to 'diff' or disable perturbation")
-        sigma:float = config.perturbation_sigma
-        schedule:str = config.get("perturbation_schedule","data")
-        paths = ((id,PerturbedPath[torch.Tensor,None](path,schedule,sigma,path.condition)) for id,path in paths) #god I love generators
-
-
-    ### RUN LIKELIHOOD COMPUTATION
-    parallel = config.get("parallel",False)
-    cluster_kwargs = config.get("cluster_kwargs",{})
-    if parallel:
-        import ray
-        ray.init(**cluster_kwargs)
-    actor_kwargs = config.get("actor_kwargs",{})
-    if device.type == 'cuda' and 'num_gpus' not in actor_kwargs:
-        actor_kwargs['num_gpus'] = 1 #assume each actor will consume an entire gpu
-
-    int_type = config.get("integral_type")
-    if int_type == "ode":
-        #assume paths are ode integrable. error will be thrown otherwise
-        likelihoods = run_ode_likelihoods(paths,integrands,parallel=parallel,remote_kwargs=actor_kwargs)
-    elif int_type == "diff":
-        #use standard integration
-        likelihoods = run_diff_likelihoods(paths,integrands,parallel=parallel,remote_kwargs=actor_kwargs)
-    else:
-        raise ValueError(f"Unknown integral type: {int_type}. For standard (non-ode solver) numerical integration, use integral_type: \"diff\" (the default).")
-
-
+    likelihoods, integrands = get_likelihoods(
+        config,
+        from_array,
+        to_array,
+        scorefn,
+        divergencefn,
+        load_samples_fn,
+        load_trajectories_fn,
+        get_trajectory,
+        device
+    )
+    
     ### WRITE OUTPUT
     out_dir = Path(config.out_dir)
     likelihoods_name = out_dir/"likelihood.csv"
@@ -517,6 +315,7 @@ def main(config: DictConfig):
                 writer.writerow(row)
 
                 f.flush()
+
 
 if __name__ == '__main__':
     main()
