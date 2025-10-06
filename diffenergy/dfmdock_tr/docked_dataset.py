@@ -22,33 +22,17 @@ class DockedDatum(TypedDict):
 
 
 #----------------------------------------------------------------------------
-class DockingDataset(data.Dataset[DockedDatum]):
+class PDBImporter:
     def __init__(
         self, 
-        data_dir: str,
-        data_list: str,
         esm_model:ESMLanguageModel,
         esm_alphabet:Alphabet,
-        out_pdb: bool = False,
     ):
         # Path to the data directory 
-        self.data_dir = data_dir
-        self.data_list = data_list
-        self.out_pdb = out_pdb
-        with open(self.data_list, 'r') as f:
-            lines = f.readlines()
-        self.file_list = [line.strip() for line in lines] 
         self.esm_model = esm_model
         self.batch_converter = esm_alphabet.get_batch_converter()
 
-        # # Load esm
-        # model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
-        # self.batch_converter = alphabet.get_batch_converter()
-
-    def __getitem__(self, idx: int)->DockedDatum:
-        # Get info from pdb_files and pt files
-        pdb_file = path.join(self.data_dir, self.file_list[idx])
-        _id = self.file_list[idx]
+    def get_pdb(self,pdb_file:str,id:str,out_pdb: bool = False)->DockedDatum:
 
         # Get sequences and coords from files  
         rec_pos, rec_seq = load_coords(pdb_file,"A")
@@ -65,7 +49,7 @@ class DockingDataset(data.Dataset[DockedDatum]):
         rec_x = self.get_tokens(rec_seq).unsqueeze(0)
         lig_x = self.get_tokens(lig_seq).unsqueeze(0)
 
-        if self.out_pdb:
+        if out_pdb:
             test_coords = torch.cat([rec_pos, lig_pos], dim=0)
             test_coords = self.get_full_coords(test_coords)
             save_PDB('test.pdb', test_coords, rec_seq+lig_seq, len(rec_seq)-1)
@@ -106,7 +90,7 @@ class DockingDataset(data.Dataset[DockedDatum]):
 
         # Output
         output:DockedDatum = {
-            'id': _id,
+            'id': id,
             'rec_seq': rec_seq,
             'lig_seq': lig_seq,
             'rec_x': rec_x,
@@ -169,9 +153,6 @@ class DockingDataset(data.Dataset[DockedDatum]):
         
         return F.one_hot(am, num_classes=len(v_bins)).float()
 
-    def __len__(self):
-        return len(self.file_list)
-
     def get_tokens(self, seq_prim):
         
         # Use ESM-1b format.
@@ -215,6 +196,32 @@ class DockingDataset(data.Dataset[DockedDatum]):
             [n_coords, ca_coords, c_coords, o_coords, cb_coords], dim=1)
         
         return full_coords
+    
+class DockingDataset(data.Dataset[DockedDatum]):
+    def __init__(
+        self, 
+        data_dir: str,
+        data_list: str,
+        importer: PDBImporter,
+        out_pdb: bool = False,
+    ):
+        # Path to the data directory 
+        self.data_dir = data_dir
+        self.data_list = data_list
+        self.out_pdb = out_pdb
+        with open(self.data_list, 'r') as f:
+            lines = f.readlines()
+        self.file_list = [line.strip() for line in lines] 
+        self.importer = importer
+
+    def __getitem__(self, idx) -> DockedDatum:
+        pdb_file = path.join(self.data_dir, self.file_list[idx])
+        _id = self.file_list[idx]
+        return self.importer.get_pdb(pdb_file,_id,out_pdb=self.out_pdb)
+
+    def __len__(self):
+        return len(self.file_list)
+
 
 if __name__ == '__main__':
     # data_dir = "/scratch4/jgray21/ssarma4/pdbs"
