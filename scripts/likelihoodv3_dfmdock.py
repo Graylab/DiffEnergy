@@ -1,4 +1,3 @@
-from fileinput import filename
 import itertools
 from logging import warning
 import math
@@ -11,7 +10,7 @@ from typing import Callable, Iterable, Mapping, Optional, Sequence, overload
 
 from tqdm import tqdm
 from diffenergy.dfmdock_tr.score_model import Score_Model
-from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
+from diffenergy.groundtruth_score import batched_normpdf_matrix, batched_normpdf_scalar
 from diffenergy.likelihoodv3 import (
     FlowEquivalentODEPath, 
     IntegrablePath, 
