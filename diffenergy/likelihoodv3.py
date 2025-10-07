@@ -463,7 +463,7 @@ def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],
     # prior_endpoint:tuple[X,float] = trajectory[-1]
     # prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in prior_fns}
 
-    return (id,trajectory, times, integrand_results)
+    return (id, trajectory, times, path.condition, integrand_results)
 
 def run_diff_likelihood(id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]]):
     return _run_likelihood('diff',id,path,integrands)
