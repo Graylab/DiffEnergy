@@ -3,7 +3,7 @@ wt_file: checkpoints/dfmdock_model_0.ckpt
 offset_type: "Translation"
 samples_per_pdb: 40
 
-data_samples
+data_samples: ../db5_pdbs
 
 num_steps: 40
 sigma_min: 0.1
