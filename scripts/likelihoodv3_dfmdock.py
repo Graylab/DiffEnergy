@@ -1,4 +1,3 @@
-from fileinput import filename
 from io import TextIOWrapper
 import itertools
 from logging import warning
@@ -24,7 +23,6 @@ import hydra
 
 from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
 from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_nd
-# from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
 from diffenergy.likelihoodv3 import Array, ArrayLike, LikelihoodIntegrand
 from scripts.likelihoodv3 import MapDataset, SizedIter, get_integrands, get_likelihoods, get_paths
