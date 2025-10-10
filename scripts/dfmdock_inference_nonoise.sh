@@ -4,7 +4,7 @@ export HYDRA_FULL_ERROR=1
 # Define variables
 DIR="../dfmdock_perturb_tr_likelihood/dfmdock_inference/no_noise"
 TRAIN_SET="dips"
-TEST_SET="db5_test"
+TEST_SET="db5_local"
 MODEL="DFMDock_model_0"
 NUM_SAMPLES=1 #deterministic - only one sample per pdb
 NUM_STEPS=40
