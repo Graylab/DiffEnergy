@@ -12,6 +12,7 @@ from esm.data import Alphabet
 
 class DockedDatum(TypedDict):
     id: str
+    pdb_file: str
     rec_seq: str
     lig_seq: str
     rec_x: torch.Tensor
@@ -54,10 +55,6 @@ class PDBImporter:
             test_coords = self.get_full_coords(test_coords)
             save_PDB('test.pdb', test_coords, rec_seq+lig_seq, len(rec_seq)-1)
 
-        # New code 
-        
-        # esm_model = ESMLanguageModel()
-
         # get esm embedding
         rec_x = self.esm_model(rec_x).squeeze(0) 
         lig_x = self.esm_model(lig_x).squeeze(0)  
@@ -91,6 +88,7 @@ class PDBImporter:
         # Output
         output:DockedDatum = {
             'id': id,
+            'pdb_file': pdb_file,
             'rec_seq': rec_seq,
             'lig_seq': lig_seq,
             'rec_x': rec_x,

@@ -1,4 +1,5 @@
 from fileinput import filename
+from io import TextIOWrapper
 import itertools
 from logging import warning
 import math
@@ -7,52 +8,69 @@ from pathlib import Path
 import csv
 import functools
 import shutil
-from typing import Callable, Iterable, Mapping, Optional, Sequence, overload
+from typing import Any, Callable, Collection, Iterable, Literal, Mapping, Optional, ParamSpec, Protocol, Sequence, Sized, TypeVar, TypeVarTuple, overload, override
+import warnings
 
+import numpy as np
 from tqdm import tqdm
+from diffenergy.dfmdock_tr.docked_dataset import DockedDatum, PDBImporter
+from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
 from diffenergy.dfmdock_tr.score_model import Score_Model
-from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
-from diffenergy.likelihoodv3 import (
-    FlowEquivalentODEPath, 
-    IntegrablePath, 
-    IntegrableSequence, 
-    InterpolatedIntegrableSequence, 
-    LikelihoodIntegrand, 
-    LinearPath, 
-    LinearizedFlowPath, 
-    PerturbedPath, 
-    ScoreDivDiffIntegrand, 
-    SpaceIntegrand, 
-    TimeIntegrand, 
-    TotalIntegrand, 
-    run_diff_likelihoods, 
-    run_ode_likelihoods)
 
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
 import torch
 import hydra
 
+from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
 from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_nd
 # from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
+from diffenergy.likelihoodv3 import Array, ArrayLike, LikelihoodIntegrand
+from scripts.likelihoodv3 import MapDataset, SizedIter, get_integrands, get_likelihoods, get_paths
+
+
+def dockeddatum_to_condition(datum:DockedDatum,device:str|torch.device)->DFMDict:
+    return {
+        "orig_pdb": datum["pdb_file"],
+        "lig_pos_orig": datum["lig_pos"].to(device),
+        "rec_pos": datum["rec_pos"].to(device),
+        "lig_x": datum["lig_x"].to(device),
+        "rec_x": datum["rec_x"].to(device),
+        "position_matrix": datum["position_matrix"].to(device),
+    }
+
 
 
 @overload
-def load_sample_endpoints(data_path, batch_size:None,device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]: ...
+def load_samples(data_file, data_dir, offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], importer:PDBImporter, batch_size:None,device:str|torch.device='cuda')->MapDataset[tuple[str,LigDict,DFMDict],str,Path]: ...
 @overload
-def load_sample_endpoints(data_path, batch_size:int,device:str|torch.device='cuda')->list[tuple[Sequence[str],torch.Tensor]]: ...
-def load_sample_endpoints(data_path, batch_size:int|None=None, device:str|torch.device='cuda')->list[tuple[str,torch.Tensor]]|list[tuple[Sequence[str],torch.Tensor]]:
-    """Loads dataset from a CSV file and returns an iterable of tuples ('id',x).
-    if batch_size is None, each x will be an array of shape D. Otherwise, x has shape batch_sizexD
+def load_samples(data_file, data_dir, offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], importer:PDBImporter, batch_size:int,device:str|torch.device='cuda')->MapDataset[tuple[Sequence[str],LigDict,DFMDict],str,Path]: ...
+def load_samples(data_file, data_dir, offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], importer:PDBImporter, batch_size:int|None=None, device:str|torch.device='cuda')->MapDataset[tuple[str,LigDict,DFMDict],str,Path]|MapDataset[tuple[Sequence[str],LigDict,DFMDict],str,Path]:
+    """Loads pdbs from a CSV file containing filenames. Returns tuples of (id, LigDict, DFMDict),
+    where LigDict contains the offset vector for the ligand (zero by default!) and DFMDict contains the
+    (NOT 0-CENTERED!) ligand and receptor coordinates as well as the other conditioning information (ESM embeddings, etc)
+    required for model evaluation.
     """
+    if batch_size is not None: raise ValueError("Batching not supported")
 
-    df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
+    df = pd.read_csv(data_file, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
     ids = df.loc[:, "index"].values  # Extract the first column as ids
-    samples = df.loc[:, "Samples"].values  # Extract the second column as samples
+    paths = df.loc[:, "Filename"].values  # Extract the second column as filenames
+
+    def getpdb(id:str,path:Path)->tuple[str,LigDict,DFMDict]:
+        dfmdict = dockeddatum_to_condition(importer.get_pdb(str(path),id),device)
+        return (id,
+                from_array_nobatch(torch.zeros((6 if offset_type == "Translation+Rotation" else 3,),device=device,dtype=dfmdict["lig_pos_orig"].dtype),device=device),
+                dfmdict)
+    
+    data_dir = Path(data_dir)
+    
+    return MapDataset([(str(id),data_dir/path) for id,path in zip(ids,paths)],getpdb)
+
+
 
     # Convert to tensors
-    ids = torch.tensor(ids, dtype=torch.int64)  # ids as integers
     samples = torch.tensor(samples, dtype=torch.float32, device=device)[...,None]  # samples as floats, add a dimension to make them vectors
 
     if batch_size is None:
@@ -64,32 +82,42 @@ def load_sample_endpoints(data_path, batch_size:int|None=None, device:str|torch.
 
 
 @overload
-def load_trajectories(trajectory_index_file:str|Path,batch_size:int)->list[tuple[tuple[str,...],tuple[Path,...]]]: ...
+def load_trajectories(trajectory_index_file:str|Path,pdb_dir:str|Path,trajectory_dir:str|Path,pdb_importer:PDBImporter,batch_size:int)->SizedIter[tuple[tuple[str,...],tuple[Path,...],tuple[DFMDict,...]]]: ...
 @overload
-def load_trajectories(trajectory_index_file:str|Path,batch_size:None)->list[tuple[str,Path]]: ...
-def load_trajectories(trajectory_index_file:str|Path,batch_size:int|None=None)->list[tuple[str,Path]]|list[tuple[tuple[str,...],tuple[Path,...]]]:
+def load_trajectories(trajectory_index_file:str|Path,pdb_dir:str|Path,trajectory_dir:str|Path,pdb_importer:PDBImporter,batch_size:None)->SizedIter[tuple[str,Path,DFMDict]]: ...
+def load_trajectories(trajectory_index_file:str|Path,pdb_dir:str|Path,trajectory_dir:str|Path,pdb_importer:PDBImporter,batch_size:int|None=None,device:str|torch.device='cuda')->SizedIter[tuple[str,Path,DFMDict]]|SizedIter[tuple[tuple[str,...],tuple[Path,...],tuple[DFMDict,...]]]:
     trajectory_index_file = Path(trajectory_index_file)
+    pdb_dir = Path(pdb_dir)
+    trajectory_dir = Path(trajectory_dir)
+
     assert trajectory_index_file.suffix == '.csv'
     df = pd.read_csv(trajectory_index_file)
-    dlist:dict[str,str] = df.set_index('index').T.to_dict(orient='records')[0] #make ids columnames, then convert to a dict of [{colname:value,colname:value}] and get the first result
-    res = [(str(id),trajectory_index_file.parent/p) for id,p in dlist.items()]
+    res:list[tuple[str,Path,DFMDict]] = [(id,trajectory_dir/trajectory_filename,dockeddatum_to_condition(pdb_importer.get_pdb(str(pdb_dir/pdb_filename),id),device=device))
+              for id,pdb_filename,trajectory_filename in zip(df["index"],df["PDB_File"],df["Trajectory_File"])]
     if batch_size is None:
         return res
     else:
-        return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch)) for batch in itertools.batched(res,batch_size)]
+        return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch), tuple(b[2] for b in batch)) for batch in itertools.batched(res,batch_size)]
 
-
-def load_trajectory(data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda')->tuple[torch.Tensor,torch.Tensor]:
-    batched = isinstance(data_path,tuple)
-    paths = data_path if batched else [data_path]
+@overload
+def load_trajectory(data_path:str|Path, offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], device:str|torch.device='cuda')->SizedIter[tuple[LigDict,torch.Tensor]]: ...
+@overload
+def load_trajectory(data_path:tuple[str|Path,...], offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], device:str|torch.device='cuda')->SizedIter[tuple[tuple[LigDict,...],torch.Tensor]]: ...
+def load_trajectory(data_path:str|Path|tuple[str|Path,...], offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], device:str|torch.device='cuda')->SizedIter[tuple[LigDict|tuple[LigDict,...],torch.Tensor]]:
+    paths = data_path if isinstance(data_path,tuple) else [data_path]
     alltimes:Optional[torch.Tensor] = None
-    sampleslist:list[torch.Tensor] = []
+    sampleslist:list[list[LigDict]] = []
+    
+    columns = offset_trajectory_columns(offset_type)
+    
     for path in paths:
-        df = pd.read_csv(path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
+        assert str(path).endswith(".csv")
+        df = pd.read_csv(path, header=0)  # Load CSV
 
         # we reverse the trajectory so it matches flow, with time going from 0 to 1. 
-        # have to do this and numpy AND make a copy, cause tensors don't support negative stride -_-
+        # have to do this AND make a copy, cause tensors don't support negative stride -_-
         df = df.iloc[::-1].copy()
+
 
         if "Timestep" in df.columns:
             times = torch.as_tensor(df.loc[:, "Timestep"].values,dtype=torch.float32) #Extract Timestep column as times.
@@ -101,19 +129,24 @@ def load_trajectory(data_path:str|Path|tuple[str|Path,...],device:str|torch.devi
             assert torch.allclose(alltimes,times)
         else:
             alltimes = times
-        
-        sampleslist.append(torch.as_tensor(df.loc[:, "Sample"].values,dtype=torch.float32,device=device))  # Extract the Sample column
+
+        data = torch.as_tensor(df[columns].values,dtype=torch.float32,device=device) #this just works yesssss
+        #make list of LigDict
+        sampleslist.append([from_array_nobatch(data[i],device=device) for i in range(data.shape[0])])
     assert alltimes is not None
-    samples = torch.stack(sampleslist,dim=1) if batched else sampleslist[0] #needs to be NxB 
-    return samples[...,None],alltimes  #add dimension to samples so iteration of 1d vectors
+    samples:list[LigDict]|list[tuple[LigDict,...]] = [batch for batch in zip(*sampleslist)] if isinstance(data_path,tuple) else sampleslist[0] #needs to be NxB if batched so make sure to stack at dimension 1
+    return list(zip(samples,alltimes))
 
+def offset_trajectory_columns(offset_type:str):
+    tr_columns = ["Offset_Tr_X", "Offset_Tr_Y", "Offset_Tr_Z"]
+    rot_columns = ["Offset_Rot_X", "Offset_Rot_Y", "Offset_Rot_Z"]
 
-def load_endpoints(data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda'):
-    samples,steps = load_trajectory(data_path,device=device)
-    assert steps[0] == 0 and steps[-1] == 1
-    return samples[0], samples[-1] #Time dimension is always first, even in batching
-
-
+    match offset_type:
+        case "Translation": columns = tr_columns
+        case "Rotation": columns = rot_columns
+        case "Translation+Rotation": columns = tr_columns + rot_columns
+        case _: raise ValueError
+    return columns
 
 
 @hydra.main(version_base=None, config_path="../configs/likelihoodv3", config_name="likelihood_gaussian_1d")
@@ -124,84 +157,437 @@ def main(config: DictConfig):
     # set device
     device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
 
-    batched:bool = config.get("batched",False)
+    batched = config.get("batched",False)
     batch_size = int(config.batch_size) if batched else None
     if batched:
-        raise ValueError("Batching not suppored for dfmdock!")
+        raise ValueError("Batched DFMDock evaluation not supported!")
 
-    to_array = to_array_nobatch #if not batched else #to_array_batch
-    from_array = functools.partial(from_array_nobatch,device=device) # if not batched else from_array_batch, device=device)
+    to_array = to_array_nobatch# if not batched else to_array_batch
+    from_array = functools.partial(from_array_nobatch,device=device)# if not batched else from_array_batch,device=device)
 
     # set sigma_values
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
 
-    # set marginal probability distribution and diffusion coefficient distribution
-    marginal_prob_std_fn = functools.partial(
-        marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
-
-    diffusion_coeff_fn = functools.partial(
-        diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.clamp_diffusion_coefficient)
-
     # set models
-    weights_path = config.checkpoint
-    ckpt = torch.load(weights_path, map_location = device)
-
-    # Remove "module." prefix if necessary
-    if any(key.startswith("module.") for key in ckpt.keys()):
-        ckpt = {key.replace("module.", ""): value for key, value in ckpt.items()}
-
-    # Initialize score model, load the checkpoint weights into the model    
     score_model = Score_Model.load_from_checkpoint(config.checkpoint)
     score_model.freeze()
     score_model.to(device)
 
-    offset_type = config.offset_type
+    offset_type:Literal["Translation","Rotation","Translation+Rotation"] = config.offset_type
     valid_offsets = ["Translation", "Rotation", "Translation+Rotation"]
     if offset_type not in valid_offsets:
         raise ValueError("offset_type must be one of",valid_offsets)
 
     model_eval = ModelEval(score_model,offset_type=offset_type)
     
-    scorefn = model_eval.score if not batched else model_eval.batch_score
-    divergencefn = model_eval.divergence if not batched else model_eval.batch_divergence
+    scorefn = model_eval.score# if not batched else model_eval.batch_score
+    divergencefn = model_eval.divergence# if not batched else model_eval.batch_divergence
 
-    ### LOAD INTEGRANDS
-    integrands:list[LikelihoodIntegrand] = []
-    types:DictConfig = config.integrand_types
-    if types is None:
-        types = []
-    if not isinstance(types,Mapping):
-        types = DictConfig({t:{} for t in types}) #ensure types is a DictConfig of Dicts
+    esm_model = ESMLanguageModel()
+    pdb_importer = PDBImporter(esm_model,esm_model.alphabet)
 
-    for integrand_type,params in types.items():
-        def param(p:str,*args):
-            if params is not None:
-                if params.get(p,None) is not None:
-                    return p
-            return config.get(p,*args)
-            
-        intclasses:dict[str,type[ScoreDivDiffIntegrand[LigDict,DFMDict]]] = {cls.__name__:cls for cls in [TotalIntegrand,TimeIntegrand,SpaceIntegrand]}
+    assert batch_size is None
+    load_samples_fn = lambda: load_samples(config.data_samples, config.pdb_dir, offset_type, pdb_importer, batch_size=batch_size, device=device)
+    load_trajectories_fn = lambda: load_trajectories(config.trajectory_index_file,config.pdb_dir,config.trajectory_dir,pdb_importer,batch_size=batch_size)
+    get_trajectory_fn = lambda trajectory_file: load_trajectory(trajectory_file, offset_type, device=device)
 
-        if integrand_type in intclasses:
-            intcls = intclasses[integrand_type]
-            integrand = intcls(scorefn,divergencefn,diffusion_coeff_fn,to_array,from_array)
-        else:
-            raise ValueError("Unknown integrand type:",integrand_type)
+    diffusion_coeff_fn = functools.partial(
+        diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.get("clamp_diffusion_coefficient",False))
+
+    priors = load_priors(config,
+                        to_array,
+                        offset_type,
+                        sigma_min,
+                        sigma_max,
+                        batched)
+    
+    integrands = get_integrands(config,
+                                from_array,
+                                to_array,
+                                scorefn,
+                                divergencefn,
+                                diffusion_coeff_fn)
+
+    paths = get_paths(config,
+                      from_array,
+                      to_array,
+                      scorefn,
+                      divergencefn,
+                      diffusion_coeff_fn,
+                      load_samples_fn,
+                      load_trajectories_fn,
+                      get_trajectory_fn,
+                      device)
+
+    likelihoods = get_likelihoods(config,
+                                 paths,
+                                 integrands,
+                                 device)
+    
+    write_likelihood_outputs(config,
+                             likelihoods,
+                             integrands,
+                             priors,
+                             offset_type,
+                             batch_size)
+    
+from biotite.structure.io.general import load_structure, save_structure
+from biotite.structure import AtomArray, get_chains
+from biotite.sequence.seqtypes import ProteinSequence
+def modify_aa_coords(x, rot, tr):
+    center = x.mean(axis=0)
+    rot = axis_angle_to_matrix(rot).squeeze().cpu().numpy()
+    x = (x - center) @ rot.T + center 
+    x = x + tr.cpu().numpy()
+    return x
+
+# load pdb with **all** atoms, not just backbone atoms, and offset specified chain. Defaults to B cause that's the default ligand chain
+def get_offset_pdb(
+        orig:str|Path,
+        offset_tr:None|torch.Tensor,
+        offset_rot:None|torch.Tensor,
+        offset_chain="B"
+        ):
+    orig_structure:AtomArray = load_structure(orig)
+    all_chains = get_chains(orig_structure)
+    if len(all_chains) == 0:
+        raise ValueError("No chains found in the input file.")
+    elif offset_chain not in all_chains:
+        raise ValueError(f"Cannot offset chain {offset_chain}; not in file!")
+
+    #we can extract just the ligands, modify the structure, then assign it back using this boolean mask
+    lig_filter = orig_structure.chain_id == offset_chain #get boolean mask
+    lig_structure = orig_structure[lig_filter]
+
+    offset_rot = offset_rot if offset_rot is not None else torch.zeros((3,),dtype=lig_structure.coord.dtype)
+    offset_tr = offset_tr if offset_tr is not None else torch.zeros((3,),dtype=lig_structure.coord.dtype)
+
+    #actually since we're modifying coord in-place I don't know if we need to re-assign but it probably makes a copy so safer than sorry
+    lig_structure.coord = modify_aa_coords(lig_structure.coord,offset_rot,offset_tr) 
+    
+    orig_structure[lig_filter] = lig_structure
+    
+    return orig_structure
+
+def split_offset(offset:torch.Tensor,offset_type:Literal["Translation", "Rotation", "Translation+Rotation"],):
+    tr_update = offset[:3].cpu() if 'Translation' in offset_type else None
+    rot_update = offset[-3:].cpu() if 'Rotation' in offset_type else None
+    
+    return (tr_update,rot_update)
+
+def write_dfmdock_trajectory(trajectory_dir:Path,
+                             id:str,
+                             trajectory:Sequence[LigDict],
+                             times:Sequence[float],
+                             condition:DFMDict,
+                             offset_type:Literal["Translation", "Rotation", "Translation+Rotation"],
+                             save_type:Literal['offset','pdb','offset+anchor_pdb']='offset',
+                             offset_anchor:Literal['start','end','condition']='condition',
+                             warn_modify_endpoint_unsave:bool=True,
+                             )->tuple[Path,Path]:
+    """Write a DFMDock trajectory to disk. Recall that for likelihood computation, the fundamental data representation
+    is that of a 3d or 6d offset vector representing [translation or rotation] or [translation + rotation] respectively, 
+    and is thus described relative to some conditioned pdb file's receptor and ligand coordinates (the data passed in 'condition').
+
+    Depending on the value of 'offset_anchor', the offsets will be recalculated in terms of a particular receptor/ligand 
+    configuration 'anchor'. For offset_anchor='condition' (default), the anchor is the default configuration specfied in
+    `condition`, so no recalculation is necessary. For offset_anchor = 'end', the last point in the path is used; for 
+    offset_anchor = 'start', the first point is used. UNUSED IF save_type = 'pdb' (since no anchor is necessary for raw pdbs).
+    Additionally, if save_type = 'offset' and offset_anchor != 'condition', offsets will be recalculated, but the anchor
+    WILL NOT BE SAVED! A warning will be displayed unless warn_modify_endpoint_unsave is set to False.
+    
+    The `save_type` parameter describes how you want the data to be saved:
+    
+    - With save_type = 'offset' (the default), timepoints ('Timestep') and offset vectors (see offset_trajectory_columns()) 
+    will be saved to the csv file 'trajectory_{id}.csv', and no pdb data will be saved. Returns the path to the csv file
+    
+    - With save_type = 'pdb', the trajectory will instead be saved as a sequence of pdb files in a subfolder of the given 
+    trajectory directory. These pdbs are generated by offsetting the original pdb file ligand by the offset vector.
+    NOTE THAT THIS WILL SIGNIFICANTLY SLOW DOWN THE PROCESS OF WRITING TRAJECTORIES! Instead of offsets, the csv file 
+    will be populated with timepoints ('Timestep') and filenames ('PDB_File') which point to the pdb files. Pdbs will 
+    be saved with the naming convention {id}_{index}.pdb. Returns the path to the csv file.
+
+    - With save_type = 'offset+anchor_pdb', the trajectory will be saved as with save_type = 'offset' along with a pdb file
+    containing the "anchor" as specified by the value of `offset_anchor`. This allows the offsets and anchor file to be used
+    as the trajectory and condition respectively for likelihood computation. Returns a tuple of the paths to the trajectory 
+    and anchor files.
+    
+    """
+
+
         
-        integrands.append(integrand)
+
+    trajectory_csv = trajectory_dir/f'trajectory_{id}.csv'
+    pdb_folder = trajectory_dir/'pdb'
+    if 'pdb' in save_type:
+        pdb_folder.mkdir(exist_ok=True)
+    
+
+    xtraj = torch.stack([to_array_nobatch(x) for x in trajectory]) #Nx3 or Nx6
+    ttraj = torch.as_tensor(times)
+    
+    if 'offset' in save_type:
+        if offset_anchor != 'condition' and save_type != 'offset+anchor_pdb' and warn_modify_endpoint_unsave:
+                warnings.warn("Recalculating offsets without saving new relative pdb when writing dfmdock trajectory!")
+                    
+        if offset_anchor == 'end':
+            anchor_offset = xtraj[-1] #yes I'm great at names
+        elif offset_anchor == 'start':
+            anchor_offset = xtraj[0]
+        elif offset_anchor == 'condition':
+            anchor_offset = torch.zeros((xtraj.shape[-1]))
+        else:
+            raise ValueError(anchor_offset)
+        
+        xtraj -= anchor_offset #ummm this probably just, like, *works* for rotation haha :nervous:
+            
+        assert xtraj.ndim == 2
+        assert xtraj.shape[1] == (6 if offset_type == "Translation+Rotation" else 3)
+        
+        columns = ["Timestep"] + offset_trajectory_columns(offset_type)
+        data = torch.cat([ttraj[...,None],xtraj],dim=1)                    
+        trajectory_df = pd.DataFrame(columns=columns,data=data.numpy(force=True))
+        trajectory_df.to_csv(trajectory_csv,index_label="Index")
+        
+        
+        if save_type == 'offset+anchor_pdb':
+            offset_pdb = get_offset_pdb(condition["orig_pdb"],*split_offset(anchor_offset,offset_type))
+            pdb_file = pdb_folder/f'{id}.pdb'
+            save_structure(pdb_file,offset_pdb)
+
+            return (trajectory_csv,pdb_file)
+        else:
+            return trajectory_csv,Path(condition["orig_pdb"])
+    else:
+        filenames = [Path('pdb')/f'{id}_{i}.pdb' for i in range(len(xtraj))]
+        for name,offset in zip(filenames,xtraj):
+            offset_pdb = get_offset_pdb(condition["orig_pdb"],*split_offset(offset,offset_type))
+            save_structure(trajectory_dir/name,offset_pdb)
+        
+        trajectory_df = pd.DataFrame({"Timestep":ttraj.numpy(force=True),"PDB_File":map(str,filenames)})
+        trajectory_df.to_csv(trajectory_csv,index_label="Index")
+        return trajectory_csv,Path(condition["orig_pdb"])
+
+def make_dfmdock_sample(id:str,
+                        trajectory:Sequence[LigDict],
+                        times:Sequence[float],
+                        condition:DFMDict,
+                        offset_type:Literal["Translation", "Rotation", "Translation+Rotation"],
+                        #TODO: UNIFY THIS POINT SELECTION AND ANCHOR CALCULATION WITH WRITE_DFMDOCK_TRAJECTORY!
+                        save_point:Literal["start","end"]="start", 
+                        save_new_pdb:bool=False,
+                        new_pdb_file:Optional[str|Path]=None,#samples_pdb_folder/f"{id}.pdb",
+                        include_offset:bool=False):#=config.get("write_sample_with_offset",False)):
+
+    if save_point == 'end':
+        point = trajectory[-1] 
+    elif save_point == 'start':
+        point = trajectory[0]
+    else:
+        raise ValueError(save_point)
+    
+    offset = to_array_nobatch(point)
+
+    if not (save_new_pdb or include_offset or torch.allclose(offset,torch.zeros_like(offset))):
+        raise ValueError("Can't faithfully save sample with nonzero offset without either writing the offset or saving the pdb!")
+
+    if save_new_pdb:
+        ##if we're going to save the offset, don't *also* offset the pdb!
+        updates = split_offset(offset,offset_type) if not include_offset else (None,None)
+        new_pdb = get_offset_pdb(condition["orig_pdb"],*updates)
+        save_structure(new_pdb_file,new_pdb)
+        pdb_file = new_pdb_file
+    else:
+        pdb_file = condition["orig_pdb"]
+
+    result = {"index":id,"Filename":pdb_file}
+    if include_offset:
+        result.update(zip(offset_trajectory_columns(offset_type),offset.tolist()))
+
+    return result
 
     
-    if len(integrands) == 0:
-        raise ValueError("""Must specify at least one integrand type!\n
-                         `integrand_types` can either be a list of strings (classnames) or a list of mappings from classnames to
-                         integrand-specific parameters. If an integrand parameter is not provided in the integrand-specific section,
-                         it will look for that parameter in the global scope instead (hence defaults/shared parameters can be provided globally).
-                         To specify an empty mapping, simply include the `ClassName:` line without any subitems below it.""")
 
+def write_likelihood_outputs(config:DictConfig,
+                            likelihoods:Iterable[tuple[str,Sequence[LigDict],Sequence[float],DFMDict,dict[str,float|ArrayLike]]],
+                            integrands:list[LikelihoodIntegrand[LigDict,DFMDict]],
+                            priors:Sequence[tuple[str,Callable[[LigDict,float,DFMDict],float|Array]]],
+                            offset_type:Literal["Translation", "Rotation", "Translation+Rotation"],
+                            batch_size:int|None,
+                            ):
+    
+    batched = batch_size is not None
+
+    ### WRITE OUTPUT
+    out_dir = Path(config.out_dir)
+    
+    if out_dir.exists():
+        if not config.get("overwrite_output",False):
+            raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
+        else:
+            backup_out = out_dir.with_stem(out_dir.stem + "_backup")
+            warning(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
+            if backup_out.exists():
+                shutil.rmtree(backup_out)
+            os.rename(out_dir,backup_out)
+    out_dir.mkdir(parents=True,exist_ok=True)
+
+    ## WRITE CONFIG
+    config_copy = out_dir/"config.yaml"
+    with open(config_copy,"w") as f:
+        f.write(OmegaConf.to_yaml(config))
+
+    ## WRITE LIKELIHOODS PREP
+    likelihoods_file = out_dir/"likelihood.csv"
+    write_likelihoods = config.get("write_likelihoods",True)
+    likelihoods_handle: Optional[TextIOWrapper] = None
+    likelihoods_writer: Optional[csv.DictWriter] = None
+    if write_likelihoods:
+        likelihoods_handle = open(likelihoods_file,"w")
+        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
+        likelihoods_writer = csv.DictWriter(likelihoods_handle,fieldnames=fieldnames)
+        likelihoods_writer.writeheader()
+
+    ## WRITE SAMPLES PREP
+    samples_file = out_dir/"samples.csv"
+    write_samples = config.get("write_samples",False)
+    samples_handle: Optional[TextIOWrapper] = None
+    samples_writer: Optional[csv.DictWriter] = None
+
+    samples_pdb_folder = out_dir/"pdb"
+    samples_save_pdb = config.get("write_sample_save_pdb",False)
+
+    if write_samples:
+        samples_handle = open(samples_file,"w")
+        fieldnames = ["index","Filename"]
+        if config.get("write_sample_with_offset",False):
+            fieldnames += offset_trajectory_columns(offset_type)
+        samples_writer = csv.DictWriter(samples_handle,fieldnames=fieldnames) #TODO: regularize capitalization aaaa
+        samples_writer.writeheader()
+
+        if samples_save_pdb:
+            samples_pdb_folder.mkdir(exist_ok=True)
+
+
+    ## WRITE TRAJECTORIES PREP
+    trajectory_folder = out_dir/"trajectories"
+    trajectory_indices: list[tuple[int|None,TextIOWrapper,csv.DictWriter]] = [] #a little silly lol
+    acc_trajnum = 0
+    save_trajectories = config.get("save_trajectories",False)
+    save_trajectory_index = config.get("write_trajectory_index",False) and save_trajectories
+    if save_trajectories:
+        try:
+            next(trajectory_folder.glob("*")) #if any files in directory, clear directory
+            shutil.rmtree(trajectory_folder)
+        except StopIteration:
+            pass
+        trajectory_folder.mkdir(exist_ok=True)
+    if save_trajectory_index:
+        indices: list[tuple[int|None,TextIOWrapper]] = [(None,open(trajectory_folder/"trajectory_index.csv","w"))]
+        if (extra := config.get("trajectory_extra_indices",None)):
+            indices += [(ind,open(trajectory_folder/f"trajectory_index_{ind}.csv","w")) for ind in extra]
+        trajectory_indices = [(ind,f,csv.DictWriter(f,fieldnames=["index","PDB_File","Trajectory_File"])) for (ind,f) in indices]
+        [index[2].writeheader() for index in trajectory_indices]
+    
+
+    ## WRITE OUTPUT
+    try:
+        for ids,trajectories,times,conditions,integrand_resultss in likelihoods:
+
+            ##Calculate priors
+            prior_eval_endpoint:tuple[LigDict,float,DFMDict] = (trajectories[-1], times[-1], conditions)
+
+            prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_eval_endpoint))) for name,prior_fn in priors}
+
+            ## Unbatch results for writing
+            if not batched:
+                ids:Iterable[str] = [ids]
+                trajectories = [trajectories]
+                times = [times]
+                integrand_resultss = [integrand_resultss]
+                prior_resultss = [prior_result]
+            else:
+                raise ValueError()
+                batch = len(prior_eval_endpoint[0]) #size of this batch, could be smaller than batch_size if last batch
+                ids: Iterable[str] = ids
+                trajectories = torch.stack(trajectories,dim=1) #put time-axis in dimension 1 so we can iterate over the batch dimension
+                assert trajectories.ndim == 3 #BxNxD
+                times = itertools.repeat(times)
+                integrand_resultss = [
+                    {name:np.array(result)[i] for name,result in integrand_resultss.items()}
+                    for i in range(batch)
+                ]
+                prior_resultss = [
+                    {name:np.array(result)[i] for name,result in prior_result.items()}
+                    for i in range(batch)
+                ]
+
+            for id, trajectory, time, integrand_results, prior_results \
+                in zip(ids, trajectories, times, integrand_resultss, prior_resultss):
+                prior_endpoint:tuple[LigDict,float] = (trajectory[-1], time[-1])
+                assert isinstance(id,str),id
+
+                if write_likelihoods:
+                    row = {"id":int(id),
+                        "prior_position":to_array_nobatch(prior_endpoint[0]).tolist(),
+                            "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
+                            **{f"prior:{name}":val for name,val in prior_results.items()},
+                            **{f"integrand:{name}":val for name,val in integrand_results.items()}}
+                    likelihoods_writer.writerow(row)
+
+                if write_samples:
+                    sample = make_dfmdock_sample(
+                        id,
+                        trajectory,
+                        time,
+                        conditions,
+                        offset_type,
+                        save_point="end", #TODO: CONFIGURATION FOR WHICH POINT TO SAVE
+                        save_new_pdb=samples_save_pdb,
+                        new_pdb_file=samples_pdb_folder/f"{id}.pdb",
+                        include_offset=config.get("write_sample_with_offset",False))
+
+                    samples_writer.writerow(sample)
+
+                if save_trajectories: #save trajectory to folder                    
+                    traj_path,pdb_path = write_dfmdock_trajectory(
+                        trajectory_folder,
+                        id,
+                        trajectory,
+                        time,
+                        conditions,
+                        offset_type,
+                        config.get("trajectory_save_type","offset"),
+                        config.get("trajectory_offset_anchor","condition"))
+                    
+                    for cutoff,file,writer in trajectory_indices:
+                        if cutoff is None or acc_trajnum <= cutoff:
+                            writer.writerow({"index":id,"PDB_File":pdb_path,"Trajectory_File":traj_path})
+                    acc_trajnum += 1
+
+
+                f.flush()
+    finally:
+        #make sure the files are closed!!!
+        if likelihoods_handle is not None:
+            likelihoods_handle.close()
+        if samples_handle is not None:
+            samples_handle.close()
+        for cutoff,file,writer in trajectory_indices:
+            file.close()
+
+
+def load_priors(config:DictConfig,
+                to_array:Callable[[LigDict],Array]|Callable[[Sequence[LigDict]],Array],
+                offset_type:Literal["Translation", "Rotation", "Translation+Rotation"],
+                sigma_min:float,
+                sigma_max:float,
+                batch_size:int|None):
+    batched = batch_size is not None
 
     ### LOAD PRIORS
-    priors:list[tuple[str,Callable[[torch.Tensor,float],float]]] = []
+    priors:list[tuple[str,Callable[[LigDict|Sequence[LigDict],float,DFMDict],float]]] = []
     functions:DictConfig = config.get("prior_fns","smax_gaussian")
     if isinstance(functions,str):
         functions = functions.split(" ")
@@ -211,6 +597,7 @@ def main(config: DictConfig):
     for prior_fn,params in functions.items():
         match prior_fn:
             case "convolved_data":
+                raise ValueError("Data Distribution Unknown for DFMDock!")
                 means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float, device=device)
                 variances = torch.tensor([8.0,5.0,10.0], device=device)**2
                 weights = torch.tensor([0.4,0.3,0.3], device=device)
@@ -247,270 +634,20 @@ def main(config: DictConfig):
 
                 print("using ground truth prior fn")
 
-    
             case "smax_gaussian":
-                def prior_likelihood_fn(x:torch.Tensor,t:float):
+                def prior_likelihood_fn(x:LigDict|Sequence[LigDict],t:float, condition:DFMDict):
+                    offset = to_array(x) #assume x matches batchness and has been dealt with
                     tt = torch.as_tensor(t)
                     assert torch.allclose(tt, torch.ones_like(tt)), t #diffeq errors might mean it's not *quite* 1 but that's fine
-                    res = (prior_gaussian_nd(x,sigma_max)[0])
+                    if offset_type == "Rotation": #Assume rotational prior is just 0!
+                        res = torch.zeros(offset.shape[:-1],dtype=offset.dtype)
+                    else:
+                        res = (prior_gaussian_nd(offset[...,:3],sigma_max)[0]) #first three components are always x,y,z. Assume rotational prior is just 0!
                     return res.numpy(force=True) if batched else res.item()
                 priors.append((prior_fn,prior_likelihood_fn))
-
-    ### LOAD PATHS
-    #ode integration: needs a timeschedule. Unused if diffusion / other trajectory used
-    match config.get("ode_timeschedule","uniform"):
-        case "uniform":
-            ode_times = torch.linspace(0,1,config.ode_steps+1,device=device)
-        case default:
-            raise ValueError("Unknown timeschedule method:",default)
-
-
-    # load path and associated dataset
-    paths:Iterable[tuple[str|Sequence[str],IntegrablePath[LigDict,DFMDict]]]
-    match config.path_type:
-        case "flow_ode":
-            #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_sample_endpoints(config.data_samples,batch_size=batch_size, device=device)
-
-            paths = ( #maybe this should be a dataloader or something idk
-                (id,FlowEquivalentODEPath[LigDict,DFMDict](
-                    scorefn,
-                    diffusion_coeff_fn,
-                    ode_times,
-                    (from_array(initial),0),
-                    config.odeint_rtol,
-                    config.odeint_atol,
-                    config.odeint_method,
-                    to_array,
-                    from_array,
-                    None))
-                    for (id,initial) in tqdm(dataloader)
-                )
-        case "sde_trajectories":
-            #sde: get paths from diffusion tajectories
-            trajectories = load_trajectories(config.trajectory_index_file,batch_size=batch_size)
-            
-            pathclass = IntegrableSequence[LigDict,DFMDict]
-            if config.get("interpolate_trajectories",False):
-                pathclass = functools.partial(InterpolatedIntegrableSequence[LigDict,DFMDict],config.num_interpolants)
-
-            def get_trajectory(path):
-                samples,times = load_trajectory(path,device=device)
-                return zip(map(from_array,samples),times)
-            
-            paths = (
-                (id,pathclass(list(get_trajectory(path)),
-                              to_array,
-                              from_array,
-                              None))
-                for id,path in tqdm(trajectories)
-            )
-        case "linear_trajectories":
-            #linear: take sampled paths, and just make a straight line from start to end
-            trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
-            
-            #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory,device=device)) for id,trajectory in tqdm(trajectories))
-
-            paths = (
-                (id,LinearPath[LigDict,DFMDict]((from_array(start),0),(from_array(end),1),ode_times,
-                            config.odeint_rtol,
-                            config.odeint_atol,
-                            config.odeint_method,
-                            to_array,
-                            from_array,
-                            None))
-                for (id,(start,end)) in endpoints
-            )
-        case "linearized_flow":
-            #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_sample_endpoints(config.data_samples, batch_size=batch_size, device=device)
-
-            paths = ( #maybe this should be a dataloader or something idk
-                (id,LinearizedFlowPath[LigDict,DFMDict](
-                    scorefn,
-                    diffusion_coeff_fn,
-                    ode_times,
-                    (from_array(sample),0),
-                    config.odeint_rtol,
-                    config.odeint_atol,
-                    config.odeint_method,
-                    to_array,
-                    from_array,
-                    None))
-                    for id,sample in tqdm(dataloader)
-                )
-        case "diff_data_translation":
-            # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
-            # Requires a prior function compatible with t0 sampling
-            
-            #sde: get paths from diffusion tajectories
-            trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
-            
-            pathclass = IntegrableSequence[LigDict,DFMDict]
-            if config.get("interpolate_trajectories",False):
-                pathclass = functools.partial(InterpolatedIntegrableSequence[LigDict,DFMDict],n_interp=config.num_interpolants)
-
-            def get_trajectory(path):
-                samples,times = load_trajectory(path,device=device)
-                return zip(map(from_array,samples),times)
-            
-            paths = (
-                (id,pathclass([(x,0) for x,t in (get_trajectory(path))],
-                              to_array,
-                              from_array,None))
-                for id,path in tqdm(trajectories)
-            )
-
-        case "data_translation":
-            # Linear translation in data space: like linear_trajectories, but always at time=0. 
-            # Requires a prior function compatible with t0 sampling
-
-            # take sampled paths, and just make a straight line from start to end
-            trajectories = load_trajectories(config.trajectory_index_file, batch_size=batch_size)
-            
-            #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory,device=device)) for id,trajectory in tqdm(trajectories)) 
-
-            paths = (
-                (id,LinearPath((from_array(start),0),(from_array(end),0),ode_times, #start and end both 0!
-                            config.odeint_rtol,
-                            config.odeint_atol,
-                            config.odeint_method,
-                            to_array,
-                            from_array,
-                            None))
-                for (id,(start,end)) in endpoints
-            )
-
-        case _:
-            raise ValueError("Unknown path type:",config.path_type)
-
-    if config.get("perturb_path",False):
-        if config.integral_type == "ode":
-            raise ValueError("Can't stochastically perturb an ODE! However, ODEIntegrablePaths can be used in discrete integral mode. Please set integral_type to 'diff' or disable perturbation")
-        sigma:float = config.perturbation_sigma
-        schedule:str = config.get("perturbation_schedule","data")
-        paths = ((id,PerturbedPath[LigDict,DFMDict](path,schedule,sigma,path.condition)) for id,path in paths) #god I love generators
-
-
-    ### RUN LIKELIHOOD COMPUTATION
-    parallel = config.get("parallel",False)
-    cluster_kwargs = config.get("cluster_kwargs",{})
-    if parallel:
-        import ray
-        ray.init(**cluster_kwargs)
-    actor_kwargs = config.get("actor_kwargs",{})
-    if device.type == 'cuda' and 'num_gpus' not in actor_kwargs:
-        actor_kwargs['num_gpus'] = 1 #assume each actor will consume an entire gpu
-
-    int_type = config.get("integral_type")
-    if int_type == "ode":
-        #assume paths are ode integrable. error will be thrown otherwise
-        likelihoods = run_ode_likelihoods(paths,integrands,parallel=parallel,remote_kwargs=actor_kwargs)
-    elif int_type == "diff":
-        #use standard integration
-        likelihoods = run_diff_likelihoods(paths,integrands,parallel=parallel,remote_kwargs=actor_kwargs)
-    else:
-        raise ValueError(f"Unknown integral type: {int_type}. For standard (non-ode solver) numerical integration, use integral_type: \"diff\" (the default).")
-
-
-    ### WRITE OUTPUT
-    out_dir = Path(config.out_dir)
-    likelihoods_name = out_dir/"likelihood.csv"
     
-    if out_dir.exists():
-        if not config.get("overwrite_output",False):
-            raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
-        else:
-            backup_out = out_dir.with_stem(out_dir.stem + "_backup")
-            warning(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
-            if backup_out.exists():
-                shutil.rmtree(backup_out)
-            os.rename(out_dir,backup_out)
-    
-    out_dir.mkdir(parents=True,exist_ok=True)
+    return priors
 
-    ## WRITE CONFIG
-    config_copy = out_dir/"config.yaml"
-    with open(config_copy,"w") as f:
-        f.write(OmegaConf.to_yaml(config))
-
-    ## WRITE TRAJECTORIES PREP
-    if config.get("save_trajectories",False):
-        trajectory_folder = out_dir/"trajectories"
-        try:
-            next(trajectory_folder.glob("*")) #if any files in directory, clear directory
-            shutil.rmtree(trajectory_folder)
-        except StopIteration:
-            pass
-        trajectory_folder.mkdir(exist_ok=True)
-    else:
-        trajectory_folder = None
-
-    ## WRITE LIKELIHOODS
-    with open(likelihoods_name, 'w', newline='') as f:
-        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for ids,trajectories,times,integrand_resultss in likelihoods:
-
-            ##Calculate priors
-            prior_endpoint:tuple[torch.Tensor,float] = (trajectories[-1], times[-1])
-
-            prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in priors}
-
-
-
-
-            ## Unbatch results for writing
-            if not batched:
-                ids:Iterable[str] = [ids]
-                trajectories = [trajectories]
-                times = [times]
-                integrand_resultss = [integrand_resultss]
-                prior_resultss = [prior_result]
-                prior_endpoints = [prior_endpoint]
-            else:
-                batch = len(prior_endpoint[0]) #size of this batch, could be smaller than batch_size if last batch
-                ids: Iterable[str] = ids
-                trajectories = torch.stack(trajectories,dim=1) #put time-axis in dimension 1 so we can iterate over the batch dimension
-                assert trajectories.ndim == 3 #BxNxD
-                times = itertools.repeat(times)
-                integrand_resultss = [
-                    {name:result[i] for name,result in integrand_resultss.items()}
-                    for i in range(batch)
-                ]
-                prior_resultss = [
-                    {name:result[i] for name,result in prior_result.items()}
-                    for i in range(batch)
-                ]
-                prior_endpoints = [(prior_endpoint[0][i],prior_endpoint[1]) for i in range(batch)]
-
-                
-            
-            for id, trajectory, time, integrand_results, prior_results, prior_endpoint \
-                in zip(ids,trajectories,times, integrand_resultss, prior_resultss, prior_endpoints):
-                assert isinstance(id,str),id
-                if trajectory_folder: #save trajectory to folder
-                    trajectory_file = trajectory_folder/f"trajectory_{id}.csv"
-                    xtraj = torch.as_tensor(trajectory).numpy(force=True)
-                    assert xtraj.ndim == 2
-                    assert xtraj.shape[1] == 1
-                    xtraj = xtraj[:,0] #1d position into scalar
-                    ttraj = torch.as_tensor(time).numpy(force=True)
-                    trajectory_df = pd.DataFrame({"Timestep":ttraj,"Sample":xtraj})
-                    trajectory_df.to_csv(trajectory_file,index_label="Index")
-
-                row = {"id":int(id),
-                    "prior_position":prior_endpoint[0].item(),  #since here we're in 1d, let's make it a scalar w/ item()
-                        "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
-                        **{f"prior:{name}":val for name,val in prior_results.items()},
-                        **{f"integrand:{name}":val for name,val in integrand_results.items()}}
-                writer.writerow(row)
-
-                f.flush()
 
 if __name__ == '__main__':
     main()

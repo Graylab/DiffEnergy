@@ -1,0 +1,12 @@
+out_dir: ../sample_results/dfmdock_tr
+wt_file: checkpoints/dfmdock_model_0.ckpt
+offset_type: "Translation"
+samples_per_pdb: 40
+
+data_samples
+
+num_steps: 40
+sigma_min: 0.1
+sigma_max: 30
+save_trajectory: True
+trajectory_extra_indices: [1000,25]

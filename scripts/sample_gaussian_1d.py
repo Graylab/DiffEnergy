@@ -1,159 +1,159 @@
-# --------------------------------------------------------------------------
-# author Sudeep Sarma
-# sample from a 1D diffusion model
-# --------------------------------------------------------------------------
-import torch
+
+
+#Sampling is done using the same mechanism as normal likelihood computation - specifically, using ReverseSDEPath and saving the output
 import functools
+from logging import warning
+import math
+import os
 from pathlib import Path
-import pandas as pd
-import numpy as np
-from tqdm import tqdm
-from omegaconf import DictConfig, OmegaConf
+import shutil
+from typing import Callable, Iterable, Literal, Sequence
+import warnings
 import hydra
+from omegaconf import DictConfig, OmegaConf, open_dict
+import torch
 
-from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.helper import marginal_prob_std, diffusion_coeff
+# from diffenergy.dfmdock_tr.docked_dataset import PDBImporter
+# from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
+from diffenergy.gaussian_1d.likelihood_helpers import from_array_batch, to_array as to_array_nobatch, from_array as from_array_nobatch, to_array_batch
+from diffenergy.helper import diffusion_coeff
+from scripts.likelihoodv3 import SizeWrappedIter, SizedIter, get_likelihoods, get_paths
+from scripts.likelihoodv3 import MapDataset
+from scripts.likelihoodv3_gaussian_1d import load_model, load_samples, write_likelihood_outputs
 
-# --------------------------------------------------------------------------
 
-def Euler_Maruyama_sampler(score_model,
-                            marginal_prob_std,
-                            diffusion_coeff,
-                            batch_size,
-                            num_steps,
-                            device='cuda',
-                            eps=1e-3,
-                            save_trajectory=False,
-                            outpath=None):
+# def sample_random_offset(rec_pos, lig_pos, sigma:float, offset_type:Literal["Translation", "Rotation", "Translation+Rotation"])->torch.Tensor:
+#     device=rec_pos.device
 
-    """Generate samples from score-based models with Euler-Maruyama solvers.
+#     # get center of mass
+#     rec_cen = torch.mean(rec_pos, dim=(0, 1))
+#     lig_cen = torch.mean(lig_pos, dim=(0, 1))
 
-    Args:
-        score_model: A PyTorch model that represents the time-dependent score-based model
-        marginal_prob_std: A function that gives the standard deviation of the perturbation kernel
-        diffusion_coeff: A function that gives the diffusion coefficient of the SDE
-        batch_size: The number of samplers to generate by calling this function once
-        num_steps: The number of sampling steps
-            Equivalent to the number of discretized time steps
-        device: 'cuda' for running on GPUs, and 'cpu' for running on CPUs.
-        eps: The smallest time step for numerical stability
-        save_trajectory: If True, saves the entire trajectory over time steps
+#     # get rotat update: random rotation vector
+#     restensors = []
+    
+#     if "Translation" in offset_type:
+#         # get trans update: random noise + translate x2 to x1
+#         restensors.append(torch.normal(0.0, sigma, size=(1, 3), device=device) + (rec_cen - lig_cen))
+#     if "Rotation" in offset_type:
+#         raise NotImplemented #uhhhhhh
+#         restensors.append(matrix_to_axis_angle(torch.from_numpy(Rotation.random().as_matrix()).float().to(device).unsqueeze(0)))
+    
+#     return torch.cat(restensors,dim=0);
 
-    Returns:
-        Final samples, optionally saves full trajectory
-    """
 
-    if save_trajectory:
-        if outpath is None:
-            raise ValueError("outpath must be provided if save_trajectory is True")
-
-    t = torch.ones(batch_size, device=device)
-    init_x = torch.randn(batch_size, 1, device=device) * marginal_prob_std(t)[:, None]
-    time_steps = torch.linspace(1., eps, num_steps-1, device=device)
-    step_size = time_steps[0] - time_steps[1]
-    x = init_x
-
-    trajectory = [[x[i].item()] for i in range(batch_size)] if save_trajectory else None  # Store trajectory per sample
-
-    for time_step in tqdm(time_steps):      
-        batch_time_step = torch.ones(batch_size, device=device) * time_step
-        g = diffusion_coeff(batch_time_step)
-        score = score_model(x, batch_time_step)
-
-        with torch.no_grad():
-            mean_x = x + (g**2) * score * step_size
-            mean_x = mean_x[:, :1]
-            x = mean_x + torch.sqrt(step_size) * g[:, None] * torch.randn_like(x)
-            # Ensure x remains (batch_size, 1)
-            x = x[:, :1]
-            
-            if save_trajectory:
-                for i in range(batch_size):
-                    trajectory[i].append(x[i].item())  # Store per-sample trajectory
-
-    if save_trajectory:
-        traj_dir = outpath
-        if not traj_dir.exists():
-            traj_dir.mkdir()
-
-        time_steps = np.concatenate((time_steps.numpy(force=True),[0]))
-
-        ids = range(1,len(trajectory)+1)
-        filepaths = [f"{traj_dir}/lp{id}.csv" for id in ids]
-        for traj,path in zip(trajectory,filepaths):
-            df_traj = pd.DataFrame({"Index": np.arange(num_steps), "Timestep": time_steps, "Sample": traj})
-            df_traj.to_csv(path, index=False)
-        
-        index_file = f"{outpath}/trajectory_index.csv"
-        df_index = pd.DataFrame({"index":ids,"filename":[Path(path).name for path in filepaths]})
-        df_index.to_csv(index_file,index=False)
-
-    return x
-
-# ----------------------------------------------------------------------------------
-# Main
 @hydra.main(version_base=None, config_path="../configs", config_name="sample_gaussian_1d")
 def main(config: DictConfig):
-
     # Print the entire configuration
     print(OmegaConf.to_yaml(config))
 
-    # The number of sampling steps
-    num_steps = config.num_steps
+
+    with open_dict(config):
+        ## Set various sampling/trajectory output config parameters based on sampling parameters:
+        # out_dir -> out_dir [unchanged]
+        # wt_file | checkpoint -> checkpoint [take either for backwards compatibility]
+        # sample_file: Raise warning if specified, all samples now have filename "samples.csv"
+        # sample_num: Discard for dfmdock, dfmdock needs samples_per_pdb
+        # num_steps -> sde_steps
+        # save_trajectory -> save_trajectories: Also sets write_trajectory_index to True
+        
+        config.path_type = "reverse_sde"
+        config.integral_type = "diff"
+        config.sde_timeschedule = "reverse_uniform" #make sure to go from t=1 to t=0!
+
+        if config.get("wt_file",None):
+            config.checkpoint = config.wt_file
+        
+        if config.get("sample_file",None):
+            warnings.warn("sample_file included, but will be ignored! Sample files are now always saved to {out_dir}/samples.csv!")
+        
+        if config.get("num_steps",None):
+            config.sde_steps = config.num_steps
+
+        if config.get("save_trajectory",False):
+            config.save_trajectories = True
+
+        if config.get("save_trajectories",False):
+            config.write_trajectory_index = True
+        
+        config.write_samples=True
+        config.write_likelihoods=False
+        
+        ## Other relevant parameters:
+        # trajectory_extra_indices: list of index cutoffs (e.g. [25, 1000]), default=[]. Will always include a full index
+
+        
+
+    # set device
+    device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
+
+    batched = config.get("batched",False)
+    batch_size = int(config.batch_size) if batched else None
+
+    if batch_size == -1: 
+        batch_size = config.sample_num #Do it in one **massive** batch because why not
+
+    to_array = to_array_nobatch if not batched else to_array_batch
+    from_array = functools.partial(from_array_nobatch if not batched else from_array_batch,device=device)
+
+    # set sigma_values
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
-    marginal_prob_std_fn = functools.partial(marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
-    diffusion_coeff_fn = functools.partial(diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max)
 
-    device = 'cuda'# if torch.cuda.is_available() else 'cpu'
-    wt_file = config.wt_file
-    ckpt = torch.load(wt_file, map_location = device)
-
-    outpath = Path(config.out_dir)
-    if not outpath.exists():
-        outpath.mkdir()
-
-    # Remove "module." prefix if necessary
-    if any(key.startswith("module.") for key in ckpt.keys()):
-        ckpt = {key.replace("module.", ""): value for key, value in ckpt.items()}
+    # set models
+    model_eval = load_model(config,sigma_min,sigma_max,device);
     
-    tr_type = config.tr_type
-    # Initialize score model
-    if tr_type == 'non_conservative':
-        score = ScoreNetMLP(input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
-    elif tr_type == 'conservative':
-        score = NegativeGradientMLP(input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
+    scorefn = model_eval.score if not batched else model_eval.batch_score
+    divergencefn = model_eval.divergence if not batched else model_eval.batch_divergence
 
-    # Load the checkpoint weights into the model    
-    score.load_state_dict(ckpt)
-    score_model =  score
+    diffusion_coeff_fn = functools.partial(
+        diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.get("clamp_diffusion_coefficient",False))
 
-    sample_batch_size = config.sample_num
-    save_trajectory = config.save_trajectory
 
-    traj_outpath = outpath / (Path(config.sample_file).stem + "_traj")
+    ## SAMPLE DIFFUSION TRAJECTORIES
 
-    # Generate samples using Euler-Maruyama sampler
-    samples = Euler_Maruyama_sampler(score_model,
-                        marginal_prob_std_fn,
-                        diffusion_coeff_fn,
-                        sample_batch_size,
-                        num_steps,
-                        device = device,
-                        save_trajectory=save_trajectory,
-                        outpath=traj_outpath)
+    def load_noised_samples()->SizedIter[tuple[int|Sequence[int],torch.Tensor,None]]:
+        bsize = batch_size or 1
+        indices = [(i,) for i in range(math.ceil(config.sample_num//bsize))] #make into tuples grumble
+        def getchunk(i:int):
+            ids = range(config.sample_num)[i*bsize:(i+1)*bsize]
+            chunksize = len(ids)
+            x = torch.randn(chunksize,1,device=device)*sigma_max
+            if not batched:
+                ids = ids[0]
+            return (ids,x,None)
+        return MapDataset(indices,getchunk)
 
-    samples_np = samples.cpu().detach().numpy()
-    if samples_np.ndim == 1:
-        samples_np =  samples_np[:, None]   # Convert to 2D by adding a second axis
+    def err(*args): raise ValueError()
+    load_trajectories_fn = err
+    get_trajectory_fn = err
 
-    # Create a DataFrame with 'index' and 'Samples' columns
-    df = pd.DataFrame(samples_np, columns=["Samples"])
-    df.reset_index(inplace=True)
-    df.rename(columns={"index":"index"}, inplace=True) #name the index as an actual column
-    df['index'] += 1 #match trajectory indexing
-    sample_file = config.sample_file
-    df.to_csv(outpath / sample_file, index=False)
+    
+    paths = get_paths(config,
+                      from_array,
+                      to_array,
+                      scorefn,
+                      divergencefn,
+                      diffusion_coeff_fn,
+                      load_noised_samples,
+                      load_trajectories_fn,
+                      get_trajectory_fn,
+                      device)
+
+
+    ## COMPUTE "LIKELIHOODS"
+
+    likelihoods = get_likelihoods(config,
+                                 paths,
+                                 [],
+                                 device)
+    
+    write_likelihood_outputs(config,
+                             likelihoods,
+                             [],
+                             [],
+                             batch_size)
+    
 
 if __name__ == '__main__':
     main()
