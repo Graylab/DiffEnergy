@@ -322,11 +322,12 @@ class SpaceIntegrand(ScoreDivDiffIntegrand[X,C]):
 # Reverse SDE Path generator. Only goes from tnoise=1 to tdata=0, should be equivalent to neural network inference 
 # (meant to replace the euler_maruyama sampler for trajectory generation)
 class ReverseSDEPath(IntegrablePath[X,C]):
-    def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], times: Sequence[float], initial: X, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning:C):
+    def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], noise_scale:float, times: Sequence[float], initial: X, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning:C):
         self.scorefn = scorefn
         self.diffcoefffn = diffcoefffn
         self.times = times
         self.initial = initial
+        self.noise_scale = noise_scale #should be 1 by default. allows you to forcibly turn up/down the noise during sampling. TODO: make this a proper schedule?
         
         super().__init__(to_arr,from_arr,conditioning=conditioning)
     
@@ -345,7 +346,7 @@ class ReverseSDEPath(IntegrablePath[X,C]):
 
             with torch.no_grad():
                 x_arr = self.to_arr(x) - (g**2) * score * dt #negative because dt is negative!
-                x_arr = x_arr + torch.sqrt(-dt) * g * torch.randn_like(x_arr) #negate dt so real sqrt
+                x_arr = x_arr + self.noise_scale * torch.sqrt(-dt) * g * torch.randn_like(x_arr) #negate dt so real sqrt
                 x = self.from_arr(x_arr)
 
             time_step = t2

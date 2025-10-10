@@ -229,6 +229,7 @@ def get_paths[X,C,T,I](
                 (id,ReverseSDEPath(
                     scorefn,
                     diffusion_coeff_fn,
+                    config.get("noise_scale",1),
                     sde_times,
                     initial,
                     to_array,
