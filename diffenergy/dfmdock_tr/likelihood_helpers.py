@@ -11,6 +11,7 @@ from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.likelihoodv3 import ScoreModelEvaluator
 
 class DFMDict(TypedDict):
+    orig_pdb: str
     rec_x: Tensor
     lig_x: Tensor
     rec_pos: Tensor

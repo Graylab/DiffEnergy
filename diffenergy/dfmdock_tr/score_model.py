@@ -215,7 +215,8 @@ class Score_Model(pl.LightningModule):
 
         return losses
 
-    def modify_coords(self, lig_pos, rot_update, tr_update):
+    @classmethod
+    def modify_coords(cls, lig_pos, rot_update, tr_update):
         cen = lig_pos[..., 1, :].mean(dim=0)
         rot = axis_angle_to_matrix(rot_update.squeeze())
         tr = tr_update.squeeze()

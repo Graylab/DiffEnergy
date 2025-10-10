@@ -1,4 +1,5 @@
 from fileinput import filename
+from io import TextIOWrapper
 import itertools
 from logging import warning
 import math
@@ -9,6 +10,8 @@ import functools
 import shutil
 from typing import Callable, Iterable, Mapping, Optional, Sequence, overload
 
+import numpy as np
+
 from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
 
 from omegaconf import DictConfig, OmegaConf
@@ -16,10 +19,11 @@ import pandas as pd
 import torch
 import hydra
 
-from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, prior_gaussian_nd
+from diffenergy.helper import diffusion_coeff, int_diffusion_coeff_sq, marginal_prob_std, prior_gaussian_nd
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.gaussian_1d.likelihood_helpers import ModelEval, from_array_batch, to_array as to_array_nobatch, from_array as from_array_nobatch, to_array_batch
-from scripts.likelihoodv3 import get_likelihoods, SizedIter
+from diffenergy.likelihoodv3 import LikelihoodIntegrand
+from scripts.likelihoodv3 import get_integrands, get_likelihoods, SizedIter, get_paths, ArrayLike
 
 @overload
 def load_samples(data_path, batch_size:None,device:str|torch.device='cuda')->SizedIter[tuple[str,torch.Tensor,None]]: ...
@@ -109,6 +113,62 @@ def main(config: DictConfig):
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
 
+    model_eval = load_model(config,sigma_min,sigma_max,device)
+    
+    scorefn = model_eval.score if not batched else model_eval.batch_score
+    divergencefn = model_eval.divergence if not batched else model_eval.batch_divergence
+
+    load_samples_fn = lambda: load_samples(config.data_samples, batch_size=batch_size, device=device)
+    load_trajectories_fn = lambda: load_trajectories(config.trajectory_index_file,batch_size=batch_size)
+    
+    def get_trajectory(path)->list[tuple[torch.Tensor,float]]:
+        samples,times = load_trajectory(path,device=device)
+        return list(zip(map(from_array,samples),times))
+
+
+    diffusion_coeff_fn = functools.partial(
+        diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.get("clamp_diffusion_coefficient",False))
+    
+    
+    priors = load_priors(config,
+                         sigma_min,
+                         sigma_max,
+                         device,
+                         batch_size)
+
+    integrands = get_integrands(config,
+                                from_array,
+                                to_array,
+                                scorefn,
+                                divergencefn,
+                                diffusion_coeff_fn)
+
+    paths = get_paths(config,
+                      from_array,
+                      to_array,
+                      scorefn,
+                      divergencefn,
+                      diffusion_coeff_fn,
+                      load_samples_fn,
+                      load_trajectories_fn,
+                      get_trajectory,
+                      device)
+
+    likelihoods = get_likelihoods(config,
+                                 paths,
+                                 integrands,
+                                 device)
+    
+    write_likelihood_outputs(config,
+                             likelihoods,
+                             integrands,
+                             priors,
+                             batch_size)
+    
+def load_model(config:DictConfig,
+               sigma_min:float,
+               sigma_max:float,
+               device:torch.device):
     # set marginal probability distribution and diffusion coefficient distribution
     marginal_prob_std_fn = functools.partial(
         marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
@@ -144,11 +204,18 @@ def main(config: DictConfig):
     else:
         raise ValueError(tr_type)
     
-    scorefn = model_eval.score if not batched else model_eval.batch_score
-    divergencefn = model_eval.divergence if not batched else model_eval.batch_divergence
+    return model_eval
+    
+def load_priors(config:DictConfig,
+                sigma_min:float,
+                sigma_max:float,
+                device:torch.device,
+                batch_size:int|None):
+    
+    batched = batch_size is not None
     
     ### LOAD PRIORS
-    priors:list[tuple[str,Callable[[torch.Tensor,float],float]]] = []
+    priors:list[tuple[str,Callable[[torch.Tensor,float,None],float]]] = []
     functions:DictConfig = config.get("prior_fns","smax_gaussian")
     if isinstance(functions,str):
         functions = functions.split(" ")
@@ -174,7 +241,7 @@ def main(config: DictConfig):
                         raise ValueError(f"'time' parameter to the convolved_data prior can only be a float in [0,1] or \"Any\", received {gt_time}")
                 gt_time = torch.as_tensor(gt_time, dtype=torch.float, device=device)
 
-                def gt_prior_fn(x:torch.Tensor,t:float):
+                def gt_prior_fn(x:torch.Tensor,t:float,condition:None):
                     tt = torch.as_tensor(t)
                     if gt_time is not None: assert torch.allclose(tt, gt_time), t
                     currvar = variances + int_diffusion_coeff_sq(tt,sigma_min=sigma_min,sigma_max=sigma_max)
@@ -196,35 +263,27 @@ def main(config: DictConfig):
 
     
             case "smax_gaussian":
-                def prior_likelihood_fn(x:torch.Tensor,t:float):
+                def prior_likelihood_fn(x:torch.Tensor,t:float,condition:None):
                     tt = torch.as_tensor(t)
                     assert torch.allclose(tt, torch.ones_like(tt)), t #diffeq errors might mean it's not *quite* 1 but that's fine
                     res = (prior_gaussian_nd(x,sigma_max)[0])
                     return res.numpy(force=True) if batched else res.item()
                 priors.append((prior_fn,prior_likelihood_fn))
-
-    load_samples_fn = lambda: load_samples(config.data_samples, batch_size=batch_size, device=device)
-    load_trajectories_fn = lambda: load_trajectories(config.trajectory_index_file,batch_size=batch_size)
     
-    def get_trajectory(path)->list[tuple[torch.Tensor,float]]:
-        samples,times = load_trajectory(path,device=device)
-        return list(zip(map(from_array,samples),times))
+    return priors
 
-    likelihoods, integrands = get_likelihoods(
-        config,
-        from_array,
-        to_array,
-        scorefn,
-        divergencefn,
-        load_samples_fn,
-        load_trajectories_fn,
-        get_trajectory,
-        device
-    )
-    
+
+def write_likelihood_outputs(
+        config:DictConfig,
+        likelihoods:Iterable[tuple[int|str|Sequence[str|int],Sequence[torch.Tensor],Sequence[float],None,dict[str,float|ArrayLike]]],
+        integrands:list[LikelihoodIntegrand[torch.Tensor,None]],
+        priors:Sequence[tuple[str,Callable[[torch.Tensor,float,None],float]]],
+        batch_size:int|None,
+        ):
+    batched = batch_size is not None
+
     ### WRITE OUTPUT
     out_dir = Path(config.out_dir)
-    likelihoods_name = out_dir/"likelihood.csv"
     
     if out_dir.exists():
         if not config.get("overwrite_output",False):
@@ -235,7 +294,6 @@ def main(config: DictConfig):
             if backup_out.exists():
                 shutil.rmtree(backup_out)
             os.rename(out_dir,backup_out)
-    
     out_dir.mkdir(parents=True,exist_ok=True)
 
     ## WRITE CONFIG
@@ -243,61 +301,103 @@ def main(config: DictConfig):
     with open(config_copy,"w") as f:
         f.write(OmegaConf.to_yaml(config))
 
+    ## WRITE LIKELIHOODS PREP
+    likelihoods_file = out_dir/"likelihood.csv"
+    write_likelihoods = config.get("write_likelihoods",True)
+    likelihoods_handle: Optional[TextIOWrapper] = None
+    likelihoods_writer: Optional[csv.DictWriter] = None
+    if write_likelihoods:
+        likelihoods_handle = open(likelihoods_file,"w")
+        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
+        likelihoods_writer = csv.DictWriter(likelihoods_handle,fieldnames=fieldnames)
+        likelihoods_writer.writeheader()
+
+    ## WRITE SAMPLES PREP
+    samples_file = out_dir/"samples.csv"
+    write_samples = config.get("write_samples",False)
+    samples_handle: Optional[TextIOWrapper] = None
+    samples_writer: Optional[csv.DictWriter] = None
+
+    if write_samples:
+        samples_handle = open(samples_file,"w")
+        fieldnames = ["index","Samples"]
+        samples_writer = csv.DictWriter(samples_handle,fieldnames=fieldnames) #TODO: regularize capitalization aaaa
+        samples_writer.writeheader()
+
+
+
     ## WRITE TRAJECTORIES PREP
-    if config.get("save_trajectories",False):
-        trajectory_folder = out_dir/"trajectories"
+    trajectory_folder = out_dir/"trajectories"
+    trajectory_indices: list[tuple[int|None,TextIOWrapper,csv.DictWriter]] = [] #a little silly lol
+    acc_trajnum = 0
+    save_trajectories = config.get("save_trajectories",False)
+    save_trajectory_index = config.get("write_trajectory_index",False) and save_trajectories
+    if save_trajectories:
         try:
             next(trajectory_folder.glob("*")) #if any files in directory, clear directory
             shutil.rmtree(trajectory_folder)
         except StopIteration:
             pass
         trajectory_folder.mkdir(exist_ok=True)
-    else:
-        trajectory_folder = None
+    if save_trajectory_index:
+        indices: list[tuple[int|None,TextIOWrapper]] = [(None,open(trajectory_folder/"trajectory_index.csv","w"))]
+        if (extra := config.get("trajectory_extra_indices",None)):
+            indices += [(ind,open(trajectory_folder/f"trajectory_index_{ind}.csv","w")) for ind in extra]
+        trajectory_indices = [(ind,f,csv.DictWriter(f,fieldnames=["index","filename"])) for (ind,f) in indices]
+        [index[2].writeheader() for index in trajectory_indices]
+    
 
-    ## WRITE LIKELIHOODS
-    with open(likelihoods_name, 'w', newline='') as f:
-        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for ids,trajectories,times,integrand_resultss in likelihoods:
+    ## WRITE OUTPUT
+    try:
+        for ids,trajectories,times,conditions,integrand_resultss in likelihoods:
 
             ##Calculate priors
-            prior_endpoint:tuple[torch.Tensor,float] = (trajectories[-1], times[-1])
+            prior_eval_endpoint:tuple[torch.Tensor,float,None] = (trajectories[-1], times[-1], conditions)
 
-            prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in priors}
+            prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_eval_endpoint))) for name,prior_fn in priors}
 
             ## Unbatch results for writing
+            #since trajectories are in 'array' form they always have a batch dimension
+            trajectories = torch.stack(trajectories,dim=1) #put time-axis in dimension 1 so we can iterate over the batch dimension
+            assert trajectories.ndim == 3 #BxNxD
             if not batched:
-                ids:Iterable[str] = [ids]
-                trajectories = [trajectories]
+                ids:Iterable[str|int] = [ids]
                 times = [times]
                 integrand_resultss = [integrand_resultss]
                 prior_resultss = [prior_result]
-                prior_endpoints = [prior_endpoint]
             else:
-                batch = len(prior_endpoint[0]) #size of this batch, could be smaller than batch_size if last batch
-                ids: Iterable[str] = ids
-                trajectories = torch.stack(trajectories,dim=1) #put time-axis in dimension 1 so we can iterate over the batch dimension
-                assert trajectories.ndim == 3 #BxNxD
+                batch = len(prior_eval_endpoint[0]) #size of this batch, could be smaller than batch_size if last batch
+                ids: Iterable[str|int] = ids
                 times = itertools.repeat(times)
                 integrand_resultss = [
-                    {name:result[i] for name,result in integrand_resultss.items()}
+                    {name:np.array(result)[i] for name,result in integrand_resultss.items()}
                     for i in range(batch)
                 ]
                 prior_resultss = [
-                    {name:result[i] for name,result in prior_result.items()}
+                    {name:np.array(result)[i] for name,result in prior_result.items()}
                     for i in range(batch)
                 ]
-                prior_endpoints = [(prior_endpoint[0][i],prior_endpoint[1]) for i in range(batch)]
 
-                
-            
-            for id, trajectory, time, integrand_results, prior_results, prior_endpoint \
-                in zip(ids,trajectories,times, integrand_resultss, prior_resultss, prior_endpoints):
-                assert isinstance(id,str),id
-                if trajectory_folder: #save trajectory to folder
+            for id, trajectory, time, integrand_results, prior_results \
+                in zip(ids, trajectories, times, integrand_resultss, prior_resultss):
+                prior_endpoint:tuple[torch.Tensor,float] = (trajectory[-1], time[-1])
+                assert isinstance(id,str|int),id
+
+                if write_likelihoods:
+                    row = {"id":int(id),
+                        "prior_position":prior_endpoint[0].item(),  #since here we're in 1d, let's make it a scalar w/ item()
+                            "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
+                            **{f"prior:{name}":val for name,val in prior_results.items()},
+                            **{f"integrand:{name}":val for name,val in integrand_results.items()}}
+                    likelihoods_writer.writerow(row)
+
+                if write_samples:
+                    #TODO: CONFIGURATION FOR WHICH POINT TO SAVE
+                    sample = {"index":id,"Samples":trajectory[-1].item()}
+                    samples_writer.writerow(sample)
+
+                if save_trajectories: #save trajectory to folder
+                    trajectory_name = f"trajectory_{id}.csv"
                     trajectory_file = trajectory_folder/f"trajectory_{id}.csv"
                     xtraj = torch.as_tensor(trajectory).numpy(force=True)
                     assert xtraj.ndim == 2
@@ -305,16 +405,22 @@ def main(config: DictConfig):
                     xtraj = xtraj[:,0] #1d position into scalar
                     ttraj = torch.as_tensor(time).numpy(force=True)
                     trajectory_df = pd.DataFrame({"Timestep":ttraj,"Sample":xtraj})
-                    trajectory_df.to_csv(trajectory_file,index_label="Index")
+                    trajectory_df.to_csv(trajectory_file,index_label="index")
 
-                row = {"id":int(id),
-                    "prior_position":prior_endpoint[0].item(),  #since here we're in 1d, let's make it a scalar w/ item()
-                        "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
-                        **{f"prior:{name}":val for name,val in prior_results.items()},
-                        **{f"integrand:{name}":val for name,val in integrand_results.items()}}
-                writer.writerow(row)
+                    for cutoff,file,writer in trajectory_indices:
+                        if cutoff is None or acc_trajnum <= cutoff:
+                            writer.writerow({"index":id,"filename":trajectory_name})
+                    acc_trajnum += 1
 
-                f.flush()
+
+    finally:
+        #make sure the files are closed!!!
+        if likelihoods_handle is not None:
+            likelihoods_handle.close()
+        if samples_handle is not None:
+            samples_handle.close()
+        for cutoff,file,writer in trajectory_indices:
+            file.close()
 
 
 if __name__ == '__main__':

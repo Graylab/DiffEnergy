@@ -1,5 +1,6 @@
-from diffenergy.helper import diffusion_coeff
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihoods, run_ode_likelihoods
+import omegaconf
+from torch.utils.data import Dataset
+from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihoods, run_ode_likelihoods
 
 import torch
 from omegaconf import DictConfig
@@ -10,8 +11,9 @@ from diffenergy.likelihoodv3 import (
     Array)
 
 import functools
-from typing import Callable, Generic, Iterable, Iterator, Literal, Mapping, Protocol, Sequence, Optional, TypeVar
+from typing import Callable, Generic, Iterable, Iterator, Literal, Mapping, Protocol, Sequence, Optional, TypeVar, TypeVarTuple, overload
 
+#some convenience wrappers for sized iterables
 X = TypeVar("X",covariant=True)
 class SizedIter(Protocol,Generic[X]):
     def __len__(self)->int:
@@ -19,66 +21,90 @@ class SizedIter(Protocol,Generic[X]):
     def __iter__(self)->Iterator[X]:
         ...
 
+class SizeWrappedIter(SizedIter):
+    def __init__(self,iter:Iterable[X],length:int):
+        self.iter = iter
+        self.length = length
 
-def get_likelihoods[X,C,T,I](
+    def __len__(self) -> int:
+        return self.length
+    
+    def __iter__(self):
+        return iter(self.iter)
+    
+P = TypeVarTuple("P")
+X = TypeVar("X")
+class MapDataset(Generic[X,*P], Dataset[X], SizedIter[X], Sequence[X]):
+    source:Sequence[tuple[*P]]
+    map:Callable[[*P],X]
+
+    @classmethod
+    def chain[*B](cls:type["MapDataset[X,*P]"],source:"MapDataset[tuple[*B],*P]",map:Callable[[*B],X])->"MapDataset[X,*P]":
+        map2 = source.map
+        def map_composed(*args:*P):
+            return map(*map2(*args))
+        return cls(source.source,map_composed)
+
+    def __init__(self,source:Sequence[tuple[*P]], map:Callable[[*P],X]):
+        self.source = source
+        self.map = map
+
+    def __len__(self):
+        return len(self.source)
+
+    @overload
+    def __getitem__(self,index:int) -> X: ...
+    @overload
+    def __getitem__(self,index:slice) -> "MapDataset[X,*P]": ...
+    def __getitem__(self, index:int|slice) -> X|"MapDataset[X,*P]":
+        if isinstance(index,slice):
+            return MapDataset(self.source[index],self.map)
+        else:
+            return self.map(*self.source[index])
+
+    def __iter__(self) -> Iterator[X]:
+        yield from (self[i] for i in range(len(self)))
+        
+
+
+def get_paths[X,C,T,I](
         config:DictConfig,
         from_array:Callable[[ArrayLike],X],
         to_array:Callable[[X],Array],
         scorefn:Callable[[X,float,C],Array],
         divergencefn:Callable[[X,float,C],float|Array],
+        diffusion_coeff_fn:Callable[[float],float|Array],
         load_samples:Callable[[],SizedIter[tuple[I,X,C]]],
         load_trajectories:Callable[[],SizedIter[tuple[I,T,C]]],
         get_trajectory:Callable[[T],Sequence[tuple[X,float]]],
-        device:str|torch.device,
-        diffusion_coeff_fn:Optional[Callable[[float],float|Array]]=None,
-                        ):
+        device:str|torch.device):
+    
     device = torch.device(device)
 
-    if not diffusion_coeff_fn:
-        diffusion_coeff_fn = functools.partial(
-            diffusion_coeff, sigma_min = config.sigma_min, sigma_max = config.sigma_max, clamp = config.clamp_diffusion_coefficient)
-
-    ### LOAD INTEGRANDS
-    integrands:list[LikelihoodIntegrand] = []
-    types:DictConfig = config.integrand_types
-    if types is None:
-        types = []
-    if not isinstance(types,Mapping):
-        types = DictConfig({t:{} for t in types}) #ensure types is a DictConfig of Dicts
-
-    for integrand_type,params in types.items():
-        def param(p:str,*args):
-            if params is not None:
-                if params.get(p,None) is not None:
-                    return p
-            return config.get(p,*args)
-
-        intclasses:dict[str,type[ScoreDivDiffIntegrand[X,C]]] = {cls.__name__:cls for cls in [TotalIntegrand[X,C],TimeIntegrand[X,C],SpaceIntegrand[X,C]]}
-
-        if integrand_type in intclasses:
-            intcls = intclasses[integrand_type]
-            integrand = intcls(scorefn,divergencefn,diffusion_coeff_fn,to_array,from_array)
-        else:
-            raise ValueError("Unknown integrand type:",integrand_type)
-
-        integrands.append(integrand)
-
-
-    if len(integrands) == 0:
-        raise ValueError("""Must specify at least one integrand type!\n
-                         `integrand_types` can either be a list of strings (classnames) or a list of mappings from classnames to
-                         integrand-specific parameters. If an integrand parameter is not provided in the integrand-specific section,
-                         it will look for that parameter in the global scope instead (hence defaults/shared parameters can be provided globally).
-                         To specify an empty mapping, simply include the `ClassName:` line without any subitems below it.""")
-
-
     ### LOAD PATHS
-    #ode integration: needs a timeschedule. Unused if diffusion / other trajectory used
-    match config.get("ode_timeschedule","uniform"):
-        case "uniform":
-            ode_times = torch.linspace(0,1,config.ode_steps+1,device=device)
-        case default:
-            raise ValueError("Unknown timeschedule method:",default)
+    #ode integration: needs a timeschedule
+    try:
+        match config.get("ode_timeschedule","uniform"):
+            case "uniform":
+                ode_times = torch.linspace(0,1,config.ode_steps,device=device)
+            case "reverse_uniform":
+                ode_times = torch.linspace(1,0,config.ode_steps,device=device)
+            case default:
+                raise ValueError("Unknown ODE timeschedule method:",default)
+    except omegaconf.errors.ConfigAttributeError:
+        ode_times = None
+    
+    #ode integration: also needs a timeschedule sometimes.
+    try:
+        match config.get("sde_timeschedule","uniform"):
+            case "uniform":
+                sde_times = torch.linspace(0,1,config.sde_steps,device=device)
+            case "reverse_uniform":
+                sde_times = torch.linspace(1,0,config.sde_steps,device=device)
+            case default:
+                raise ValueError("Unknown SDE timeschedule method:",default)
+    except omegaconf.errors.ConfigAttributeError:
+        sde_times = None
 
     def load_endpoints(path):
         trajectory = get_trajectory(path)
@@ -196,6 +222,20 @@ def get_likelihoods[X,C,T,I](
                 for (id,(start,end),condition) in endpoints
             )
 
+        case "reverse_sde":
+            samples = load_samples()
+
+            paths = (
+                (id,ReverseSDEPath(
+                    scorefn,
+                    diffusion_coeff_fn,
+                    sde_times,
+                    initial,
+                    to_array,
+                    from_array,
+                    condition))        
+                for (id,initial,condition) in tqdm(samples))
+
         case _:
             raise ValueError("Unknown path type:",config.path_type)
 
@@ -206,6 +246,60 @@ def get_likelihoods[X,C,T,I](
         schedule:Literal['uniform','data'] = config.get("perturbation_schedule","data")
         paths = ((id,PerturbedPath[X,C](path,schedule,sigma,path.condition)) for id,path in paths) #god I love generators
 
+    return paths
+
+def get_integrands[X,C](
+        config:DictConfig,
+        from_array:Callable[[ArrayLike],X],
+        to_array:Callable[[X],Array],
+        scorefn:Callable[[X,float,C],Array],
+        divergencefn:Callable[[X,float,C],float|Array],
+        diffusion_coeff_fn:Callable[[float],float|Array],
+        ):
+    
+    ### LOAD INTEGRANDS
+    integrands:list[LikelihoodIntegrand[X,C]] = []
+    types:DictConfig = config.integrand_types
+    if types is None:
+        types = []
+    if not isinstance(types,Mapping):
+        types = DictConfig({t:{} for t in types}) #ensure types is a DictConfig of Dicts
+
+    for integrand_type,params in types.items():
+        def param(p:str,*args):
+            if params is not None:
+                if params.get(p,None) is not None:
+                    return p
+            return config.get(p,*args)
+
+        intclasses:dict[str,type[ScoreDivDiffIntegrand[X,C]]] = {cls.__name__:cls for cls in [TotalIntegrand[X,C],TimeIntegrand[X,C],SpaceIntegrand[X,C]]}
+
+        if integrand_type in intclasses:
+            intcls = intclasses[integrand_type]
+            integrand = intcls(scorefn,divergencefn,diffusion_coeff_fn,to_array,from_array)
+        else:
+            raise ValueError("Unknown integrand type:",integrand_type)
+
+        integrands.append(integrand)
+
+
+    if len(integrands) == 0:
+        raise ValueError("""Must specify at least one integrand type!\n
+                         `integrand_types` can either be a list of strings (classnames) or a list of mappings from classnames to
+                         integrand-specific parameters. If an integrand parameter is not provided in the integrand-specific section,
+                         it will look for that parameter in the global scope instead (hence defaults/shared parameters can be provided globally).
+                         To specify an empty mapping, simply include the `ClassName:` line without any subitems below it.""")
+    
+    return integrands
+    
+
+def get_likelihoods[X,C,I](
+        config:DictConfig,
+        paths:Iterable[tuple[I,IntegrablePath[X,C]]],
+        integrands:Sequence[LikelihoodIntegrand],
+        device:str|torch.device,
+                        ):
+    device = torch.device(device)
 
     ### RUN LIKELIHOOD COMPUTATION
     parallel = config.get("parallel",False)
@@ -228,4 +322,5 @@ def get_likelihoods[X,C,T,I](
         raise ValueError(f"Unknown integral type: {int_type}. For standard (non-ode solver) numerical integration, use integral_type: \"diff\" (the default).")
 
 
-    return likelihoods, integrands
+    return likelihoods
+
