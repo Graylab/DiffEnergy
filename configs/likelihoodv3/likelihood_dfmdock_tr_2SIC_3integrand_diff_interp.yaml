@@ -30,6 +30,7 @@ interpolate_trajectories: True
 num_interpolants: 10
 
 save_trajectories: True
+save_trajectory_likelihoods: True
 
 reset_seed_each_sample: True
 seed: 0
