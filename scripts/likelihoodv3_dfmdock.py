@@ -633,7 +633,7 @@ def main(config: DictConfig):
     if offset_type not in valid_offsets:
         raise ValueError("offset_type must be one of",valid_offsets)
 
-    model_eval = ModelEval(score_model,offset_type=offset_type)
+    model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_sample",False),manual_seed=config.get("seed",0))
     
     scorefn = model_eval.score# if not batched else model_eval.batch_score
     divergencefn = model_eval.divergence# if not batched else model_eval.batch_divergence
