@@ -1,5 +1,7 @@
 ### inspired from Leeshin Chu's dips_dataset.py
+import contextlib
 from typing import TypedDict
+import warnings
 import torch
 import torch.nn.functional as F
 import os.path as path
@@ -33,11 +35,13 @@ class PDBImporter:
         self.esm_model = esm_model
         self.batch_converter = esm_alphabet.get_batch_converter()
 
-    def get_pdb(self,pdb_file:str,id:str,out_pdb: bool = False)->DockedDatum:
+    def get_pdb(self,pdb_file:str,id:str,out_pdb: bool = False, suppress_warnings: bool = True)->DockedDatum:
 
         # Get sequences and coords from files  
-        rec_pos, rec_seq = load_coords(pdb_file,"A")
-        lig_pos, lig_seq = load_coords(pdb_file,"B")
+        ctx = warnings.catch_warnings(action="ignore") if suppress_warnings else contextlib.nullcontext()
+        with ctx:
+            rec_pos, rec_seq = load_coords(pdb_file,"A")
+            lig_pos, lig_seq = load_coords(pdb_file,"B")
 
 
         # Convert coords to torch tensor
