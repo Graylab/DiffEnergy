@@ -285,6 +285,7 @@ def write_dfmdock_samples(trajectory_dir:str|Path,
                           offset_type:Literal["Translation", "Rotation", "Translation+Rotation"],
                           save_samples:bool,
                           save_trajectories:bool,
+                          integrand_results:Optional[dict[str,Sequence[float|ArrayLike]]]=None,
                           save_pdb_references:bool=False,
                           pdb_reference_point:Literal[None,'start','end']=None,
                           sample_save_point:Literal['reference','start','end']='end', #None here means match the original pdb!! set to the same value as pdb_reference_point or explicitly 'reference' to save the reference as the sample
@@ -416,8 +417,6 @@ def write_dfmdock_samples(trajectory_dir:str|Path,
             columns = ["Timestep"] + offset_trajectory_columns(offset_type)
             data = torch.cat([ttraj[...,None],xtraj],dim=1)                    
             trajectory_df = pd.DataFrame(columns=columns,data=data.numpy(force=True))
-            trajectory_df.to_csv(trajectory_csv,index_label="Index")
-
             trajectory_res["PDB_File"] = relative_to(pdb_reference_file,pdb_dir)
 
         elif trajectory_save_type == 'pdb':
@@ -429,14 +428,22 @@ def write_dfmdock_samples(trajectory_dir:str|Path,
                 save_structure(trajectory_dir/name,offset_pdb)
             
             trajectory_df = pd.DataFrame({"Timestep":ttraj.numpy(force=True),"PDB_File":map(lambda f: str(relative_to(f,pdb_dir)),filenames)})
-            trajectory_df.to_csv(trajectory_csv,index_label="Index")
         else:
             raise ValueError(f"{trajectory_save_type=}")
+
+        if integrand_results is not None:
+            for name,result in integrand_results:
+                trajectory[f"accumulated_integrand: {name}"] = result
+
+        trajectory_df.to_csv(trajectory_csv,index_label="Index")
+
+        
+
 
     return (sample_res, trajectory_res)
 
 def write_likelihood_outputs(config:DictConfig,
-                            likelihoods:Iterable[tuple[str,Sequence[LigDict],Sequence[float],DFMDict,dict[str,float|ArrayLike]]],
+                            likelihoods:Iterable[tuple[str,Sequence[LigDict],Sequence[float],DFMDict,dict[str,Sequence[float|ArrayLike]]]],
                             integrands:list[LikelihoodIntegrand[LigDict,DFMDict]],
                             priors:Sequence[tuple[str,Callable[[LigDict,float,DFMDict],float|Array]]],
                             offset_type:Literal["Translation", "Rotation", "Translation+Rotation"],
@@ -563,7 +570,7 @@ def write_likelihood_outputs(config:DictConfig,
                             "prior_position":to_array_nobatch(prior_endpoint[0]).tolist(),
                                 "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
                                 **{f"prior:{name}":val for name,val in prior_results.items()},
-                                **{f"integrand:{name}":val for name,val in integrand_results.items()}}
+                                **{f"integrand:{name}":val[-1] for name,val in integrand_results.items()}} #write last accumulated likelihood
                         likelihoods_writer.writerow(row)
 
                     sample_out, traj_out = write_dfmdock_samples(
@@ -576,6 +583,7 @@ def write_likelihood_outputs(config:DictConfig,
                         offset_type,
                         write_samples,
                         save_trajectories,
+                        integrand_results=integrand_results if config.get("save_trajectory_likelihoods") else None,
                         save_pdb_references=config.get("save_pdb_references",False),
                         pdb_reference_point=config.get("pdb_reference_point",None),
                         sample_save_point=config.get("sample_save_point","end"),

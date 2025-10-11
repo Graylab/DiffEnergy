@@ -33,6 +33,9 @@ class LikelihoodIntegrand(ABC,Generic[X,C]):
         Also takes additional customizable conditioning metadata."""
         ...
 
+    @abstractmethod
+    def zero(self,x:X)->float|Array: ...
+
 
 class ODELikelihoodIntegrand(LikelihoodIntegrand[X,C]):
     def __init__(self,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]) -> None:
@@ -80,10 +83,10 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
     def delta(self)->Iterable[tuple[X,float]]:
         return map(lambda xt: (self.from_arr(self.to_arr(xt[1][0]) - self.to_arr(xt[0][0])),xt[1][1]-xt[0][1]), itertools.pairwise(self))
     
-    def diffintegrate(self, *integrands: LikelihoodIntegrand[X,C])->tuple[Sequence[X],Sequence[float],list[float|Array]]:
-        acc:list[None|float|Array] = [None]*len(integrands)
+    def diffintegrate(self, *integrands: LikelihoodIntegrand[X,C])->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
         it = iter(self)
         (x,t) = next(it)
+        acc:list[list[float|Array]] = [[i.zero(x)] for i in integrands]
         accx = [x]
         acct = [t]
         for (x2,t2) in it:
@@ -94,18 +97,15 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
             
             for i,integrand in enumerate(integrands):
                 I = integrand.diffintegrand(x,t,dx,dt,self.condition)
-                if acc[i] is None:
-                    acc[i] = I
-                else:
-                    acc[i] += I
+                acc[i].append(acc[i][-1] + I)
 
             (x,t) = (x2,t2)
             accx.append(x)
             acct.append(t)
 
-        for i in range(len(acc)): #don't think this would ever happen but /shrug
-            if acc[i] is None:
-                acc[i] = 0
+        # for i in range(len(acc)): #don't think this would ever happen but /shrug
+        #     if acc[i] is None:
+        #         acc[i] = []
 
         return accx,acct,acc
 
@@ -190,7 +190,7 @@ class ODEIntegrablePath(IntegrablePath[X,C],ABC):
         return len(self.timeschedule)
     
     
-    def odeintegrate(self,*integrands:ODELikelihoodIntegrand[X,C])->tuple[Sequence[X],Sequence[float],list[float|Array]]:
+    def odeintegrate(self,*integrands:ODELikelihoodIntegrand[X,C])->tuple[Sequence[X],Sequence[float],list[Sequence[float|Array]]]:
         def ode_func(i:float,v:tuple[Tensor,...]):
             x,t,*_ = v
             x,t = self.from_arr(x), t.item()
@@ -203,7 +203,7 @@ class ODEIntegrablePath(IntegrablePath[X,C],ABC):
         xs,ts,*I = res
 
         ## make sure to remove the null dimension from each integrand via [0]
-        return list(map(self.from_arr,xs)),list(map(Tensor.item,ts)),[i[-1][0] for i in I]
+        return list(map(self.from_arr,xs)),list(map(Tensor.item,ts)),[i[:,0] for i in I]
     
 
 ##### Concrete Classes #####
@@ -459,7 +459,7 @@ class PerturbedPath(IntegrableSequence[X,C]):
 #### Likelihood Calculation ####
 
 _I = TypeVar("_I") # id type
-def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]]):
+def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]])->tuple[_I,Sequence[X],Sequence[float],C,dict[str,Sequence[float|ArrayLike]]]:
 
     with torch.profiler.record_function("Likelihood Integration"):
         if method == 'diff':
@@ -470,7 +470,7 @@ def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],
             trajectory, times, deltas = path.odeintegrate(*integrands)
 
     ##Since we assume the path goes from unknown to known, we use the last data point for the prior and negate the delta
-    integrand_results:dict[str,float|ArrayLike] = {integrand.name(): torch.Tensor.tolist(torch.as_tensor(-delta)) for integrand,delta in zip(integrands,deltas)}
+    integrand_results:dict[str,Sequence[float|ArrayLike]] = {integrand.name(): torch.Tensor.tolist(-torch.as_tensor(delta)) for integrand,delta in zip(integrands,deltas)}
     # prior_endpoint:tuple[X,float] = trajectory[-1]
     # prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in prior_fns}
 
