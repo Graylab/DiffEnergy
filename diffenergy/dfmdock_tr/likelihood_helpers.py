@@ -88,7 +88,7 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
         with grad_ctx(): #not sure if this actually is that important, might be enough to just set requires grad to true/false. don't think it can hurt, though
             scores = self.score_model(new_batch)
 
-        tr_score:Tensor = scores["tr_score"]; rot_score:Tensor = scores["rot_score"]
+        tr_score:Tensor = scores["tr_score"][0]; rot_score:Tensor = scores["rot_score"][0]
 
         score = None
         if self.offset_type == "Translation+Rotation":
