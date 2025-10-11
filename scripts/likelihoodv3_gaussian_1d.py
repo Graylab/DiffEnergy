@@ -275,7 +275,7 @@ def load_priors(config:DictConfig,
 
 def write_likelihood_outputs(
         config:DictConfig,
-        likelihoods:Iterable[tuple[int|str|Sequence[str|int],Sequence[torch.Tensor],Sequence[float],None,dict[str,float|ArrayLike]]],
+        likelihoods:Iterable[tuple[int|str|Sequence[str|int],Sequence[torch.Tensor],Sequence[float],None,dict[str,Sequence[float|ArrayLike]]]],
         integrands:list[LikelihoodIntegrand[torch.Tensor,None]],
         priors:Sequence[tuple[str,Callable[[torch.Tensor,float,None],float]]],
         batch_size:int|None,
@@ -388,7 +388,7 @@ def write_likelihood_outputs(
                         "prior_position":prior_endpoint[0].item(),  #since here we're in 1d, let's make it a scalar w/ item()
                             "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
                             **{f"prior:{name}":val for name,val in prior_results.items()},
-                            **{f"integrand:{name}":val for name,val in integrand_results.items()}}
+                            **{f"integrand:{name}":val[-1] for name,val in integrand_results.items()}} #save the last accumulated likelihood
                     likelihoods_writer.writerow(row)
 
                 if write_samples:
