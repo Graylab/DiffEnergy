@@ -56,88 +56,92 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
 
 
     def score(self,x:LigDict,t:float,conditioning:DFMDict,grad:bool=False):
-        batch = x
+        with torch.profiler.record_function("ModelEval: Score"):
+            batch = x
 
-        cache = getcache((batch,conditioning),t,self.scorecache)
-        if cache is not None: return cache
-        
-        if self.reset_seed_each_eval:
-            torch.manual_seed(self.manual_seed)
+            cache = getcache((batch,conditioning),t,self.scorecache)
+            if cache is not None: return cache
+            
+            if self.reset_seed_each_eval:
+                torch.manual_seed(self.manual_seed)
 
-        offset = batch["offset"]
+            offset = batch["offset"]
 
-        assert offset.ndim == 1 #no batch support yet
+            assert offset.ndim == 1 #no batch support yet
 
-        # enable grad to cache the gradients
-        if self.always_grad or grad:
-            grad_ctx = torch.enable_grad
-            offset.requires_grad_(True)
-        else:
-            grad_ctx = torch.no_grad
-            offset.requires_grad_(False)
-
-
-        offset_tr = None; offset_rot = None
-
-        if self.offset_type == "Translation+Rotation":
-            offset_tr,offset_rot = offset[...,:3],offset[...,3:]
-        elif self.offset_type == "Translation":
-            offset_tr = offset
-        elif self.offset_type == "Rotation":
-            offset_rot = offset
-        else:
-            raise ValueError(self.offset_type)
+            # enable grad to cache the gradients
+            if self.always_grad or grad:
+                grad_ctx = torch.enable_grad
+                offset.requires_grad_(True)
+            else:
+                grad_ctx = torch.no_grad
+                offset.requires_grad_(False)
 
 
-        new_batch = dict(**conditioning)
-        new_batch["offset_tr"] = offset_tr
-        new_batch["offset_rot"] = offset_rot
+            offset_tr = None; offset_rot = None
 
-        new_batch["t"] = torch.as_tensor(t,device=offset.device,dtype=offset.dtype)
-        
+            if self.offset_type == "Translation+Rotation":
+                offset_tr,offset_rot = offset[...,:3],offset[...,3:]
+            elif self.offset_type == "Translation":
+                offset_tr = offset
+            elif self.offset_type == "Rotation":
+                offset_rot = offset
+            else:
+                raise ValueError(self.offset_type)
 
-        with grad_ctx(): #not sure if this actually is that important, might be enough to just set requires grad to true/false. don't think it can hurt, though
-            scores = self.score_model(new_batch)
 
-        tr_score:Tensor = scores["tr_score"][0]; rot_score:Tensor = scores["rot_score"][0]
+            new_batch = dict(**conditioning)
+            new_batch["offset_tr"] = offset_tr
+            new_batch["offset_rot"] = offset_rot
 
-        score = None
-        if self.offset_type == "Translation+Rotation":
-            score = torch.cat((tr_score,rot_score))
-        elif self.offset_type == "Translation":
-            score = tr_score
-        elif self.offset_type == "Rotation":
-            score = rot_score
-        else:
-            raise ValueError(self.offset_type)
+            new_batch["t"] = torch.as_tensor(t,device=offset.device,dtype=offset.dtype)
+            
+            with torch.profiler.record_function("ModelEval: Score: score_model"):
+                with grad_ctx(): #not sure if this actually is that important, might be enough to just set requires grad to true/false. don't think it can hurt, though
+                    scores = self.score_model(new_batch)
 
-        self.scorecache = ((batch,conditioning,t),score)
-        return score
+            tr_score:Tensor = scores["tr_score"][0]; rot_score:Tensor = scores["rot_score"][0]
+
+            score = None
+            if self.offset_type == "Translation+Rotation":
+                score = torch.cat((tr_score,rot_score))
+            elif self.offset_type == "Translation":
+                score = tr_score
+            elif self.offset_type == "Rotation":
+                score = rot_score
+            else:
+                raise ValueError(self.offset_type)
+
+            self.scorecache = ((batch,conditioning,t),score)
+            return score
     
 
     def divergence(self,x:LigDict,t:float,conditioning:DFMDict)->Tensor:
-        batch = x
+        with torch.profiler.record_function("ModelEval: Divergence"):
+            batch = x
 
-        cache = getcache((batch,conditioning),t,self.divcache)
-        if cache is not None: return cache
-        
-        score = getcache((batch,conditioning),t,self.scorecache)
-        if score is None:
-            self.scorecache = None #make sure to invalidate a bad cache
-            score = self.score(batch,t,conditioning,grad=True)
+            cache = getcache((batch,conditioning),t,self.divcache)
+            if cache is not None: return cache
+            
+            score = getcache((batch,conditioning),t,self.scorecache)
+            if score is None:
+                self.scorecache = None #make sure to invalidate a bad cache
+                score = self.score(batch,t,conditioning,grad=True)
 
-        offset = batch['offset']
+            offset = batch['offset']
 
-        assert offset.ndim == 1
+            assert score.ndim == 1 #shape = (3,) or (6,)
+            assert offset.ndim == 1
 
-        grad_scores = torch.empty(offset.shape,dtype=offset.dtype,device=offset.device)
-        for i in range(offset.shape[0]):
-            grad_scores[i] = torch.autograd.grad(score[i], offset, retain_graph=True, create_graph=False)[0][i]
-        batchtrace = torch.sum(grad_scores, dim=1)
+            with torch.profiler.record_function("ModelEval: Divergence: Autograd"):
+                grad_scores = torch.empty(offset.shape,dtype=offset.dtype,device=offset.device)
+                for i in range(offset.shape[0]):
+                    grad_scores[i] = torch.autograd.grad(score[i], offset, retain_graph=True, create_graph=False)[0][i]
+            trace = torch.sum(grad_scores, dim=0)
 
-        self.divcache = ((batch,conditioning,t),batchtrace)
+            self.divcache = ((batch,conditioning,t),trace)
 
-        return batchtrace #essentially a float teehee
+            return trace #essentially a float teehee
 
 
     
