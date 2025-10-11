@@ -38,13 +38,21 @@ def getcache(x:tuple[*X],t:float,cache:Optional[tuple[tuple[*X,float],R]])->Opti
 
 
 class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 1 in first dim, batched has size of N
-    def __init__(self,score_model:Score_Model, offset_type:Literal["Translation","Rotation","Translation+Rotation"], always_grad:bool=True) -> None:
+    def __init__(self,
+                 score_model:Score_Model, 
+                 offset_type:Literal["Translation","Rotation","Translation+Rotation"], 
+                 always_grad:bool=True,
+                 reset_seed_each_eval:bool=False,
+                 manual_seed:int=0) -> None:
         self.score_model = score_model
         self.scorecache: Optional[tuple[tuple[LigDict,DFMDict,float],Tensor]] = None
         self.divcache: Optional[tuple[tuple[LigDict,DFMDict,float],Tensor]] = None
         self.always_grad = always_grad
         self.dtype = self.score_model.parameters()
         self.offset_type = offset_type
+
+        self.reset_seed_each_eval = reset_seed_each_eval
+        self.manual_seed = manual_seed
 
 
     def score(self,x:LigDict,t:float,conditioning:DFMDict,grad:bool=False):
@@ -53,6 +61,9 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
         cache = getcache((batch,conditioning),t,self.scorecache)
         if cache is not None: return cache
         
+        if self.reset_seed_each_eval:
+            torch.manual_seed(self.manual_seed)
+
         offset = batch["offset"]
 
         assert offset.ndim == 1 #no batch support yet
