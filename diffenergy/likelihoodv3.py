@@ -341,14 +341,20 @@ class ReverseSDEPath(IntegrablePath[X,C]):
         for t2 in time_iter:
             yield (x,time_step)
             dt = (t2 - time_step) #note that this means dt is negative!!! so we've gotta negate it when we use it
+            assert dt < 0, "dt must be negative for reverse SDE sampling! Make sure you use a time schedule which decreases monotonically"
             g = self.diffcoefffn(time_step)
             score = self.scorefn(x,time_step,self.condition)
 
+
             with torch.no_grad():
-                x_arr = self.to_arr(x) - (g**2) * score * dt #negative because dt is negative!
-                x_arr = x_arr + self.noise_scale * torch.sqrt(-dt) * g * torch.randn_like(x_arr) #negate dt so real sqrt
+                x_arr = self.to_arr(x)
+                dx = - (g**2) * score * dt #negative because dt is negative!
+                dx += self.noise_scale * torch.sqrt(-dt) * g * torch.randn_like(x_arr) #negate dt so real sqrt
+                x_arr = x_arr + dx #don't do it in place! these tensors don't get cloned. (maybe they should?)
                 x = self.from_arr(x_arr)
 
+            print(f"===={time_step=}====:\napplying perturbation with {score=}, {self.noise_scale=}, {dt=}, {g=}")
+            print("total perturbation:",dx)
             time_step = t2
 
         yield (x,time_step)

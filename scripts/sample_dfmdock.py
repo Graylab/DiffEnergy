@@ -33,10 +33,10 @@ def sample_random_offset(rec_pos, lig_pos, sigma:float, offset_type:Literal["Tra
     
     if "Translation" in offset_type:
         # get trans update: random noise + translate x2 to x1
-        restensors.append(torch.normal(0.0, sigma, size=(1, 3), device=device) + (rec_cen - lig_cen))
+        restensors.append(torch.normal(0.0, sigma, size=(3,), device=device) + (rec_cen - lig_cen))
     if "Rotation" in offset_type:
         raise NotImplemented #uhhhhhh
-        restensors.append(matrix_to_axis_angle(torch.from_numpy(Rotation.random().as_matrix()).float().to(device).unsqueeze(0)))
+        restensors.append(matrix_to_axis_angle(torch.from_numpy(Rotation.random().as_matrix()).float().to(device)))
     
     return torch.cat(restensors,dim=0);
 
@@ -55,8 +55,20 @@ def main(config: DictConfig):
         # num_steps -> sde_steps
         # save_trajectories: Also sets write_trajectory_index to True
 
+        ## Other relevant parameters: (see write_dfmdock_samples in the dfmdock likelihood script file for details)
+
+        # save_pdb_references: bool, default False. whether to save reference pdbs to the output folder. Default False, meaning offsets will be relative to the pdbs provided during training
+        # pdb_reference_point: Literal[null,'start','end'], default null. what point on the trajectory path to save the reference, or null to just copy the original pdb
+        # sample_save_point: Literal['reference','start','end'], default end. Save as above, but for the sampled point. 'reference' saves the reference point as the sample 
+        # ^IF YOU WANT TRAJECTORIES RELATIVE TO A SAMPLE PDB, THIS IS HOW TO DO IT! SET SAVE PDB REFERENCE TO TRUE AND SAMPLE SAVE POINT TO REFERENCE
+        # sample_save_type: Literal['offset','pdb'], default offset. Whether to save the samples as pdbs, or as offsets relative to the reference pdb.
+        # force_copy_duplicate_sample: bool, default False. Whether to force duplicate the pdb if the sample matches the pdb (See write_dfmdock_samples)
+        # trajectory_save_type: Literal['offset','pdb'], default offset. Whether to save trajectory points as pdbs or as offsets relative to the reference pdb.
+        # trajectory_extra_indices: list of index cutoffs (e.g. [25, 1000]), default=[]. Will always include a full index
+
         config.path_type = "reverse_sde"
         config.integral_type = "diff"
+        config.sde_timeschedule = "reverse_uniform" #make sure to go from t=1 to t=0!
 
         if config.get("wt_file",None):
             config.checkpoint = config.wt_file
@@ -69,36 +81,13 @@ def main(config: DictConfig):
         if config.get("num_steps",None):
             config.sde_steps = config.num_steps
 
-        if config.get("save_trajectories",False):
-            config.write_trajectory_index = True
-        
         config.write_samples=True
         config.write_likelihoods=False
-        
-        ## Other relevant parameters:
-        # sample_save_type: Literal['pdb','offset','pdb+offset'], default=offset -> sets values of write_samples_save_pdb and write_samples_with_offset
-        # trajectory_extra_indices: list of index cutoffs (e.g. [25, 1000]), default=[]. Will always include a full index
-        # trajectory_save_type: Literal['offset','pdb','offset+anchor_pdb'], whether to save as pdb files, offsets, or offsets with a new 'anchor' pdb
-        # trajector_offset_anchor is always set to 'end' to sample the end of the reverse SDE trajectory.
-
-        save_type:Literal['pdb','offset','pdb+offset', None] = config.get("sample_save_type",None)
-        if save_type is None: 
-            #I'll allow it so long as you enable one of write_samples_save_pdb and write_samples_with_offset, or both are explicitly set to False
-            # (explicitly setting to false is very strange because it only works if the offset is zero, meaning the pdbs are already at the path destination. oh well)
-            save_pdb = config.get("write_samples_save_pdb",None)
-            save_offset = config.get("write_samples_with_offset",None)
-            if not (save_pdb or save_offset or (save_pdb is False and save_offset is False)):
-                raise ValueError("Must specify a value for 'sample_save_type', or explicitly set one of write_samples_save_pdb or write_samples_with_offset to true (or both to explicitly false)")
-        else:
-            if save_type == 'pdb':
-                config.write_samples_save_pdb = True
-            elif save_type == 'offset':
-                config.write_samples_with_offset = True
-            elif save_type == 'pdb+offset':
-                config.write_samples_with_offset = True
-                config.write_samples_save_pdb = True
-            else:
-                raise ValueError(f"Invalid value for 'sample_save_type': {save_type}")
+        if config.get("save_trajectory",False):
+            config.save_trajectories = True
+        if config.get("save_trajectories",False):
+            config.write_trajectory_index = True
+    
         
     
 

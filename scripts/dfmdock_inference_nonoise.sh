@@ -2,7 +2,7 @@
 export HYDRA_FULL_ERROR=1
 
 # Define variables
-DIR="../dfmdock_perturb_tr_likelihood/dfmdock_inference/no_noise"
+DIR="../dfmdock_perturb_tr_likelihood/dfmdock_inference/no_noise_take2"
 TRAIN_SET="dips"
 TEST_SET="db5_local"
 MODEL="DFMDock_model_0"

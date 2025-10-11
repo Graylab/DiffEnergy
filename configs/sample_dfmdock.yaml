@@ -1,12 +1,18 @@
 out_dir: ../sample_results/dfmdock_tr
 wt_file: checkpoints/dfmdock_model_0.ckpt
 offset_type: "Translation"
-samples_per_pdb: 40
+samples_per_pdb: 120
 
-data_samples: ../db5_pdbs
-
+pdb_dir: ../db5_pdbs
+data_samples: ../db5_pdbs/index.csv
 num_steps: 40
 sigma_min: 0.1
 sigma_max: 30
+
+#Write pdb references as samples, use as reference for trajectories as offsets
 save_trajectory: True
+save_pdb_references: True 
+pdb_reference_point: 'end'
+sample_save_point: 'reference' #make the samples point to the reference point instead of writing new file
+trajectory_save_type: 'offset'
 trajectory_extra_indices: [1000,25]

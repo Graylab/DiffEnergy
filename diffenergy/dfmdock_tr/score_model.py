@@ -79,7 +79,7 @@ class Score_Model(pl.LightningModule):
             "rec_pos": batch["rec_pos"],
             "lig_pos": lig_pos, 
             "position_matrix": batch["position_matrix"],
-            "t": batch["t"],
+            "t": torch.reshape(batch["t"],(1,)), #make sure it's a 1d vector not a 0d scalar
         }
 
         # predict

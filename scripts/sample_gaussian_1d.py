@@ -56,6 +56,9 @@ def main(config: DictConfig):
         # sample_num: Discard for dfmdock, dfmdock needs samples_per_pdb
         # num_steps -> sde_steps
         # save_trajectory -> save_trajectories: Also sets write_trajectory_index to True
+
+        ## Other relevant parameters:
+        # trajectory_extra_indices: list of index cutoffs (e.g. [25, 1000]), default=[]. Will always include a full index
         
         config.path_type = "reverse_sde"
         config.integral_type = "diff"
@@ -79,8 +82,7 @@ def main(config: DictConfig):
         config.write_samples=True
         config.write_likelihoods=False
         
-        ## Other relevant parameters:
-        # trajectory_extra_indices: list of index cutoffs (e.g. [25, 1000]), default=[]. Will always include a full index
+        
 
         
 
