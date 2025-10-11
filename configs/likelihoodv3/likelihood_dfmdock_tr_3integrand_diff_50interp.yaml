@@ -8,6 +8,8 @@ data_samples: ../sample_results/dfmdock_tr/samples.csv
 trajectory_dir: ../sample_results/dfmdock_tr/trajectories
 trajectory_index_file: ../sample_results/dfmdock_tr/trajectories/trajectory_index_1000.csv
 
+offset_type: "Translation"
+
 integrand_types:
   TotalIntegrand:
   TimeIntegrand:
@@ -31,8 +33,6 @@ num_interpolants: 50
 
 save_trajectories: True
 
-batched: True
-batch_size: 16
 
 reset_seed_each_sample: True
 seed: 0
