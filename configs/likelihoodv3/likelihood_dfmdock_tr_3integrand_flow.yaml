@@ -1,0 +1,30 @@
+checkpoint: checkpoints/dfmdock_model_0.ckpt
+out_dir: ../likelihood_results/likelihoodv3/dfmdock_tr_3integrand_flow
+sigma_min: 0.1
+sigma_max: 30
+clamp_diffusion_coefficient: False
+pdb_dir: ../sample_results/dfmdock_tr/pdb
+data_samples: ../sample_results/dfmdock_tr/samples.csv
+
+integrand_types:
+  TotalIntegrand:
+  TimeIntegrand:
+  SpaceIntegrand:
+prior_fns:
+  smax_gaussian
+path_type: flow_ode
+
+integral_type: 'ode'
+
+tr_type: non_conservative
+
+odeint_rtol: 1e-4
+odeint_atol: 1e-4
+odeint_method: rk4
+ode_steps: 100
+num_workers: 4
+
+save_trajectories: True
+
+batched: True
+batch_size: 64
