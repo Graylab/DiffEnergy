@@ -28,3 +28,6 @@ save_trajectories: True
 
 batched: True
 batch_size: 64
+
+reset_seed_each_sample: True
+seed: 0
