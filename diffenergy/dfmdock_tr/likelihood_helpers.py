@@ -65,6 +65,8 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
             cache = getcache((batch,conditioning),t,self.scorecache)
             if cache is not None: return cache
             
+            self.score_model.zero_grad(set_to_none=True) #new inputs, so clear the gradient cache as well
+            
             if self.reset_seed_each_eval:
                 torch.manual_seed(self.manual_seed)
 
