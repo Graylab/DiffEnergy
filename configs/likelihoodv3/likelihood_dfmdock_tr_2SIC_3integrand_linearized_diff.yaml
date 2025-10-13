@@ -8,6 +8,8 @@ data_samples: ../sample_results/dfmdock_tr_2SIC/samples.csv
 trajectory_dir: ../sample_results/dfmdock_tr_2SIC/trajectories
 trajectory_index_file: ../sample_results/dfmdock_tr_2SIC/trajectories/trajectory_index.csv
 
+offset_type: "Translation"
+
 integrand_types:
   TotalIntegrand:
   TimeIntegrand:
@@ -27,6 +29,7 @@ ode_steps: 100
 num_workers: 4
 
 save_trajectories: True
+save_trajectory_likelihoods: True
 
 reset_seed_each_sample: True
 seed: 0
