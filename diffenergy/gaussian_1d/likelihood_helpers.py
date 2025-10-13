@@ -36,7 +36,7 @@ class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor,None,None]): #unbatched h
         self.dtype = self.score_model.parameters()
 
 
-    def batch_score(self,batch:Tensor,t:float,conditioning:None,grad:bool=False):
+    def batch_score(self,batch:Tensor,t:float,conditioning:None,grad:bool=False,return_grad:bool=False):
         cache = getcache(batch,t,self.scorecache)
         if cache is not None: return cache
         
@@ -54,17 +54,17 @@ class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor,None,None]): #unbatched h
             batchscore = self.score_model(x, torch.as_tensor([t],device=x.device,dtype=x.dtype).expand((x.shape[0],)))
 
         self.scorecache = ((x,t),batchscore)
-        return batchscore
+        return batchscore if return_grad else batchscore.detach()
     
 
-    def score(self,x:Tensor,t:float,conditioning:None,grad:bool=False):
-        score = self.batch_score(x,t,conditioning,grad=grad)
+    def score(self,x:Tensor,t:float,conditioning:None,grad:bool=False,return_grad:bool=False):
+        score = self.batch_score(x,t,conditioning,grad=grad,return_grad=return_grad)
         if score.shape[0] == 1:
             return score[0]
         else:
             raise ValueError("x must have size 1 in dimension 1 to use unbatched score! Noneall batch_score otherwise!")
     
-    def batch_divergence(self,batch:Tensor,t:float,conditioning:None)->Tensor:
+    def batch_divergence(self,batch:Tensor,t:float,conditioning:None,return_grad:bool=False)->Tensor:
         cache = getcache(batch,t,self.divcache)
         if cache is not None: return cache
 
@@ -73,7 +73,7 @@ class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor,None,None]): #unbatched h
         batchscore = getcache(x,t,self.scorecache)
         if batchscore is None:
             self.scorecache = None #make sure to invalidate a bad cache
-            batchscore = self.batch_score(x,t,conditioning,grad=True)
+            batchscore = self.batch_score(x,t,conditioning,grad=True,return_grad=True)
 
         grad_scores = torch.empty(x.shape,dtype=x.dtype,device=x.device)
         for b in range(x.shape[0]):
@@ -83,10 +83,10 @@ class ModelEval(BatchScoreModelEvaluator[Tensor,Tensor,None,None]): #unbatched h
 
         self.divcache = ((x,t),batchtrace)
 
-        return batchtrace #essentially a float teehee
+        return batchtrace if return_grad else batchtrace.detach()#essentially a float teehee
 
-    def divergence(self,x:Tensor,t:float,conditioning:None)->float:
-        div = self.batch_divergence(x,t,conditioning)
+    def divergence(self,x:Tensor,t:float,conditioning:None,return_grad:bool=False)->float:
+        div = self.batch_divergence(x,t,conditioning,return_grad=return_grad)
         if div.shape[0] == 1:
             return div[0]
         else:

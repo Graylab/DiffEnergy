@@ -45,6 +45,9 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
                  reset_seed_each_eval:bool=False,
                  manual_seed:int=0) -> None:
         self.score_model = score_model
+
+        # note that the cache will always store the tensors with grad if they were calculated with grad, 
+        # but returned values from score and divergence will never have grad unless return_grad is True
         self.scorecache: Optional[tuple[tuple[LigDict,DFMDict,float],Tensor]] = None
         self.divcache: Optional[tuple[tuple[LigDict,DFMDict,float],Tensor]] = None
         self.always_grad = always_grad
@@ -55,7 +58,7 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
         self.manual_seed = manual_seed
 
 
-    def score(self,x:LigDict,t:float,conditioning:DFMDict,grad:bool=False):
+    def score(self, x:LigDict, t:float, conditioning:DFMDict, grad:bool=False, return_grad:bool=False):
         with torch.profiler.record_function("ModelEval: Score"):
             batch = x
 
@@ -113,10 +116,10 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
                 raise ValueError(self.offset_type)
 
             self.scorecache = ((batch,conditioning,t),score)
-            return score
+            return score if return_grad else score.detach()
     
 
-    def divergence(self,x:LigDict,t:float,conditioning:DFMDict)->Tensor:
+    def divergence(self,x:LigDict,t:float,conditioning:DFMDict,return_grad:bool=False)->Tensor:
         with torch.profiler.record_function("ModelEval: Divergence"):
             batch = x
 
@@ -126,7 +129,7 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
             score = getcache((batch,conditioning),t,self.scorecache)
             if score is None:
                 self.scorecache = None #make sure to invalidate a bad cache
-                score = self.score(batch,t,conditioning,grad=True)
+                score = self.score(batch,t,conditioning,grad=True,return_grad=True)
 
             offset = batch['offset']
 
@@ -141,7 +144,7 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
 
             self.divcache = ((batch,conditioning,t),trace)
 
-            return trace #essentially a float teehee
+            return trace if return_grad else trace.detach() #essentially a float teehee
 
 
     
