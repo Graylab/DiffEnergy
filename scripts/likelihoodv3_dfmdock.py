@@ -432,8 +432,8 @@ def write_dfmdock_samples(trajectory_dir:str|Path,
             raise ValueError(f"{trajectory_save_type=}")
 
         if integrand_results is not None:
-            for name,result in integrand_results:
-                trajectory[f"accumulated_integrand: {name}"] = result
+            for name,result in integrand_results.items():
+                trajectory_df[f"accumulated_integrand: {name}"] = result
 
         trajectory_df.to_csv(trajectory_csv,index_label="Index")
 
