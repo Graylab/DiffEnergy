@@ -1,6 +1,7 @@
 from io import TextIOWrapper
 import itertools
 from logging import warning
+import logging
 import math
 import os
 from pathlib import Path
@@ -601,9 +602,9 @@ def write_likelihood_outputs(config:DictConfig,
                                 writer.writerow(traj_out)
                         acc_trajnum += 1
                     
-                    # i += 1
-                    # if i == 5:
-                    #     raise SystemExit()
+                    i += 1
+                    if i == 2:
+                        return
 
 
     finally:
@@ -620,6 +621,10 @@ def write_likelihood_outputs(config:DictConfig,
 def main(config: DictConfig):
     # Print the entire configuration
     print(OmegaConf.to_yaml(config))
+
+    torch.cuda.memory._record_memory_history(
+       max_entries=100000
+    )
 
     # set device
     device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
@@ -692,24 +697,42 @@ def main(config: DictConfig):
                                  integrands,
                                  device)
     
-    # try:
-    #     with torch.profiler.profile(activities=[
-    #                 torch.profiler.ProfilerActivity.CPU,
-    #                 torch.profiler.ProfilerActivity.CUDA, # Only include if CUDA is available
-    #             ],
-    #             # schedule=torch.profiler.schedule(wait=0, warmup=1, active=3, repeat=2), #don't start recording until we've done at least one 'warmup' cycle
-    #             record_shapes=True,
-    #             profile_memory=True,
-    #             with_stack=True,) as prof:
-    write_likelihood_outputs(config,
-                            likelihoods,
-                            integrands,
-                            priors,
-                            offset_type,
-                            batch_size)
-    # except SystemExit: #since I'm using exit() to break the loop after n iterations
-    #     from IPython import embed; embed()
-    #     # prof.export_chrome_trace("trace.json")
+
+
+    
+
+    with torch.profiler.profile(activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA, # Only include if CUDA is available
+            ],
+            # schedule=torch.profiler.schedule(wait=0, warmup=1, active=3, repeat=2), #don't start recording until we've done at least one 'warmup' cycle
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True,) as prof:
+        write_likelihood_outputs(config,
+                                likelihoods,
+                                integrands,
+                                priors,
+                                offset_type,
+                                batch_size)
+
+
+    try:
+        torch.cuda.memory._dump_snapshot(f"dfmdock_snapshot.pickle")
+    except Exception as e:
+        logging.error(f"Failed to capture memory snapshot {e}")
+
+    with open("memory_summary.txt","w") as f:
+        f.write(torch.cuda.memory_summary())
+
+
+    from IPython import embed; embed()
+
+    # Stop recording memory snapshot history.
+    torch.cuda.memory._record_memory_history(enabled=None)
+
+    prof.export_memory_timeline(f"dfmdock_timeline.html", device="cuda:0")
+    # prof.export_chrome_trace("dfmdock_trace.json")
         
 
 
