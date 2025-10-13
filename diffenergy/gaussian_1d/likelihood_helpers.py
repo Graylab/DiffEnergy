@@ -7,7 +7,7 @@ import IPython
 from torch import FloatTensor, Tensor
 import torch
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.likelihoodv3 import BatchScoreModelEvaluator
+from diffenergy.scoremodels import BatchScoreModelEvaluator
 
 
 def to_array(x:Tensor)->Tensor:

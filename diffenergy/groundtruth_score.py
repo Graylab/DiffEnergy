@@ -8,9 +8,9 @@ from torch import Tensor
 from torch.profiler import record_function
 import torch
 
-from diffenergy.likelihoodv3 import BatchScoreModelEvaluator
+from diffenergy.scoremodels import BatchScoreModelEvaluator
 from diffenergy.helper import int_diffusion_coeff_sq
-from diffenergy.likelihoodv3 import ScoreModelEvaluator
+from diffenergy.scoremodels import ScoreModelEvaluator
 
 
 def batched_normpdf_scalar(dx:Tensor,variances:Tensor): #dx: BxNxD, variances: N, result: BxN

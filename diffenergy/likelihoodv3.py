@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import functools
 import itertools
 from decorator import decorator
-from typing import Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Optional, Protocol, Sequence, Sized, TypeVar, TypeVarTuple, TypedDict, Union, overload
+from typing import Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Optional, Sequence, Sized, TypeVar, TypeVarTuple, TypedDict, Union, overload
 from numpy.typing import ArrayLike
 
 import torch
@@ -10,6 +10,7 @@ from torch import NumberType, Tensor
 from torchdiffeq import odeint
 
 import numpy as np
+
 
 Array = Union[np.ndarray,Tensor]
 
@@ -89,6 +90,7 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
         acc:list[list[float|Array]] = [[i.zero(x)] for i in integrands]
         accx = [x]
         acct = [t]
+        count = 0
         for (x2,t2) in it:
             xarr,x2arr = self.to_arr(x), self.to_arr(x2)
             dxarr = x2arr-xarr
@@ -99,13 +101,14 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
                 I = integrand.diffintegrand(x,t,dx,dt,self.condition)
                 acc[i].append(acc[i][-1] + I)
 
+            count += 1 
+            print("loop")
+            if count == 5:
+                from IPython import embed; embed()
+
             (x,t) = (x2,t2)
             accx.append(x)
             acct.append(t)
-
-        # for i in range(len(acc)): #don't think this would ever happen but /shrug
-        #     if acc[i] is None:
-        #         acc[i] = []
 
         return accx,acct,acc
 
@@ -221,7 +224,7 @@ class ScoreDivDiffIntegrand(ODELikelihoodIntegrand[X,C]):
     def __init__(self,scorefn:Callable[[X,float,C],Array], divfn:Callable[[X,float,C],float|Array], diffcoefffn:Callable[[float],float],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X]):
         self.scorefn = scorefn
         self.divfn = divfn
-        self.diffcoefffn =diffcoefffn
+        self.diffcoefffn = diffcoefffn
         super().__init__(to_arr,from_arr)
 
     def shape(self, x: X) -> tuple[int, ...]:
@@ -245,8 +248,8 @@ class TotalIntegrand(ScoreDivDiffIntegrand[X,C]):
         """[dlogp(x(i),t(i))/di] = grad_x(logp) dot dx/di + dlogp/dt*dt/di. Function of x, t, dx/dy, and dt/di.
         """
 
-        gradxlogp = self.tensor(self.scorefn(x,t,conditioning)) #can be batched! Either D or BxD array
-        divergence = self.divfn(x,t,conditioning) #can be batched! either scalar or size-B array
+        gradxlogp = self.tensor(self.scorefn(x,t,conditioning)).detach() #can be batched! Either D or BxD array
+        divergence = self.tensor(self.divfn(x,t,conditioning)).detach() #can be batched! either scalar or size-B array
         g = self.diffcoefffn(t) #always a scalar
         g2 = g**2
         
@@ -272,8 +275,8 @@ class TimeIntegrand(ScoreDivDiffIntegrand[X,C]):
         """[dlogp(x(i),t(i))/di] = -grad_x(f(x(t),t))dt/di [=0 since f is 0] + 1/2 g(t)^2laplacian(logp(x(t),t))dt/di. Function of x, t, dx/dy, and dt/di.
         """
 
-        # gradxlogp = self.tensor(self.scorefn(x,t,conditioning)) #can be batched! Either D or BxD array
-        divergence = self.divfn(x,t,conditioning) #can be batched! either scalar or size-B array
+        # gradxlogp = self.tensor(self.scorefn(x,t,conditioning)).detach() #can be batched! Either D or BxD array
+        divergence = self.tensor(self.divfn(x,t,conditioning)).detach() #can be batched! either scalar or size-B array
         g = self.diffcoefffn(t) #always a scalar
         g2 = g**2
         
@@ -300,8 +303,8 @@ class SpaceIntegrand(ScoreDivDiffIntegrand[X,C]):
         """[dlogp(x(i),t(i))/di] = grad_x(logp) dot dx/di + dlogp/dt*dt/di [=0 by assumption]. Function of x, t, dx/dy, and dt/di.
         """
 
-        gradxlogp = self.tensor(self.scorefn(x,t,conditioning)) #can be batched! Either D or BxD array
-        # divergence = self.divfn(x,t,conditioning) #can be batched! either scalar or size-B array
+        gradxlogp = self.tensor(self.scorefn(x,t,conditioning)).detach() #can be batched! Either D or BxD array
+        # divergence = self.tensor(self.divfn(x,t,conditioning)).detach() #can be batched! either scalar or size-B array
         # g = self.diffcoefffn(t) #always a scalar
         # g2 = g**2
         
@@ -343,7 +346,7 @@ class ReverseSDEPath(IntegrablePath[X,C]):
             dt = (t2 - time_step) #note that this means dt is negative!!! so we've gotta negate it when we use it
             assert dt < 0, "dt must be negative for reverse SDE sampling! Make sure you use a time schedule which decreases monotonically"
             g = self.diffcoefffn(time_step)
-            score = self.scorefn(x,time_step,self.condition)
+            score = self.scorefn(x,time_step,self.condition).detach()
 
 
             with torch.no_grad():
@@ -387,7 +390,7 @@ class FlowEquivalentODEPath(UniformODEIntegrablePath[X,C]):
         super().__init__(timeschedule, initial, rtol, atol, method, to_arr, from_arr,conditioning)
 
     def dx(self, i: float, x: X, t: float) -> X:
-        delta = -1/2 * self.diffcoefffn(t)**2 * self.scorefn(x,t,self.condition);
+        delta = -1/2 * self.diffcoefffn(t)**2 * self.tensor(self.scorefn(x,t,self.condition)).detach();
 
         return self.from_arr(delta);
 
@@ -513,14 +516,3 @@ def run_diff_likelihoods(paths:Iterable[tuple[_I,IntegrablePath[X,C]]],integrand
 def run_ode_likelihoods(paths:Iterable[tuple[_I,ODEIntegrablePath[X,C]]],integrands:Sequence[ODELikelihoodIntegrand[X,C]],parallel=False,remote_kwargs={}):
     yield from istarmap_joblib(run_ode_likelihood,((id,path,integrands) for id,path in paths),parallel,remote_kwargs)
 
-XB = TypeVar("XB") #X Batched (e.g. Iterable[X])
-CB = TypeVar("CB",contravariant=True) #Batched Conditioning (e.g. Iterable[C])
-
-class ScoreModelEvaluator(Protocol,Generic[X,C]):
-    def score(self,x:X,t:float,conditioning:C)->Tensor:  ...
-    def divergence(self,x:X,t:float,conditioning:C)->float:  ...
-
-
-class BatchScoreModelEvaluator(ScoreModelEvaluator[X,C],Generic[X,XB,C,CB]):
-    def batch_score(self,batch:XB,t:float,conditioning:CB)->Iterable[Tensor]:  ...
-    def batch_divergence(self,batch:XB,t:float,conditioning:CB)->Iterable[float]:  ...
