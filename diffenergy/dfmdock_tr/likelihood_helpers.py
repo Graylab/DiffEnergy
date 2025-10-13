@@ -8,7 +8,7 @@ from torch import FloatTensor, Tensor
 import torch
 from diffenergy.dfmdock_tr.score_model import Score_Model
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.likelihoodv3 import ScoreModelEvaluator
+from diffenergy.scoremodels import CachedScoreModelEvaluator, ScoreModelEvaluator
 
 class DFMDict(TypedDict):
     orig_pdb: str
@@ -37,19 +37,21 @@ def getcache(x:tuple[*X],t:float,cache:Optional[tuple[tuple[*X,float],R]])->Opti
     return None
 
 
-class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 1 in first dim, batched has size of N
+class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 1 in first dim, batched has size of N
     def __init__(self,
                  score_model:Score_Model, 
                  offset_type:Literal["Translation","Rotation","Translation+Rotation"], 
                  always_grad:bool=True,
                  reset_seed_each_eval:bool=False,
                  manual_seed:int=0) -> None:
+        
+        super().__init__()
+
         self.score_model = score_model
 
         # note that the cache will always store the tensors with grad if they were calculated with grad, 
         # but returned values from score and divergence will never have grad unless return_grad is True
-        self.scorecache: Optional[tuple[tuple[LigDict,DFMDict,float],Tensor]] = None
-        self.divcache: Optional[tuple[tuple[LigDict,DFMDict,float],Tensor]] = None
+        # score cache stores both the input (with grad) and output, since the input gets cloned before eval
         self.always_grad = always_grad
         self.dtype = self.score_model.parameters()
         self.offset_type = offset_type
@@ -62,21 +64,22 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
         with torch.profiler.record_function("ModelEval: Score"):
             batch = x
 
-            cache = getcache((batch,conditioning),t,self.scorecache)
-            if cache is not None: return cache
+            cache = self._cached_score(batch,conditioning,t)
+            if cache is not None: return cache[1] if return_grad else cache[1].detach()
             
             self.score_model.zero_grad(set_to_none=True) #new inputs, so clear the gradient cache as well
             
             if self.reset_seed_each_eval:
                 torch.manual_seed(self.manual_seed)
 
-            offset = batch["offset"]
+            offset = batch["offset"] #make sure when we set requries_grad to True, it doesn't affect the original!
 
             assert offset.ndim == 1 #no batch support yet
 
             # enable grad to cache the gradients
             if self.always_grad or grad:
                 grad_ctx = torch.enable_grad
+                offset = offset.clone().detach()
                 offset.requires_grad_(True)
             else:
                 grad_ctx = torch.no_grad
@@ -117,7 +120,7 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
             else:
                 raise ValueError(self.offset_type)
 
-            self.scorecache = ((batch,conditioning,t),score)
+            self.scorecache = ((batch,conditioning,t),(offset,score))
             return score if return_grad else score.detach()
     
 
@@ -125,15 +128,15 @@ class ModelEval(ScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 
         with torch.profiler.record_function("ModelEval: Divergence"):
             batch = x
 
-            cache = getcache((batch,conditioning),t,self.divcache)
-            if cache is not None: return cache
+            cache = self._cached_divergence(batch,conditioning,t)#
+            if cache is not None: return cache if return_grad else cache.detach()
             
-            score = getcache((batch,conditioning),t,self.scorecache)
+            score = self._cached_score(batch,conditioning,t)
             if score is None:
                 self.scorecache = None #make sure to invalidate a bad cache
                 score = self.score(batch,t,conditioning,grad=True,return_grad=True)
 
-            offset = batch['offset']
+            (offset,score) = score #use input from score, not from x!
 
             assert score.ndim == 1 #shape = (3,) or (6,)
             assert offset.ndim == 1
