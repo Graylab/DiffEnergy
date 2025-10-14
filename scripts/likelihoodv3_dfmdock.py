@@ -622,10 +622,6 @@ def main(config: DictConfig):
     # Print the entire configuration
     print(OmegaConf.to_yaml(config))
 
-    torch.cuda.memory._record_memory_history(
-       max_entries=100000
-    )
-
     # set device
     device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
 
@@ -701,14 +697,14 @@ def main(config: DictConfig):
 
     
 
-    with torch.profiler.profile(activities=[
-                torch.profiler.ProfilerActivity.CPU,
-                torch.profiler.ProfilerActivity.CUDA, # Only include if CUDA is available
-            ],
-            # schedule=torch.profiler.schedule(wait=0, warmup=1, active=3, repeat=2), #don't start recording until we've done at least one 'warmup' cycle
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=True,) as prof:
+    # with torch.profiler.profile(activities=[
+    #             torch.profiler.ProfilerActivity.CPU,
+    #             torch.profiler.ProfilerActivity.CUDA, # Only include if CUDA is available
+    #         ],
+    #         # schedule=torch.profiler.schedule(wait=0, warmup=1, active=3, repeat=2), #don't start recording until we've done at least one 'warmup' cycle
+    #         record_shapes=True,
+    #         profile_memory=True,
+    #         with_stack=True,) as prof:
         write_likelihood_outputs(config,
                                 likelihoods,
                                 integrands,
@@ -717,21 +713,21 @@ def main(config: DictConfig):
                                 batch_size)
 
 
-    try:
-        torch.cuda.memory._dump_snapshot(f"dfmdock_snapshot.pickle")
-    except Exception as e:
-        logging.error(f"Failed to capture memory snapshot {e}")
+    # try:
+    #     torch.cuda.memory._dump_snapshot(f"dfmdock_snapshot.pickle")
+    # except Exception as e:
+    #     logging.error(f"Failed to capture memory snapshot {e}")
 
-    with open("memory_summary.txt","w") as f:
-        f.write(torch.cuda.memory_summary())
+    # with open("memory_summary.txt","w") as f:
+    #     f.write(torch.cuda.memory_summary())
 
 
-    from IPython import embed; embed()
+    # from IPython import embed; embed()
 
-    # Stop recording memory snapshot history.
-    torch.cuda.memory._record_memory_history(enabled=None)
+    # # Stop recording memory snapshot history.
+    # torch.cuda.memory._record_memory_history(enabled=None)
 
-    prof.export_memory_timeline(f"dfmdock_timeline.html", device="cuda:0")
+    # prof.export_memory_timeline(f"dfmdock_timeline.html", device="cuda:0")
     # prof.export_chrome_trace("dfmdock_trace.json")
         
 

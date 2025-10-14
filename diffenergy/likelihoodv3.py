@@ -90,7 +90,6 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
         acc:list[list[float|Array]] = [[i.zero(x)] for i in integrands]
         accx = [x]
         acct = [t]
-        count = 0
         for (x2,t2) in it:
             xarr,x2arr = self.to_arr(x), self.to_arr(x2)
             dxarr = x2arr-xarr
@@ -101,10 +100,6 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
                 I = integrand.diffintegrand(x,t,dx,dt,self.condition)
                 acc[i].append(acc[i][-1] + I)
 
-            count += 1 
-            print("loop")
-            if count == 5:
-                from IPython import embed; embed()
 
             (x,t) = (x2,t2)
             accx.append(x)
