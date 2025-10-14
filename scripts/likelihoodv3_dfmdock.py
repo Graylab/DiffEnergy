@@ -602,9 +602,9 @@ def write_likelihood_outputs(config:DictConfig,
                                 writer.writerow(traj_out)
                         acc_trajnum += 1
                     
-                    i += 1
-                    if i == 2:
-                        return
+                    # i += 1
+                    # if i == 5:
+                    #     return
 
 
     finally:
@@ -694,7 +694,7 @@ def main(config: DictConfig):
                                  device)
     
 
-
+    # torch.cuda.memory._record_memory_history(max_entries=100000)
     
 
     # with torch.profiler.profile(activities=[
@@ -705,12 +705,12 @@ def main(config: DictConfig):
     #         record_shapes=True,
     #         profile_memory=True,
     #         with_stack=True,) as prof:
-        write_likelihood_outputs(config,
-                                likelihoods,
-                                integrands,
-                                priors,
-                                offset_type,
-                                batch_size)
+    write_likelihood_outputs(config,
+                            likelihoods,
+                            integrands,
+                            priors,
+                            offset_type,
+                            batch_size)
 
 
     # try:
@@ -722,7 +722,7 @@ def main(config: DictConfig):
     #     f.write(torch.cuda.memory_summary())
 
 
-    # from IPython import embed; embed()
+    # # from IPython import embed; embed()
 
     # # Stop recording memory snapshot history.
     # torch.cuda.memory._record_memory_history(enabled=None)
