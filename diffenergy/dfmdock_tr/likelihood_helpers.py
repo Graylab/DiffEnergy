@@ -43,7 +43,8 @@ class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a si
                  offset_type:Literal["Translation","Rotation","Translation+Rotation"], 
                  always_grad:bool=True,
                  reset_seed_each_eval:bool=False,
-                 manual_seed:int=0) -> None:
+                 manual_seed:int=0,
+                 divide_div_by_N=False) -> None:
         
         super().__init__()
 
@@ -58,6 +59,8 @@ class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a si
 
         self.reset_seed_each_eval = reset_seed_each_eval
         self.manual_seed = manual_seed
+
+        self.divide_div_by_N = divide_div_by_N
 
 
     def score(self, x:LigDict, t:float, conditioning:DFMDict, grad:bool=False, return_grad:bool=False):
@@ -146,6 +149,8 @@ class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a si
                 for i in range(offset.shape[0]):
                     grad_scores[i] = torch.autograd.grad(score[i], offset, retain_graph=True, create_graph=False)[0][i]
             trace = torch.sum(grad_scores, dim=0)
+            if self.divide_div_by_N:
+                trace = trace/conditioning["lig_pos_orig"].shape[0] #divide by N
 
             self.divcache = ((batch,conditioning,t),trace)
 
