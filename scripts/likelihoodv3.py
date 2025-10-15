@@ -149,6 +149,21 @@ def get_paths[X,C,T,I](
                               condition))
                 for id,path,condition in tqdm(trajectories)
             )
+        case "sde_trajectories_unreversed":
+            #sde: get paths from diffusion tajectories, going from *1 to 0* 
+            trajectories = load_trajectories()
+
+            pathclass = IntegrableSequence[X,C]
+            if config.get("interpolate_trajectories",False):
+                pathclass = functools.partial(InterpolatedIntegrableSequence[X,C],config.num_interpolants)
+
+            paths = (
+                (id,pathclass(get_trajectory(path)[::-1], #REVERSE
+                              to_array,
+                              from_array,
+                              condition))
+                for id,path,condition in tqdm(trajectories)
+            )
         case "linear_trajectories":
             #linear: take sampled paths, and just make a straight line from start to end
             trajectories = load_trajectories()
@@ -308,7 +323,7 @@ def get_integrands[X,C](
         integrands.append(integrand)
 
 
-    if len(integrands) == 0:
+    if len(integrands) == 0 and not config.get("no_integrands",False):
         raise ValueError("""Must specify at least one integrand type!\n
                          `integrand_types` can either be a list of strings (classnames) or a list of mappings from classnames to
                          integrand-specific parameters. If an integrand parameter is not provided in the integrand-specific section,
