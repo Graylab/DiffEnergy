@@ -299,7 +299,7 @@ def get_integrands[X,C](
         integrands.append(integrand)
 
 
-    if len(integrands) == 0:
+    if len(integrands) == 0 and not config.get("no_integrands",False):
         raise ValueError("""Must specify at least one integrand type!\n
                          `integrand_types` can either be a list of strings (classnames) or a list of mappings from classnames to
                          integrand-specific parameters. If an integrand parameter is not provided in the integrand-specific section,
