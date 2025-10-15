@@ -1,3 +1,4 @@
+import itertools
 import omegaconf
 from torch.utils.data import Dataset
 from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihoods, run_ode_likelihoods
@@ -236,6 +237,29 @@ def get_paths[X,C,T,I](
                     from_array,
                     condition))        
                 for (id,initial,condition) in tqdm(samples))
+        
+        case "flow_along_trajectory": #that is, calculate the flowtime integral from t=0 to t=1 for each point in each diffusion trajectory
+            trajectories = load_trajectories() #each trajectory of N timesteps will produce N flow results
+
+            #note we replace each id with a tuple (id,t)
+            numtraj = len(trajectories)
+            trajectories,copy = itertools.tee(trajectories)
+            trajsize = len(get_trajectory(next(copy)[1]))
+            initials = tqdm(((f"{id}_{float(t)}",x,c) for (id,traj,c) in trajectories for (x,t) in get_trajectory(traj)),total=numtraj*trajsize)
+            paths = (
+                (id,
+                 FlowEquivalentODEPath(scorefn,
+                                       diffusion_coeff_fn,
+                                       ode_times,
+                                       (x,0),
+                                       config.odeint_rtol,
+                                       config.odeint_atol,
+                                       config.odeint_method,
+                                       to_array,
+                                       from_array,
+                                       condition))
+                for (id,x,condition) in initials
+            ) #technically we've broken typing here by changing the id but w/e. I guess really this should be a custom load_samples fn but I can't be bothered
 
         case _:
             raise ValueError("Unknown path type:",config.path_type)
