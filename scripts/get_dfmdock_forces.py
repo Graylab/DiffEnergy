@@ -21,7 +21,7 @@ from scripts.likelihoodv3 import MapDataset, SizeWrappedIter, SizedIter, get_int
 from scripts.likelihoodv3_dfmdock import load_samples, load_trajectories, load_trajectory, offset_trajectory_columns
 
 
-@hydra.main(config_path='configs/likelihoodv3')
+@hydra.main(version_base=None, config_path='../configs/likelihoodv3')
 def main(config:DictConfig):
     
     # Print the entire configuration
@@ -88,7 +88,9 @@ def main(config:DictConfig):
     forces_folder = out_folder/'forces'
     forces_folder.mkdir(exist_ok=True,parents=True)
     index_file = out_folder/'force_index.csv'
-    columns = offset_trajectory_columns(offset_type)
+    cols = offset_trajectory_columns(offset_type)
+    scorecols = [f'score:{col}' for col in cols]
+    poscols = [f'pos:{col}' for col in cols]
     with open(index_file,'w',newline='') as f:
         index_writer = DictWriter(f,fieldnames=['id','Forces_CSV'])
         index_writer.writeheader()
@@ -97,14 +99,16 @@ def main(config:DictConfig):
             forces_csv_file = forces_folder/f'{id}.csv'
             index_writer.writerow({"id":id,"Forces_CSV":forces_csv_file})
             with open(forces_csv_file,'w',newline='') as f2:
-                forces_writer = DictWriter(f2,fieldnames=['Index','Timestep','Divergence'] + columns)
+                forces_writer = DictWriter(f2,fieldnames=['Index','Timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
                 forces_writer.writeheader()
                 for i,(x,t) in enumerate(p):
                     force = scorefn(x,t,c)
                     div = divergencefn(x,t,c)
 
-                    forcedict = {"Index":i,"Timestep":torch.as_tensor(t).item(),'Divergence':div,**dict(zip(force.tolist(),columns))}
+                    forcedict = {"Index":i,"Timestep":torch.as_tensor(t).item(),'Diffusion_Coeff':diffusion_coeff_fn(t).item(),'Divergence':div.item(),**dict(zip(scorecols,force.tolist())),**dict(zip(poscols,x["offset"].tolist()))}
                     forces_writer.writerow(forcedict)
             
 
 
+if __name__ == "__main__":
+    main()
