@@ -78,7 +78,7 @@ def get_paths[X,C,T,I](
         load_samples:Callable[[],SizedIter[tuple[I,X,C]]],
         load_trajectories:Callable[[],SizedIter[tuple[I,T,C]]],
         get_trajectory:Callable[[T],Sequence[tuple[X,float]]],
-        device:str|torch.device):
+        device:str|torch.device)->Iterable[tuple[I,IntegrablePath[X,C]]]:
     
     device = torch.device(device)
 
