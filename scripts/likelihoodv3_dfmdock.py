@@ -644,8 +644,11 @@ def main(config: DictConfig):
     valid_offsets = ["Translation", "Rotation", "Translation+Rotation"]
     if offset_type not in valid_offsets:
         raise ValueError("offset_type must be one of",valid_offsets)
+    
+    if config.get("reset_seed_each_sample",False):
+        raise ValueError("reset_seed_each_sample deprecated. Either use reset_seed_each_eval (original behavior of reset_seed_each_sample) or reset_seed_each_path.") 
 
-    model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_sample",False),manual_seed=config.get("seed",0),
+    model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_eval",False),manual_seed=config.get("seed",0),
                            divide_div_by_N=config.get("small_divergence",False)) #test bug in old code
     
     scorefn = model_eval.score# if not batched else model_eval.batch_score

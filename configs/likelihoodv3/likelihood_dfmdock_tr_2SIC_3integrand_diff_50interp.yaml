@@ -33,5 +33,5 @@ num_interpolants: 50
 
 save_trajectories: True
 
-reset_seed_each_sample: True
+reset_seed_each_eval: True
 seed: 0

@@ -1,7 +1,7 @@
 import itertools
 import omegaconf
 from torch.utils.data import Dataset
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihoods, run_ode_likelihoods
+from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihood, run_diff_likelihoods, run_ode_likelihood, run_ode_likelihoods
 
 import torch
 from omegaconf import DictConfig
@@ -351,13 +351,23 @@ def get_likelihoods[X,C,I](
     if device.type == 'cuda' and 'num_gpus' not in actor_kwargs:
         actor_kwargs['num_gpus'] = 1 #assume each actor will consume an entire gpu
 
+    reset_seed_each_path = config.get("reset_seed_each_path",False)
+    seed = config.get("seed",0)
+
     int_type = config.get("integral_type")
     if int_type == "ode":
-        #assume paths are ode integrable. error will be thrown otherwise
-        likelihoods = run_ode_likelihoods(paths,integrands,parallel=parallel,remote_kwargs=actor_kwargs)
+        #just assume paths are ode integrable. error will be thrown otherwise
+        for id,path in paths:
+            if reset_seed_each_path:
+                torch.manual_seed(seed)
+            yield run_ode_likelihood(id,path,integrands)
+        
     elif int_type == "diff":
         #use standard integration
-        likelihoods = run_diff_likelihoods(paths,integrands,parallel=parallel,remote_kwargs=actor_kwargs)
+        for id,path in paths:
+            if reset_seed_each_path:
+                torch.manual_seed(seed)
+            yield run_diff_likelihood(id,path,integrands)
     else:
         raise ValueError(f"Unknown integral type: {int_type}. For standard (non-ode solver) numerical integration, use integral_type: \"diff\" (the default).")
 
