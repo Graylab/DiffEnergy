@@ -20,8 +20,8 @@ def divergence_eval_tr(batch, score_model):
             grad_score_lig.append(grad)
         grad_score_lig = torch.stack(grad_score_lig, dim=0)  # shape[3,107,3,3]
         grad_score_lig_ca = grad_score_lig[:,:,1,:].squeeze() # shape[3,107,3]
-        grad_score_lig_ca_mean = grad_score_lig_ca.mean(dim=1).squeeze() # shape[3,3]
-        diagonal = torch.diagonal(grad_score_lig_ca_mean)
+        grad_score_lig_ca_sum = grad_score_lig_ca.sum(dim=1).squeeze() # shape[3,3]
+        diagonal = torch.diagonal(grad_score_lig_ca_sum)
         trace = torch.sum(diagonal).unsqueeze(0)
 
     return trace
