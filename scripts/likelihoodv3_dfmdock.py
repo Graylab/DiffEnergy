@@ -426,7 +426,7 @@ def write_dfmdock_samples(trajectory_dir:str|Path,
             filenames = [pdb_trajectory_dir/f'{id}_{i}.pdb' for i in range(len(xtraj))]
             for name,offset in zip(filenames,xtraj):
                 offset_pdb = get_offset_pdb(pdb_reference_file,*split_offset(offset,offset_type))
-                save_structure(trajectory_dir/name,offset_pdb)
+                save_structure(name,offset_pdb)
             
             trajectory_df = pd.DataFrame({"Timestep":ttraj.numpy(force=True),"PDB_File":map(lambda f: str(relative_to(f,pdb_dir)),filenames)})
         else:
@@ -434,11 +434,9 @@ def write_dfmdock_samples(trajectory_dir:str|Path,
 
         if integrand_results is not None:
             for name,result in integrand_results.items():
-                trajectory_df[f"accumulated_integrand: {name}"] = result
+                trajectory_df[f"accumulated_integrand:{name}"] = result
 
         trajectory_df.to_csv(trajectory_csv,index_label="Index")
-
-        
 
 
     return (sample_res, trajectory_res)
@@ -647,7 +645,8 @@ def main(config: DictConfig):
     if offset_type not in valid_offsets:
         raise ValueError("offset_type must be one of",valid_offsets)
 
-    model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_sample",False),manual_seed=config.get("seed",0))
+    model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_sample",False),manual_seed=config.get("seed",0),
+                           divide_div_by_N=config.get("small_divergence",False)) #test bug in old code
     
     scorefn = model_eval.score# if not batched else model_eval.batch_score
     divergencefn = model_eval.divergence# if not batched else model_eval.batch_divergence
