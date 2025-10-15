@@ -11,5 +11,5 @@ odeint_atol: 1e-4
 odeint_method: rk4
 ode_steps: 100
 num_workers: 6
-reset_seed_each_sample: True
+reset_seed_each_eval: True
 seed: 0
