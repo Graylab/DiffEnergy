@@ -87,6 +87,9 @@ def main(config:DictConfig):
     out_folder = Path(config.out_dir)
     forces_folder = out_folder/'forces'
     forces_folder.mkdir(exist_ok=True,parents=True)
+    config_copy = out_folder/"config.yaml"
+    with open(config_copy,"w") as f:
+        f.write(OmegaConf.to_yaml(config))
     index_file = out_folder/'force_index.csv'
     cols = offset_trajectory_columns(offset_type)
     scorecols = [f'score:{col}' for col in cols]
