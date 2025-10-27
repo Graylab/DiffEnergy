@@ -1,6 +1,6 @@
 # @package _global_
 checkpoint: checkpoints/dfmdock_model_0.ckpt
-out_dir: ../likelihood_results/likelihoodv3/dfmdock_tr_3integrand_traj_flow_40
+out_dir: ../likelihood_results/likelihoodv3/dfmdock_tr/3integrand_traj_flow_40
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
