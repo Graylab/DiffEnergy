@@ -94,10 +94,16 @@ def main(config:DictConfig):
     cols = offset_trajectory_columns(offset_type)
     scorecols = [f'score:{col}' for col in cols]
     poscols = [f'pos:{col}' for col in cols]
+
+    reset_seed_each_path = config.get("reset_seed_each_path",False)
+    seed = config.get("seed",0)
     with open(index_file,'w',newline='') as f:
         index_writer = DictWriter(f,fieldnames=['id','Forces_CSV'])
         index_writer.writeheader()
         for (id,p) in paths:
+            if reset_seed_each_path:
+                torch.manual_seed(seed)
+
             c = p.condition
             forces_csv_file = forces_folder/f'{id}.csv'
             index_writer.writerow({"id":id,"Forces_CSV":forces_csv_file})
