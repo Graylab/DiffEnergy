@@ -1,6 +1,6 @@
 # @package _global_
 checkpoint: checkpoints/1d_trinormal_smax70.ckpt
-out_dir: ../likelihood_results/likelihoodv3/ground_truth/3integrand_translation_diffint_dense
+out_dir: ../likelihood_results/likelihoodv3/gaussian_1d/ground_truth/3integrand_translation_diffint_dense
 sigma_min: 0.1
 sigma_max: 70
 clamp_diffusion_coefficient: False
