@@ -60,17 +60,20 @@ class Score_Model(pl.LightningModule):
     
     def forward(self, batch):
         
-        # grab some input 
-        lig_pos_orig = batch["lig_pos_orig"]
-        lig_pos_offset_tr = batch.get("offset_tr",None)
-        lig_pos_offset_rot = batch.get("offset_rot",None)
-        if lig_pos_offset_tr is None and lig_pos_offset_rot is None:
-            raise ValueError("Must specify at least one offset of 'offset_tr' or 'offset_rot'")
+        # grab some input
+        if "lig_pos_orig" in batch: #using offset-based batch
+            lig_pos_orig = batch["lig_pos_orig"]
+            lig_pos_offset_tr = batch.get("offset_tr",None)
+            lig_pos_offset_rot = batch.get("offset_rot",None)
+            if lig_pos_offset_tr is None and lig_pos_offset_rot is None:
+                raise ValueError("Must specify at least one offset of 'offset_tr' or 'offset_rot'")
 
-        lig_pos_offset_rot = torch.zeros((3,),device=lig_pos_orig.device,dtype=lig_pos_orig.dtype) if lig_pos_offset_rot is None else lig_pos_offset_rot
-        lig_pos_offset_tr = torch.zeros((3,),device=lig_pos_orig.device,dtype=lig_pos_orig.dtype) if lig_pos_offset_tr is None else lig_pos_offset_tr
+            lig_pos_offset_rot = torch.zeros((3,),device=lig_pos_orig.device,dtype=lig_pos_orig.dtype) if lig_pos_offset_rot is None else lig_pos_offset_rot
+            lig_pos_offset_tr = torch.zeros((3,),device=lig_pos_orig.device,dtype=lig_pos_orig.dtype) if lig_pos_offset_tr is None else lig_pos_offset_tr
 
-        lig_pos = self.modify_coords(lig_pos_orig,lig_pos_offset_rot,lig_pos_offset_tr)
+            lig_pos = self.modify_coords(lig_pos_orig,lig_pos_offset_rot,lig_pos_offset_tr)
+        else:
+            lig_pos = batch["lig_pos"]
 
         # no need to center the ligand position - the Score_Net does that for us
         new_batch = {
