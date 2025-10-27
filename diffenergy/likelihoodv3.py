@@ -357,6 +357,42 @@ class ReverseSDEPath(IntegrablePath[X,C]):
 
         yield (x,time_step)
 
+#the reverse of ReverseSDE path. Follows a random diffusion trajectory from a starting point.
+class ForwardSDEPath(IntegrablePath[X,C]):
+    def __init__(self, diffcoefffn:Callable[[float],float], noise_scale:float, times: Sequence[float], initial: X, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning:C):
+        self.diffcoefffn = diffcoefffn
+        self.times = times
+        self.initial = initial
+        self.noise_scale = noise_scale #should be 1 by default. allows you to forcibly turn up/down the noise during sampling. TODO: make this a proper schedule?
+        
+        super().__init__(to_arr,from_arr,conditioning=conditioning)
+    
+    def __len__(self) -> int:
+        return len(self.times)
+
+    def __iter__(self) -> Iterator[tuple[X, float]]:
+        x = self.initial
+        time_iter = iter(self.times)
+        time_step = next(time_iter)
+        for t2 in time_iter:
+            yield (x,time_step)
+            dt = (t2 - time_step) #note that this means dt is negative!!! so we've gotta negate it when we use it
+            assert dt > 0, "dt must be positive for forward SDE sampling! Make sure you use a time schedule which increases monotonically"
+            g = self.diffcoefffn(time_step)
+
+            #dx = g(t)dw
+            with torch.no_grad():
+                x_arr = self.to_arr(x)
+                dx = self.noise_scale * torch.sqrt(dt) * g * torch.randn_like(x_arr) 
+                x_arr = x_arr + dx #don't do it in place! these tensors don't get cloned. (maybe they should?)
+                x = self.from_arr(x_arr)
+
+            print(f"===={time_step=}====:\napplying perturbation with {self.noise_scale=}, {dt=}, {g=}")
+            print("total perturbation:",dx)
+            time_step = t2
+
+        yield (x,time_step)
+
 
 
 
