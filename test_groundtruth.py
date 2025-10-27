@@ -31,7 +31,7 @@ if __name__ == "__main__":
     time = 1.0
 
     sigma_min = 0.1
-    sigma_max = 30
+    sigma_max = 22.5
 
     means = torch.tensor([-30.0,0.0,40.0])
     sigmas = torch.tensor([8.0,5.0,10.0])
@@ -84,9 +84,9 @@ if __name__ == "__main__":
         prior_pdf = get_gaussian(x,means=[0],sigmas=[sigma_max],weights=[1.0])
 
         # plt.plot(x,pdf,label="pdf")
-        plt.plot(x,pdf2,label="convolved_trimodal",linestyle='-')
+        plt.plot(x,pdf2,label="Data + Noise",linestyle='-')
         # plt.plot(x,gt_pdf,label="gt_pdf",linestyle=':')
-        plt.plot(x,prior_pdf,label='prior_fn',linestyle='-')
+        plt.plot(x,prior_pdf,label='Assumed Gaussian Prior',linestyle='-')
     
     if False:
         ## Match analytical score and model score with the numerical score
