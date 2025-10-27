@@ -371,6 +371,3 @@ def get_likelihoods[X,C,I](
     else:
         raise ValueError(f"Unknown integral type: {int_type}. For standard (non-ode solver) numerical integration, use integral_type: \"diff\" (the default).")
 
-
-    return likelihoods
-
