@@ -60,7 +60,26 @@ class Score_Model(pl.LightningModule):
         self.net = Score_Net(model,random_graph=not deterministic)
     
     def forward(self, batch):
-        outputs = self.net(batch, predict=True)
+        
+        # grab some input 
+        rec_pos = batch["rec_pos"]
+        lig_pos = batch["sample"]
+
+        # move the lig center to origin 
+        center = lig_pos[..., 1, :].mean(dim=0)
+
+        new_batch = {
+            "rec_x": batch["rec_x"],
+            "lig_x": batch["lig_x"],
+            "rec_pos": rec_pos - center,
+            "lig_pos": lig_pos - center,
+            "position_matrix": batch["position_matrix"],
+            "t": batch["t"],
+        }
+
+        # predict
+        outputs = self.net(new_batch, predict=True)
+        # outputs = self.net(batch, predict=True)
         return outputs
 
     def loss_fn(self, batch, eps=1e-5):

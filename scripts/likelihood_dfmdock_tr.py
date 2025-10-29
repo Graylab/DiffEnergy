@@ -75,7 +75,7 @@ def main(config: DictConfig):
         diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = False)
 
     # set models
-    score_model = Score_Model.load_from_checkpoint(config.checkpoint)
+    score_model = Score_Model.load_from_checkpoint(config.checkpoint,deterministic=config.get("deterministic_score",False))
     score_model.freeze()
     score_model.to(device)
 
