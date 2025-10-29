@@ -77,7 +77,7 @@ def get_paths[X,C,T,I](
         diffusion_coeff_fn:Callable[[float],float|Array],
         load_samples:Callable[[],SizedIter[tuple[I,X,C]]],
         load_trajectories:Callable[[],SizedIter[tuple[I,T,C]]],
-        get_trajectory:Callable[[T],Sequence[tuple[X,float]]],
+        get_trajectory:Callable[[T,C],Sequence[tuple[X,float]]],
         device:str|torch.device)->Iterable[tuple[I,IntegrablePath[X,C]]]:
     
     device = torch.device(device)
@@ -107,8 +107,8 @@ def get_paths[X,C,T,I](
     except omegaconf.errors.ConfigAttributeError:
         sde_times = None
 
-    def load_endpoints(path):
-        trajectory = get_trajectory(path)
+    def load_endpoints(path,condition):
+        trajectory = get_trajectory(path,condition)
         (x0,t0), (x1,t1) = trajectory[0], trajectory[-1]
         assert t0 == 0 and t1 == 1
         return x0, x1
@@ -143,7 +143,7 @@ def get_paths[X,C,T,I](
                 pathclass = functools.partial(InterpolatedIntegrableSequence[X,C],config.num_interpolants)
 
             paths = (
-                (id,pathclass(get_trajectory(path),
+                (id,pathclass(get_trajectory(path,condition),
                               to_array,
                               from_array,
                               condition))
@@ -158,7 +158,7 @@ def get_paths[X,C,T,I](
                 pathclass = functools.partial(InterpolatedIntegrableSequence[X,C],config.num_interpolants)
 
             paths = (
-                (id,pathclass(get_trajectory(path)[::-1], #REVERSE
+                (id,pathclass(get_trajectory(path,condition)[::-1], #REVERSE
                               to_array,
                               from_array,
                               condition))
@@ -169,7 +169,7 @@ def get_paths[X,C,T,I](
             trajectories = load_trajectories()
 
             #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory),condition) for id,trajectory,condition in tqdm(trajectories))
+            endpoints = ((id,load_endpoints(trajectory,condition),condition) for id,trajectory,condition in tqdm(trajectories))
 
             paths = (
                 (id,LinearPath[X,C]((start,0),(end,1),ode_times,
@@ -211,7 +211,7 @@ def get_paths[X,C,T,I](
                 pathclass = functools.partial(InterpolatedIntegrableSequence[X,C],n_interp=config.num_interpolants)
 
             paths = (
-                (id,pathclass([(x,0) for x,t in (get_trajectory(path))],
+                (id,pathclass([(x,0) for x,t in (get_trajectory(path,condition))],
                               to_array,
                               from_array,condition))
                 for id,path,condition in tqdm(trajectories)
@@ -225,7 +225,7 @@ def get_paths[X,C,T,I](
             trajectories = load_trajectories()
 
             #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory),condition) for id,trajectory,condition in tqdm(trajectories))
+            endpoints = ((id,load_endpoints(trajectory,condition),condition) for id,trajectory,condition in tqdm(trajectories))
 
             paths = (
                 (id,LinearPath((start,0),(end,0),ode_times, #start and end both 0!
@@ -259,8 +259,8 @@ def get_paths[X,C,T,I](
             #note we replace each id with a tuple (id,t)
             numtraj = len(trajectories)
             trajectories,copy = itertools.tee(trajectories)
-            trajsize = len(get_trajectory(next(copy)[1]))
-            initials = tqdm(((f"{id}_{float(t)}",x,c) for (id,traj,c) in trajectories for (x,t) in get_trajectory(traj)),total=numtraj*trajsize)
+            trajsize = len(get_trajectory(*next(copy)[1:]))
+            initials = tqdm(((f"{id}_{float(t)}",x,c) for (id,traj,c) in trajectories for (x,t) in get_trajectory(traj,c)),total=numtraj*trajsize)
             paths = (
                 (id,
                  FlowEquivalentODEPath(scorefn,
