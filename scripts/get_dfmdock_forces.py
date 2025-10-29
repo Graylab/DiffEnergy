@@ -56,7 +56,7 @@ def main(config:DictConfig):
     if offset_type not in valid_offsets:
         raise ValueError("offset_type must be one of",valid_offsets)
 
-    model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_sample",False),manual_seed=config.get("seed",0))
+    model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_eval",False),manual_seed=config.get("seed",0))
     
     scorefn = model_eval.score# if not batched else model_eval.batch_score
     divergencefn = model_eval.divergence# if not batched else model_eval.batch_divergence
@@ -100,17 +100,17 @@ def main(config:DictConfig):
     with open(index_file,'w',newline='') as f:
         index_writer = DictWriter(f,fieldnames=['id','Forces_CSV'])
         index_writer.writeheader()
-        for (id,p) in paths:
+        for (id,P) in paths:
             if reset_seed_each_path:
                 torch.manual_seed(seed)
 
-            c = p.condition
+            c = P.condition
             forces_csv_file = forces_folder/f'{id}.csv'
             index_writer.writerow({"id":id,"Forces_CSV":forces_csv_file})
             with open(forces_csv_file,'w',newline='') as f2:
                 forces_writer = DictWriter(f2,fieldnames=['Index','Timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
                 forces_writer.writeheader()
-                for i,(x,t) in enumerate(p):
+                for i,(x,t) in enumerate(P):
                     force = scorefn(x,t,c)
                     div = divergencefn(x,t,c)
 

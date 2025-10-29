@@ -35,5 +35,5 @@ num_interpolants: 10
 save_trajectories: True
 save_trajectory_likelihoods: True
 
-reset_seed_each_eval: True
+reset_seed_each_path: True
 seed: 0
