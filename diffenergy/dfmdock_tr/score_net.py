@@ -406,7 +406,6 @@ class Score_Net(nn.Module):
         if self.random_graph:
             edge_index, edge_attr = get_knn_and_sample_graph(pos[..., 1, :], edge) # knn 20 + random 40
         else:
-            print("using deterministic score")
             edge_index, edge_attr = get_knn_graph(pos[..., 1, :], edge, knn=60) # knn 60
 
         # get ligand mask
