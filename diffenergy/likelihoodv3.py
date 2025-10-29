@@ -487,13 +487,35 @@ class PerturbedPath(IntegrableSequence[X,C]):
 
         super().__init__([(x + offset, t) for (x,t),offset in zip(points,offsets)],path.to_arr,path.from_arr,conditioning)
 
+## I hate this so fucking much. I'm going to write a manifesto and send it to pytorch in the mail
+# from https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/8
+def tensorify(lst,device=None,dtype=None):
+    """
+    List must be nested list of tensors (with no varying lengths within a dimension).
+    Nested list of nested lengths [D1, D2, ... DN] -> tensor([D1, D2, ..., DN)
 
-
+    :return: nested list D
+    """
+    # base case, if the current list is not nested anymore, make it into tensor
+    if type(lst[0]) != list:
+        if type(lst) == torch.Tensor:
+            return lst
+        elif type(lst[0]) == torch.Tensor:
+            return torch.stack(lst, dim=0)
+        else:  # if the elements of lst are floats or something like that
+            return torch.as_tensor(lst,dtype=dtype,device=device)
+    current_dimension_i = len(lst)
+    for d_i in range(current_dimension_i):
+        tensor = tensorify(lst[d_i])
+        lst[d_i] = tensor
+    # end of loop lst[d_i] = tensor([D_i, ... D_0])
+    tensor_lst = torch.stack(lst, dim=0)
+    return tensor_lst
 
 #### Likelihood Calculation ####
 
 _I = TypeVar("_I") # id type
-def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]])->tuple[_I,Sequence[X],Sequence[float],C,dict[str,Sequence[float|ArrayLike]]]:
+def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]])->tuple[_I,Sequence[X],Sequence[float],C,dict[str,np.ndarray]]:
 
     with torch.profiler.record_function("Likelihood Integration"):
         if method == 'diff':
@@ -502,9 +524,8 @@ def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],
             if not isinstance(path,ODEIntegrablePath):
                 raise ValueError(f"Path {path} is not ODEIntegrable! Please use an ODEIntegrable path or set the integral_type to 'diff' to use the path in euclidean mode");
             trajectory, times, deltas = path.odeintegrate(*integrands)
-
-    ##Since we assume the path goes from unknown to known, we use the last data point for the prior and negate the delta
-    integrand_results:dict[str,Sequence[float|ArrayLike]] = {integrand.name(): torch.Tensor.tolist(-torch.as_tensor(delta)) for integrand,delta in zip(integrands,deltas)}
+    ##Since we assume the path goes from unknown to known, we negate the delta. The last data point is the accumulated integrand (but we pass the whole thing as output so we can save it)
+    integrand_results:dict[str,np.ndarray] = {integrand.name(): (-tensorify(delta,device='cpu').detach().cpu().numpy()) for integrand,delta in zip(integrands,deltas)}
     # prior_endpoint:tuple[X,float] = trajectory[-1]
     # prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in prior_fns}
 

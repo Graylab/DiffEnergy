@@ -370,11 +370,11 @@ def write_likelihood_outputs(
                 ids: Iterable[str|int] = ids
                 times = itertools.repeat(times)
                 integrand_resultss = [
-                    {name:np.array(result)[i] for name,result in integrand_resultss.items()}
+                    {name:np.array(result)[...,i] for name,result in integrand_resultss.items()}
                     for i in range(batch)
                 ]
                 prior_resultss = [
-                    {name:np.array(result)[i] for name,result in prior_result.items()}
+                    {name:np.array(result)[...,i] for name,result in prior_result.items()}
                     for i in range(batch)
                 ]
 
@@ -382,6 +382,7 @@ def write_likelihood_outputs(
                 in zip(ids, trajectories, times, integrand_resultss, prior_resultss):
                 prior_endpoint:tuple[torch.Tensor,float] = (trajectory[-1], time[-1])
                 assert isinstance(id,str|int),id
+
 
                 if write_likelihoods:
                     row = {"id":int(id),
