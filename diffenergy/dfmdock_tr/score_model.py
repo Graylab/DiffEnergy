@@ -25,6 +25,7 @@ class Score_Model(pl.LightningModule):
         model,
         diffuser,
         experiment,
+        deterministic,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -56,29 +57,10 @@ class Score_Model(pl.LightningModule):
             self.so3_diffuser = SO3Diffuser(diffuser.so3)
 
         # net
-        self.net = Score_Net(model)
+        self.net = Score_Net(model,random_graph=not deterministic)
     
     def forward(self, batch):
-        
-        # grab some input 
-        rec_pos = batch["rec_pos"]
-        lig_pos = batch["sample"]
-
-        # move the lig center to origin 
-        center = lig_pos[..., 1, :].mean(dim=0)
-
-        new_batch = {
-            "rec_x": batch["rec_x"],
-            "lig_x": batch["lig_x"],
-            "rec_pos": rec_pos - center,
-            "lig_pos": lig_pos - center,
-            "position_matrix": batch["position_matrix"],
-            "t": batch["t"],
-        }
-
-        # predict
-        outputs = self.net(new_batch, predict=True)
-        # outputs = self.net(batch, predict=True)
+        outputs = self.net(batch, predict=True)
         return outputs
 
     def loss_fn(self, batch, eps=1e-5):
@@ -239,11 +221,11 @@ class Score_Model(pl.LightningModule):
         losses = self.loss_fn(batch)
         return losses
     
-    # def get_esm_rep(self, out):
-    #     with torch.no_grad():
-    #         results = self.esm_model(out, repr_layers = [33])
-    #         rep = results["representations"][33]
-    #     return rep[0, :, :]
+    def get_esm_rep(self, out):
+        with torch.no_grad():
+            results = self.esm_model(out, repr_layers = [33])
+            rep = results["representations"][33]
+        return rep[0, :, :]
 
     def training_step(self, batch, batch_idx):
         losses = self.step(batch, batch_idx)

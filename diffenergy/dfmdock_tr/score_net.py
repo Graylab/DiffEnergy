@@ -134,6 +134,21 @@ def get_knn_and_sample(points, knn=20, sample_size=40, epsilon=1e-10):
     
     return knn_indices, sampled_points_indices
 
+def get_knn(points, knn=60):
+    device = points.device
+    n_points = points.size(0)
+
+    if n_points < knn:
+        knn = n_points
+    
+    # Step 1: Compute pairwise distances
+    dist_matrix = torch.cdist(points, points)
+    
+    # Step 2: Find the nearest neighbors (including the point itself)
+    _, knn_indices = torch.topk(dist_matrix, k=knn, largest=False)
+    
+    return knn_indices
+
 #----------------------------------------------------------------------------
 # Edge seletion functions
 
@@ -143,6 +158,21 @@ def get_knn_and_sample_graph(x, e, knn=20, sample_size=40):
         indices = torch.cat([knn_indices, sampled_points_indices], dim=-1)
     else:
         indices = knn_indices
+    n_points, n_samples = indices.shape
+
+    # edge src and dst
+    edge_src = torch.arange(start=0, end=n_points, device=x.device)[..., None].repeat(1, n_samples).reshape(-1)
+    edge_dst = indices.reshape(-1)
+
+    # combine graphs
+    edge_index = [edge_src, edge_dst]
+    edge_indices = torch.stack(edge_index, dim=1)
+    edge_attr = e[edge_indices[:, 0], edge_indices[:, 1]]
+
+    return edge_index, edge_attr
+
+def get_knn_graph(x, e, knn=60):
+    indices = get_knn(x, knn=knn)
     n_points, n_samples = indices.shape
 
     # edge src and dst
@@ -251,6 +281,7 @@ class Score_Net(nn.Module):
     def __init__(
         self, 
         conf,
+        random_graph=True,
     ):
         super().__init__()
         lm_embed_dim = conf.lm_embed_dim
@@ -264,6 +295,8 @@ class Score_Net(nn.Module):
         normalize = conf.normalize
         
         self.cut_off = conf.cut_off
+
+        self.random_graph = random_graph
         
         # single init embedding
         self.single_embed = nn.Linear(lm_embed_dim, node_dim, bias=False)
@@ -370,7 +403,11 @@ class Score_Net(nn.Module):
         edge = self.spatial_embed(spatial_matrix) + self.positional_embed(position_matrix)
 
         # sample edge_index and get edge_attr
-        edge_index, edge_attr = get_knn_and_sample_graph(pos[..., 1, :], edge)
+        if self.random_graph:
+            edge_index, edge_attr = get_knn_and_sample_graph(pos[..., 1, :], edge) # knn 20 + random 40
+        else:
+            print("using deterministic score")
+            edge_index, edge_attr = get_knn_graph(pos[..., 1, :], edge, knn=60) # knn 60
 
         # get ligand mask
         lig_mask = torch.zeros(x.size(0), device=x.device)
