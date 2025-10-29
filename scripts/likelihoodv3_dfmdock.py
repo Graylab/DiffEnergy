@@ -22,6 +22,7 @@ import pandas as pd
 import torch
 import hydra
 
+from diffenergy.dfmdock_tr.utils.esm_utils import load_coords
 from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
 from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_nd
 from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
@@ -111,10 +112,10 @@ def load_trajectories(trajectory_index_file:str|Path,pdb_dir:str|Path,trajectory
         return SizeWrappedIter(((tuple(b[0] for b in batch),tuple(b[1] for b in batch), tuple(b[2] for b in batch)) for batch in itertools.batched(res,batch_size)),num_batches)
 
 @overload
-def load_trajectory(data_path:str|Path, offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], device:str|torch.device='cuda')->SizedIter[tuple[LigDict,torch.Tensor]]: ...
+def load_trajectory(data_path:str|Path, pdb_dir:str|Path, offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], reference:DFMDict, device:str|torch.device='cuda')->SizedIter[tuple[LigDict,torch.Tensor]]: ...
 @overload
-def load_trajectory(data_path:tuple[str|Path,...], offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], device:str|torch.device='cuda')->SizedIter[tuple[tuple[LigDict,...],torch.Tensor]]: ...
-def load_trajectory(data_path:str|Path|tuple[str|Path,...], offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], device:str|torch.device='cuda')->SizedIter[tuple[LigDict|tuple[LigDict,...],torch.Tensor]]:
+def load_trajectory(data_path:tuple[str|Path,...], pdb_dir:str|Path, offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], reference:DFMDict, device:str|torch.device='cuda')->SizedIter[tuple[tuple[LigDict,...],torch.Tensor]]: ...
+def load_trajectory(data_path:str|Path|tuple[str|Path,...], pdb_dir:str|Path, offset_type: Literal["Translation", "Rotation", "Translation+Rotation"], reference:DFMDict, device:str|torch.device='cuda')->SizedIter[tuple[LigDict|tuple[LigDict,...],torch.Tensor]]:
     paths = data_path if isinstance(data_path,tuple) else [data_path]
     alltimes:Optional[torch.Tensor] = None
     sampleslist:list[list[LigDict]] = []
@@ -141,7 +142,18 @@ def load_trajectory(data_path:str|Path|tuple[str|Path,...], offset_type: Literal
         else:
             alltimes = times
 
-        data = torch.as_tensor(df[columns].values,dtype=torch.float32,device=device) #this just works yesssss
+        if all(coli in df.columns for coli in columns):
+            data = torch.as_tensor(df[columns].values,dtype=torch.float32,device=device) #this just works yesssss
+        elif not any(coli in df.columns for coli in columns) and "PDB_File" in columns: #we're reading a PDB trajectory, turn into offset
+            offsets = []
+            for file in df['PDB_File']:
+                pdb_file = Path(pdb_dir)/file
+                step_pos, _ = load_coords(pdb_file,"B")
+                dx = (step_pos - reference['lig_pos_orig'])[...,1,:].mean(axis=0)
+                offsets.append(dx)
+            data = torch.tensor(offsets,dtype=torch.float32,device=device)
+            assert data.ndim == 2 and data.shape[1] == 3
+
         #make list of LigDict
         sampleslist.append([from_array_nobatch(data[i],device=device) for i in range(data.shape[0])])
     assert alltimes is not None
@@ -660,7 +672,7 @@ def main(config: DictConfig):
     assert batch_size is None
     load_samples_fn = lambda: load_samples(config.data_samples, config.pdb_dir, offset_type, pdb_importer, batch_size=batch_size, device=device)
     load_trajectories_fn = lambda: load_trajectories(config.trajectory_index_file,config.pdb_dir,config.trajectory_dir,pdb_importer,batch_size=batch_size)
-    get_trajectory_fn = lambda trajectory_file: load_trajectory(trajectory_file, offset_type, device=device) #TODO: add pdb trajectory support, add pdb_dir as parameter [filenames are relative to pdb_dir]
+    get_trajectory_fn = lambda trajectory_file, condition: load_trajectory(trajectory_file, config.pdb_dir, offset_type, condition, device=device) #TODO: add pdb trajectory support, add pdb_dir as parameter [filenames are relative to pdb_dir]
 
     diffusion_coeff_fn = functools.partial(
         diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.get("clamp_diffusion_coefficient",False))
