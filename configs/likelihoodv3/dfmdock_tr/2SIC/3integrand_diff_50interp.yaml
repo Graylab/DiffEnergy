@@ -7,7 +7,7 @@ clamp_diffusion_coefficient: False
 pdb_dir: ../sample_results/dfmdock_tr_2SIC/pdb
 data_samples: ../sample_results/dfmdock_tr_2SIC/samples.csv
 trajectory_dir: ../sample_results/dfmdock_tr_2SIC/trajectories
-trajectory_index_file: ../sample_results/dfmdock_tr_2SIC/trajectories/trajectory_index_1000.csv
+trajectory_index_file: ../sample_results/dfmdock_tr_2SIC/trajectories/trajectory_index.csv
 
 offset_type: "Translation"
 
