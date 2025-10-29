@@ -32,5 +32,5 @@ num_workers: 4
 save_trajectories: True
 
 
-reset_seed_each_eval: True
+reset_seed_each_path: True
 seed: 0

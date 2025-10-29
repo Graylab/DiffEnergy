@@ -636,7 +636,7 @@ def main(config: DictConfig):
     sigma_max = config.sigma_max
 
     # set models
-    score_model = Score_Model.load_from_checkpoint(config.checkpoint)
+    score_model = Score_Model.load_from_checkpoint(config.checkpoint,deterministic=config.get("deterministic_score",False))
     score_model.freeze()
     score_model.to(device)
 

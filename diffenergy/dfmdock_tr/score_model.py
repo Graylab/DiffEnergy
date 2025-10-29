@@ -25,8 +25,10 @@ class Score_Model(pl.LightningModule):
         model,
         diffuser,
         experiment,
+        deterministic, #*required* argument that now must be passed during loading from checkpoint. There Shall Be No Ambiguities!
     ):
         super().__init__()
+        print(type(model),type(diffuser),type(experiment))
         self.save_hyperparameters()
         self.lr = experiment.lr
         self.weight_decay = experiment.weight_decay
@@ -56,7 +58,7 @@ class Score_Model(pl.LightningModule):
             self.so3_diffuser = SO3Diffuser(diffuser.so3)
 
         # net
-        self.net = Score_Net(model)
+        self.net = Score_Net(model,random_graph=not deterministic)
     
     def forward(self, batch):
         

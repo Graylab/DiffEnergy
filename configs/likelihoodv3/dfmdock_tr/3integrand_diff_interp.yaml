@@ -1,13 +1,13 @@
 # @package _global_
 checkpoint: checkpoints/dfmdock_model_0.ckpt
-out_dir: ../likelihood_results/likelihoodv3/dfmdock_tr/3integrand_diff_10interp_1000
+out_dir: ../likelihood_results/likelihoodv3/dfmdock_tr/3integrand_diff_10interp
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
 pdb_dir: ../sample_results/dfmdock_tr/pdb
 data_samples: ../sample_results/dfmdock_tr/samples.csv
 trajectory_dir: ../sample_results/dfmdock_tr/trajectories
-trajectory_index_file: ../sample_results/dfmdock_tr/trajectories/trajectory_index_1000.csv
+trajectory_index_file: ../sample_results/dfmdock_tr/trajectories/trajectory_index.csv
 
 offset_type: "Translation"
 
@@ -35,5 +35,5 @@ num_interpolants: 10
 save_trajectories: True
 save_trajectory_likelihoods: True
 
-reset_seed_each_eval: True
+reset_seed_each_path: True
 seed: 0
