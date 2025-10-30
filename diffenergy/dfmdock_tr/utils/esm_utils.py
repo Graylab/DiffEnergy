@@ -77,7 +77,7 @@ def extract_coords_from_structure(structure: biotite.structure.AtomArray):
     return coords, seq
 
 
-def load_coords(fpath, chain):
+def load_coords(fpath:str, chain):
     """
     Args:
         fpath: filepath to either pdb or cif file

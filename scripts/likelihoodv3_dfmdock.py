@@ -144,15 +144,17 @@ def load_trajectory(data_path:str|Path|tuple[str|Path,...], pdb_dir:str|Path, of
 
         if all(coli in df.columns for coli in columns):
             data = torch.as_tensor(df[columns].values,dtype=torch.float32,device=device) #this just works yesssss
-        elif not any(coli in df.columns for coli in columns) and "PDB_File" in columns: #we're reading a PDB trajectory, turn into offset
-            offsets = []
-            for file in df['PDB_File']:
+        elif not any(coli in df.columns for coli in columns) and "PDB_File" in df.columns: #we're reading a PDB trajectory, turn into offset
+            offsets = torch.empty((len(df),3))
+            for i,file in enumerate(df['PDB_File']):
                 pdb_file = Path(pdb_dir)/file
-                step_pos, _ = load_coords(pdb_file,"B")
-                dx = (step_pos - reference['lig_pos_orig'])[...,1,:].mean(axis=0)
-                offsets.append(dx)
+                step_pos, _ = load_coords(str(pdb_file),"B")
+                dx = (torch.as_tensor(step_pos) - reference['lig_pos_orig'].cpu())[...,1,:].mean(axis=0) # we do /not/ need to move every pdb to the gpu lmao
+                offsets[i] = dx
             data = torch.tensor(offsets,dtype=torch.float32,device=device)
             assert data.ndim == 2 and data.shape[1] == 3
+        else:
+            raise ValueError(f"incomplete columns in csv: {df.columns}")
 
         #make list of LigDict
         sampleslist.append([from_array_nobatch(data[i],device=device) for i in range(data.shape[0])])
