@@ -1,7 +1,7 @@
 # @package _global_
 ##Calculate flow likelihood to each point along a *flow* trajectory (_traj_flow is sampled diffusion trajectory)
 checkpoint: checkpoints/diffenergy_tr_0.ckpt
-out_dir: ../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_flowtraj_flow_pathreset
+out_dir: ../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_flowtraj_flow
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
