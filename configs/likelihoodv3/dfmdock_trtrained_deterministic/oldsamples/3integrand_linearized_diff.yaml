@@ -1,13 +1,13 @@
 # @package _global_
 checkpoint: checkpoints/diffenergy_tr_0.ckpt
-out_dir: ../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_linearized_diff
+out_dir: ../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/oldsamples/3integrand_linearized_diff
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
-pdb_dir: ../sample_results/dfmdock_tr/pdb
-data_samples: ../sample_results/dfmdock_tr/samples.csv
-trajectory_dir: ../sample_results/dfmdock_tr/trajectories
-trajectory_index_file: ../sample_results/dfmdock_tr/trajectories/trajectory_index.csv
+pdb_dir: ../sample_results/dfmdock_inference_trtrained_deterministic
+data_samples: ../sample_results/dfmdock_inference_trtrained_deterministic/samples.csv
+trajectory_dir: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs
+trajectory_index_file: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs/trajectory_index.csv
 
 offset_type: "Translation"
 
