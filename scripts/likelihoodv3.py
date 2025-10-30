@@ -1,7 +1,7 @@
 import itertools
 import omegaconf
 from torch.utils.data import Dataset
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihood, run_diff_likelihoods, run_ode_likelihood, run_ode_likelihoods
+from diffenergy.likelihoodv3 import FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihood, run_diff_likelihoods, run_ode_likelihood, run_ode_likelihoods
 
 import torch
 from omegaconf import DictConfig
@@ -244,6 +244,20 @@ def get_paths[X,C,T,I](
             paths = (
                 (id,ReverseSDEPath(
                     scorefn,
+                    diffusion_coeff_fn,
+                    config.get("noise_scale",1),
+                    sde_times,
+                    initial,
+                    to_array,
+                    from_array,
+                    condition))        
+                for (id,initial,condition) in tqdm(samples))
+            
+        case "forward_sde":
+            samples = load_samples()
+
+            paths = (
+                (id,ForwardSDEPath(
                     diffusion_coeff_fn,
                     config.get("noise_scale",1),
                     sde_times,
