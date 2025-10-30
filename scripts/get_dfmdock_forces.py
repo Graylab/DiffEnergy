@@ -47,7 +47,7 @@ def main(config:DictConfig):
     sigma_max = config.sigma_max
 
     # set models
-    score_model = Score_Model.load_from_checkpoint(config.checkpoint)
+    score_model = Score_Model.load_from_checkpoint(config.checkpoint,deterministic=config.get("deterministic_score",False))
     score_model.freeze()
     score_model.to(device)
 
@@ -67,7 +67,7 @@ def main(config:DictConfig):
     assert batch_size is None
     load_samples_fn = lambda: load_samples(config.data_samples, config.pdb_dir, offset_type, pdb_importer, batch_size=batch_size, device=device)
     load_trajectories_fn = lambda: load_trajectories(config.trajectory_index_file,config.pdb_dir,config.trajectory_dir,pdb_importer,batch_size=batch_size)
-    get_trajectory_fn = lambda trajectory_file: load_trajectory(trajectory_file, offset_type, device=device) #TODO: add pdb trajectory support, add pdb_dir as parameter [filenames are relative to pdb_dir]
+    get_trajectory_fn = lambda trajectory_file,condition: load_trajectory(trajectory_file, config.pdb_dir, offset_type,condition, device=device) #TODO: add pdb trajectory support, add pdb_dir as parameter [filenames are relative to pdb_dir]
 
     diffusion_coeff_fn = functools.partial(
         diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.get("clamp_diffusion_coefficient",False))
