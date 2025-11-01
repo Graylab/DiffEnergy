@@ -351,8 +351,7 @@ class ReverseSDEPath(IntegrablePath[X,C]):
                 x_arr = x_arr + dx #don't do it in place! these tensors don't get cloned. (maybe they should?)
                 x = self.from_arr(x_arr)
 
-            print(f"===={time_step=}====:\napplying perturbation with {score=}, {self.noise_scale=}, {dt=}, {g=}")
-            print("total perturbation:",dx)
+
             time_step = t2
 
         yield (x,time_step)
@@ -387,8 +386,6 @@ class ForwardSDEPath(IntegrablePath[X,C]):
                 x_arr = x_arr + dx #don't do it in place! these tensors don't get cloned. (maybe they should?)
                 x = self.from_arr(x_arr)
 
-            print(f"===={time_step=}====:\napplying perturbation with {self.noise_scale=}, {dt=}, {g=}")
-            print("total perturbation:",dx)
             time_step = t2
 
         yield (x,time_step)

@@ -1,6 +1,6 @@
 # @package _global_
 checkpoint: checkpoints/diffenergy_tr_0.ckpt
-out_dir: ../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_diff
+out_dir: ../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_forward_sde
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
@@ -17,9 +17,9 @@ integrand_types:
   SpaceIntegrand:
 prior_fns:
   smax_gaussian
-path_type: sde_trajectories
+path_type: forward_sde
 
-integral_type: forward_sde
+integral_type: diff
 
 tr_type: non_conservative
 
