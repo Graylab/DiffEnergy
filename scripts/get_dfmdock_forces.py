@@ -27,10 +27,6 @@ def main(config:DictConfig):
     # Print the entire configuration
     print(OmegaConf.to_yaml(config))
 
-    torch.cuda.memory._record_memory_history(
-       max_entries=100000
-    )
-
     # set device
     device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
 
