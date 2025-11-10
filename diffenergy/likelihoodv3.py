@@ -10,6 +10,7 @@ from torch import NumberType, Tensor
 from torchdiffeq import odeint
 
 import numpy as np
+import torchquad
 
 
 Array = Union[np.ndarray,Tensor]
@@ -106,6 +107,39 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
             acct.append(t)
 
         return accx,acct,acc
+    
+    def diffintegrate_trapezoid(self, *integrands: LikelihoodIntegrand[X,C],device:str|torch.device='cuda')->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
+        pass
+        # TODO: REFACTOR DIFFINTEGRAND/ODEINTEGRAND TO RETURN A TUPLE OF F_x, T_x AND THEN DOT THEM DURING INTEGRATION.
+        
+        # path = list(self)
+        # pathx = [p[0] for p in path]; patht = [p[1] for p in path]
+
+        # dx = [self.from_arr(self.to_arr(x1) - self.to_arr(x0)) for x1,x0 in itertools.pairwise(pathx)]
+        # dt = [t1 - t0 for t1,t0 in itertools.pairwise(patht)]
+
+        # accints = []
+        # for integrand in integrands:
+        #     grand = [integrand.diffintegrand(x,t,ddx,ddt,self.condition) for x,t,ddx,ddt in zip(pathx,patht,dx,dt)]
+        #     try:
+        #         grand = torch.as_tensor(grand,device=device)
+        #     except:
+        #         grand = torch.stack(grand,dim=0).to(device=device)
+
+        #     int_shape = grand.shape[1:] #we need to flatten the integrand into a 1d vector, so record for later. pretty much exactly what odeintegrate does behind the scenes
+        #     grand = grand.swapaxes(0,-1).reshape(-1,len(dx))
+
+        #     grand.swapaxes_(0,1)
+            
+        #     #we've already evaluated the integrand at our desired points - so just calculate the result
+        #     cum_int = torchquad.Boole().calculate_result()
+
+        # dx = torch.diff(torch.stack([self.to_arr(x) for x in pathx],axis=0))
+        # dt = torch.diff(torch.as_tensor(patht,device=dx.device,dtype=dx.dtype))
+
+
+
+
 
 class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X,C]): #where path is an explicit sequence of x and t
     def __init__(self,path:Sequence[tuple[X,float]],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C):
