@@ -53,7 +53,7 @@ def get_offset_pdb(
         offset_chain="B"
         ):
     if isinstance(orig,AtomArray):
-        orig_structure = orig
+        orig_structure = orig.copy()
     else:
         orig_structure:AtomArray = load_structure(orig)
         
