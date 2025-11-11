@@ -88,7 +88,6 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
         return map(lambda xt: (self.from_arr(self.to_arr(xt[1][0]) - self.to_arr(xt[0][0])),xt[1][1]-xt[0][1]), itertools.pairwise(self))
     
     def diffintegrate(self, *integrands: LikelihoodIntegrand[X,C])->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
-        assert self.method == 'euler'
         it = iter(self)
         (x,t) = next(it)
         acc:list[list[float|Array]] = [[i.zero(x)] for i in integrands]
@@ -100,10 +99,21 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
             dx = self.from_arr(dxarr)
             dt = t2-t
             
-            for i,integrand in enumerate(integrands):
-                I = integrand.diffintegrand(x,t,dx,dt,self.condition)
-                acc[i].append(acc[i][-1] + I)
+            if self.method == 'euler':
+                [acc[i].append(acc[i][-1] + integrand.diffintegrand(x,t,dx,dt,self.condition)) for i,integrand in enumerate(integrands)] 
+            elif self.method == 'euler_backward':
+                #NOTE this is technically not backwards euler. it's just the same dumb euler but using the other endpoint for the riemann sum
+                [acc[i].append(acc[i][-1] + integrand.diffintegrand(x2,t2,dx,dt,self.condition)) for i,integrand in enumerate(integrands)] 
+                
+            elif self.method == 'midpoint': # now we're getting somewhere. 
+                # TODO: refactor this using smarter diffintegrand so we are guaranteed to not recalculate the score every time!
+                # (once I figure out the better X system for riemannian diffusion, at least)
 
+                #do all of the previoius point before asking for the next to prevent cache invalidation
+                I1 = [integrand.diffintegrand(x,t,dx,dt,self.condition) for integrand in integrands] 
+                I2 = [integrand.diffintegrand(x2,t2,dx,dt,self.condition) for integrand in integrands]
+
+                [acc[i].append(acc[i][-1] + (I1[i] + I2[i])/2) for i in range(len(acc))]
 
             (x,t) = (x2,t2)
             accx.append(x)
@@ -112,6 +122,7 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
         return accx,acct,acc
     
     # TODO: REFACTOR DIFFINTEGRAND/ODEINTEGRAND TO RETURN A TUPLE OF F_x, T_x AND THEN DOT THEM DURING INTEGRATION.
+    ## ^ maybe wait until we figure out riemannian diffusion to do this, though...
     # TODO: INCORPORATE THIS METHOD INTO DIFFINTEGRATE WITH 'method' PARAMETER
     # def diffintegrate_trapezoid(self, *integrands: LikelihoodIntegrand[X,C],device:str|torch.device='cuda')->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
     #     pass
