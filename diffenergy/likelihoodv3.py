@@ -88,6 +88,7 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
         return map(lambda xt: (self.from_arr(self.to_arr(xt[1][0]) - self.to_arr(xt[0][0])),xt[1][1]-xt[0][1]), itertools.pairwise(self))
     
     def diffintegrate(self, *integrands: LikelihoodIntegrand[X,C])->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
+        assert self.method == 'euler'
         it = iter(self)
         (x,t) = next(it)
         acc:list[list[float|Array]] = [[i.zero(x)] for i in integrands]
