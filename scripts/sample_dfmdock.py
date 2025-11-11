@@ -46,6 +46,7 @@ def main(config: DictConfig):
     # Print the entire configuration
     print(OmegaConf.to_yaml(config))
 
+
     with open_dict(config):
         ## Set various sampling/trajectory output config parameters based on sampling parameters:
         # out_dir -> out_dir [unchanged]

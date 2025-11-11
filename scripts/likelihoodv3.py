@@ -112,6 +112,19 @@ def get_paths[X,C,T,I](
         (x0,t0), (x1,t1) = trajectory[0], trajectory[-1]
         assert t0 == 0 and t1 == 1
         return x0, x1
+    
+
+    int_args = config.get("integration",DictConfig({}))
+
+    #integration parameter aliases for backwards compatibility
+    for argname,topname in [("method","integration_method"),("atol","odeint_atol"),("rtol","odeint_rtol"),("method","odeint_method")]: 
+        if (newarg := config.get(topname)):
+            if (arg := int_args.get(argname,None)) and newarg != arg:
+                raise ValueError(f"Mismatch between top-level {topname} ({newarg}) and integration parameter {argname} ({arg})")
+            int_args[argname] = newarg
+    
+    int_method = int_args.pop("method")
+    int_args = dict(int_args)
 
     # load path and associated dataset
     paths:Iterable[tuple[I,IntegrablePath[X,C]]]
@@ -126,12 +139,11 @@ def get_paths[X,C,T,I](
                     diffusion_coeff_fn,
                     ode_times,
                     (initial,0),
-                    config.odeint_rtol,
-                    config.odeint_atol,
-                    config.odeint_method,
                     to_array,
                     from_array,
-                    condition))
+                    condition,
+                    int_method,
+                    int_args))
                     for (id,initial,condition) in tqdm(dataloader)
                 )
         case "sde_trajectories":
@@ -146,7 +158,9 @@ def get_paths[X,C,T,I](
                 (id,pathclass(get_trajectory(path,condition),
                               to_array,
                               from_array,
-                              condition))
+                              condition,
+                              int_method,
+                              int_args))
                 for id,path,condition in tqdm(trajectories)
             )
         case "sde_trajectories_unreversed":
@@ -161,7 +175,9 @@ def get_paths[X,C,T,I](
                 (id,pathclass(get_trajectory(path,condition)[::-1], #REVERSE
                               to_array,
                               from_array,
-                              condition))
+                              condition,
+                              int_method,
+                              int_args))
                 for id,path,condition in tqdm(trajectories)
             )
         case "linear_trajectories":
@@ -173,12 +189,11 @@ def get_paths[X,C,T,I](
 
             paths = (
                 (id,LinearPath[X,C]((start,0),(end,1),ode_times,
-                            config.odeint_rtol,
-                            config.odeint_atol,
-                            config.odeint_method,
                             to_array,
                             from_array,
-                            condition))
+                            condition,
+                            int_method,
+                            int_args))
                 for (id,(start,end),condition) in endpoints
             )
         case "linearized_flow":
@@ -191,12 +206,11 @@ def get_paths[X,C,T,I](
                     diffusion_coeff_fn,
                     ode_times,
                     (sample,0),
-                    config.odeint_rtol,
-                    config.odeint_atol,
-                    config.odeint_method,
                     to_array,
                     from_array,
-                    condition))
+                    condition,
+                    int_method,
+                    int_args))
                     for id,sample,condition in tqdm(dataloader)
                 )
         case "diff_data_translation":
@@ -213,7 +227,10 @@ def get_paths[X,C,T,I](
             paths = (
                 (id,pathclass([(x,0) for x,t in (get_trajectory(path,condition))],
                               to_array,
-                              from_array,condition))
+                              from_array,
+                              condition,
+                              int_method,
+                              int_args))
                 for id,path,condition in tqdm(trajectories)
             )
 
@@ -229,12 +246,11 @@ def get_paths[X,C,T,I](
 
             paths = (
                 (id,LinearPath((start,0),(end,0),ode_times, #start and end both 0!
-                            config.odeint_rtol,
-                            config.odeint_atol,
-                            config.odeint_method,
                             to_array,
                             from_array,
-                            condition))
+                            condition,
+                            int_method,
+                            int_args))
                 for (id,(start,end),condition) in endpoints
             )
 
@@ -250,7 +266,9 @@ def get_paths[X,C,T,I](
                     initial,
                     to_array,
                     from_array,
-                    condition))        
+                    condition,
+                    int_method,
+                    int_args))        
                 for (id,initial,condition) in tqdm(samples))
             
         case "forward_sde":
@@ -264,7 +282,9 @@ def get_paths[X,C,T,I](
                     initial,
                     to_array,
                     from_array,
-                    condition))        
+                    condition,
+                    int_method,
+                    int_args))        
                 for (id,initial,condition) in tqdm(samples))
         
         case "flow_along_trajectory": #that is, calculate the flowtime integral from t=0 to t=1 for each point in each diffusion trajectory
@@ -281,12 +301,11 @@ def get_paths[X,C,T,I](
                                        diffusion_coeff_fn,
                                        ode_times,
                                        (x,0),
-                                       config.odeint_rtol,
-                                       config.odeint_atol,
-                                       config.odeint_method,
                                        to_array,
                                        from_array,
-                                       condition))
+                                       condition,
+                                       int_method,
+                                       int_args))
                 for (id,x,condition) in initials
             ) #technically we've broken typing here by changing the id but w/e. I guess really this should be a custom load_samples fn but I can't be bothered
 
@@ -298,7 +317,7 @@ def get_paths[X,C,T,I](
             raise ValueError("Can't stochastically perturb an ODE! However, ODEIntegrablePaths can be used in discrete integral mode. Please set integral_type to 'diff' or disable perturbation")
         sigma:float = config.perturbation_sigma
         schedule:Literal['uniform','data'] = config.get("perturbation_schedule","data")
-        paths = ((id,PerturbedPath[X,C](path,schedule,sigma,path.condition)) for id,path in paths) #god I love generators
+        paths = ((id,PerturbedPath[X,C](path,schedule,sigma,path.condition,int_method,int_args)) for id,path in paths) #god I love generators
 
     return paths
 
