@@ -10,7 +10,6 @@ from torch import NumberType, Tensor
 from torchdiffeq import odeint
 
 import numpy as np
-import torchquad
 
 
 Array = Union[np.ndarray,Tensor]
@@ -105,7 +104,7 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
                 #NOTE this is technically not backwards euler. it's just the same dumb euler but using the other endpoint for the riemann sum
                 [acc[i].append(acc[i][-1] + integrand.diffintegrand(x2,t2,dx,dt,self.condition)) for i,integrand in enumerate(integrands)] 
                 
-            elif self.method == 'midpoint': # now we're getting somewhere. 
+            elif self.method == 'trapezoid': # now we're getting somewhere. 
                 # TODO: refactor this using smarter diffintegrand so we are guaranteed to not recalculate the score every time!
                 # (once I figure out the better X system for riemannian diffusion, at least)
 
