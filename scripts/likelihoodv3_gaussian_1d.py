@@ -121,7 +121,7 @@ def main(config: DictConfig):
     load_samples_fn = lambda: load_samples(config.data_samples, batch_size=batch_size, device=device)
     load_trajectories_fn = lambda: load_trajectories(config.trajectory_index_file,batch_size=batch_size)
     
-    def get_trajectory(path)->list[tuple[torch.Tensor,float]]:
+    def get_trajectory(path,cond:None)->list[tuple[torch.Tensor,float]]:
         samples,times = load_trajectory(path,device=device)
         return list(zip(map(from_array,samples),times))
 
