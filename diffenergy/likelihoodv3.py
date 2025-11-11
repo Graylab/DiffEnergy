@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import functools
 import itertools
 from decorator import decorator
-from typing import Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Optional, Sequence, Sized, TypeVar, TypeVarTuple, TypedDict, Union, overload
+from typing import Any, Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Optional, Sequence, Sized, TypeVar, TypeVarTuple, TypedDict, Union, overload
 from numpy.typing import ArrayLike
 
 import torch
@@ -77,10 +77,12 @@ class ODELikelihoodIntegrand(LikelihoodIntegrand[X,C]):
 #### Integration Paths and Numerical Integration Methods ####
 
 class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
-    def __init__(self,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning: C):
+    def __init__(self,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning: C, method:str, methodargs:dict[str,Any]):
         self.to_arr = to_arr
         self.from_arr = from_arr
         self.condition = conditioning
+        self.method = method
+        self.methodargs = methodargs
 
     def delta(self)->Iterable[tuple[X,float]]:
         return map(lambda xt: (self.from_arr(self.to_arr(xt[1][0]) - self.to_arr(xt[0][0])),xt[1][1]-xt[0][1]), itertools.pairwise(self))
@@ -108,9 +110,11 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
 
         return accx,acct,acc
     
-    def diffintegrate_trapezoid(self, *integrands: LikelihoodIntegrand[X,C],device:str|torch.device='cuda')->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
-        pass
-        # TODO: REFACTOR DIFFINTEGRAND/ODEINTEGRAND TO RETURN A TUPLE OF F_x, T_x AND THEN DOT THEM DURING INTEGRATION.
+    # TODO: REFACTOR DIFFINTEGRAND/ODEINTEGRAND TO RETURN A TUPLE OF F_x, T_x AND THEN DOT THEM DURING INTEGRATION.
+    # TODO: INCORPORATE THIS METHOD INTO DIFFINTEGRATE WITH 'method' PARAMETER
+    # def diffintegrate_trapezoid(self, *integrands: LikelihoodIntegrand[X,C],device:str|torch.device='cuda')->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
+    #     pass
+        
         
         # path = list(self)
         # pathx = [p[0] for p in path]; patht = [p[1] for p in path]
@@ -142,9 +146,9 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
 
 
 class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X,C]): #where path is an explicit sequence of x and t
-    def __init__(self,path:Sequence[tuple[X,float]],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C):
+    def __init__(self,path:Sequence[tuple[X,float]],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any]):
         self.path = path
-        super().__init__(to_arr,from_arr,conditioning)
+        super().__init__(to_arr,from_arr,conditioning,method,methodargs)
     
     @overload
     def __getitem__(self, index: int) -> tuple[X,float]: ...
@@ -157,7 +161,7 @@ class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X,C]): #where p
         return len(self.path)
     
 class InterpolatedIntegrableSequence(IntegrableSequence[X,C]):
-    def __init__(self,  n_interp: int, path:Sequence[tuple[X,float]], to_arr: Callable[[X],Array], from_arr: Callable[[ArrayLike],X], conditioning:C, tmin: float = 0, tmax: float = 1):
+    def __init__(self,  n_interp: int, path:Sequence[tuple[X,float]], to_arr: Callable[[X],Array], from_arr: Callable[[ArrayLike],X], conditioning:C, method:str, methodargs:dict[str,Any], tmin: float = 0, tmax: float = 1):
         """n_interp of i means i-1 extra points in between each original points. n_interp of 1 is the original sequence"""
         self.n_interp = n_interp
         self.orig_sequence = path = list(path)
@@ -173,17 +177,25 @@ class InterpolatedIntegrableSequence(IntegrableSequence[X,C]):
             interp_points = (1-interps)*x1[None,...] + interps*x2[None,...] 
             accpath.extend(zip(map(from_arr,interp_points),interp_times))
             x1,t1 = x2,t2
-        super().__init__(accpath,to_arr,from_arr,conditioning)
+        super().__init__(accpath,to_arr,from_arr,conditioning,method,methodargs)
 
     
 class ODEIntegrablePath(IntegrablePath[X,C],ABC):
-    def __init__(self,timeschedule:Sequence[float],initial:tuple[X,float],rtol:float,atol:float,method:str,to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C):
+    def __init__(self,timeschedule:Sequence[float],initial:tuple[X,float],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any]):
         self.timeschedule = timeschedule
         self.initial = initial
-        self.rtol = rtol
-        self.atol = atol
-        self.method = method
-        super().__init__(to_arr,from_arr,conditioning)
+        methodargs = dict(**methodargs)
+        
+        try:
+            self.rtol = methodargs.pop('rtol')
+        except KeyError:
+            raise ValueError(f"ODE Integration missing required parameter: \"rtol\"")
+        try:
+            self.atol = methodargs.pop('atol')
+        except KeyError:
+            raise ValueError(f"ODE Integration missing required parameter: \"atol\"")
+        
+        super().__init__(to_arr,from_arr,conditioning,method,methodargs)
             
     @abstractmethod
     def dx(self,i:float,x:X,t:float)->X:
@@ -212,7 +224,7 @@ class ODEIntegrablePath(IntegrablePath[X,C],ABC):
             x,t = v
             return self.xntensor(self.dx(i,self.from_arr(x),t.item()),self.dt(i,self.from_arr(x),t.item()))
         
-        res:tuple[Tensor,Tensor] = odeint(dxdtconcat,self.xntensor(*self.initial),self.tensor(self.timeschedule), rtol=self.rtol, atol=self.atol, method=self.method)
+        res:tuple[Tensor,Tensor] = odeint(dxdtconcat,self.xntensor(*self.initial),self.tensor(self.timeschedule), rtol=self.rtol, atol=self.atol, method=self.method, options=self.methodargs)
         xs,ts = res
         ts = ts.tolist()
 
@@ -231,7 +243,7 @@ class ODEIntegrablePath(IntegrablePath[X,C],ABC):
             return self.xntensor(dx,dt,*[integrand.odeintegrand(x,t,dx,dt,self.condition) for integrand in integrands])
         
         ## add a null dimension to each integrand's zero ([None,...]) to allow "scalar" integrands; odeint throws a fit with scalar tensors since they can't be concatenated
-        res = odeint(ode_func,self.xntensor(*self.initial,*(integrand.zero(self.initial[0])[None,...] for integrand in integrands)),self.tensor(self.timeschedule),rtol=self.rtol,atol=self.atol,method=self.method)
+        res = odeint(ode_func,self.xntensor(*self.initial,*(integrand.zero(self.initial[0])[None,...] for integrand in integrands)),self.tensor(self.timeschedule), rtol=self.rtol, atol=self.atol, method=self.method, options=self.methodargs)
         xs,ts,*I = res
 
         ## make sure to remove the null dimension from each integrand via [0]
@@ -354,14 +366,14 @@ class SpaceIntegrand(ScoreDivDiffIntegrand[X,C]):
 # Reverse SDE Path generator. Only goes from tnoise=1 to tdata=0, should be equivalent to neural network inference 
 # (meant to replace the euler_maruyama sampler for trajectory generation)
 class ReverseSDEPath(IntegrablePath[X,C]):
-    def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], noise_scale:float, times: Sequence[float], initial: X, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning:C):
+    def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], noise_scale:float, times: Sequence[float], initial: X, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning:C, method:str, methodargs:dict[str,Any]):
         self.scorefn = scorefn
         self.diffcoefffn = diffcoefffn
         self.times = times
         self.initial = initial
         self.noise_scale = noise_scale #should be 1 by default. allows you to forcibly turn up/down the noise during sampling. TODO: make this a proper schedule?
         
-        super().__init__(to_arr,from_arr,conditioning=conditioning)
+        super().__init__(to_arr,from_arr,conditioning,method,methodargs)
     
     def __len__(self) -> int:
         return len(self.times)
@@ -392,13 +404,13 @@ class ReverseSDEPath(IntegrablePath[X,C]):
 
 #the reverse of ReverseSDE path. Follows a random diffusion trajectory from a starting point.
 class ForwardSDEPath(IntegrablePath[X,C]):
-    def __init__(self, diffcoefffn:Callable[[float],float], noise_scale:float, times: Sequence[float], initial: X, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning:C):
+    def __init__(self, diffcoefffn:Callable[[float],float], noise_scale:float, times: Sequence[float], initial: X, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning:C, method:str, methodargs:dict[str,Any]):
         self.diffcoefffn = diffcoefffn
         self.times = times
         self.initial = initial
         self.noise_scale = noise_scale #should be 1 by default. allows you to forcibly turn up/down the noise during sampling. TODO: make this a proper schedule?
         
-        super().__init__(to_arr,from_arr,conditioning=conditioning)
+        super().__init__(to_arr,from_arr,conditioning,method,methodargs)
     
     def __len__(self) -> int:
         return len(self.times)
@@ -429,16 +441,16 @@ class ForwardSDEPath(IntegrablePath[X,C]):
 
 #just pass in a sequence of points. time schedule is interpreted to be tmin..tmax linearly
 class UniformIntegrableSequence(IntegrableSequence[X,C]):
-    def __init__(self,points:Iterable[X], to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C,tmin:float=0, tmax:float=1):
+    def __init__(self,points:Iterable[X], to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any],tmin:float=0, tmax:float=1):
         points = list(points)
         t = np.linspace(tmin,tmax,len(points),endpoint=True)
-        super().__init__(list(zip(points,t)),to_arr,from_arr,conditioning)
+        super().__init__(list(zip(points,t)),to_arr,from_arr,conditioning,method,methodargs)
 
 class InterpolatedUniformIntegrableSequence(InterpolatedIntegrableSequence[X,C]):
-    def __init__(self,points:Iterable[X], n_interp: int,  to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C,tmin:float=0, tmax:float=1):
+    def __init__(self,points:Iterable[X], n_interp: int,  to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any],tmin:float=0, tmax:float=1):
         points = list(points)
         t = np.linspace(tmin,tmax,len(points),endpoint=True)
-        super().__init__(list(zip(points,t)),n_interp,to_arr,from_arr,conditioning)
+        super().__init__(n_interp,list(zip(points,t)),to_arr,from_arr,conditioning,method,methodargs)
 
 
 class UniformODEIntegrablePath(ODEIntegrablePath[X,C]):
@@ -446,10 +458,10 @@ class UniformODEIntegrablePath(ODEIntegrablePath[X,C]):
         return 1
 
 class FlowEquivalentODEPath(UniformODEIntegrablePath[X,C]):
-    def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], timeschedule: Sequence[float], initial: tuple[X, float], rtol: float, atol: float, method: str, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C):
+    def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], timeschedule: Sequence[float], initial: tuple[X, float], to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any]):
         self.scorefn = scorefn
         self.diffcoefffn = diffcoefffn
-        super().__init__(timeschedule, initial, rtol, atol, method, to_arr, from_arr,conditioning)
+        super().__init__(timeschedule, initial, to_arr, from_arr,conditioning,method,methodargs)
 
     def dx(self, i: float, x: X, t: float) -> X:
         delta = -1/2 * self.diffcoefffn(t)**2 * self.tensor(self.scorefn(x,t,self.condition)).detach();
@@ -457,8 +469,8 @@ class FlowEquivalentODEPath(UniformODEIntegrablePath[X,C]):
         return self.from_arr(delta);
 
 class LinearPath(ODEIntegrablePath[X,C]):
-    def __init__(self, start:tuple[X,float], end:tuple[X,float], interpolants:Sequence[float], rtol: float, atol: float, method: str, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C):
-        super().__init__(interpolants,start,rtol,atol,method,to_arr,from_arr,conditioning)
+    def __init__(self, start:tuple[X,float], end:tuple[X,float], interpolants:Sequence[float], to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any]):
+        super().__init__(interpolants,start,to_arr,from_arr,conditioning,method,methodargs)
         self.end = end
         self.mini = interpolants[0]
         self.maxi = interpolants[-1]
@@ -481,11 +493,11 @@ class LinearPath(ODEIntegrablePath[X,C]):
             yield (self.from_arr((1-interp)*x0 + interp*x1),(1-interp)*t0+interp*t1)
 
 class LinearizedFlowPath(LinearPath[X,C]):
-    def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], timeschedule: Sequence[float], initial: tuple[X, float], rtol: float, atol: float, method: str, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C,interpolants:Optional[Sequence[float]]=None):
-        self.flowpath = FlowEquivalentODEPath(scorefn,diffcoefffn,timeschedule,initial,rtol,atol,method,to_arr,from_arr,conditioning)
+    def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], timeschedule: Sequence[float], initial: tuple[X, float], to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any],interpolants:Optional[Sequence[float]]=None):
+        self.flowpath = FlowEquivalentODEPath(scorefn,diffcoefffn,timeschedule,initial,to_arr,from_arr,conditioning,method,methodargs)
         self.path = list(self.flowpath)
         end = self.path[-1]
-        super().__init__(initial,end,interpolants or timeschedule,rtol,atol,method,to_arr,from_arr,conditioning);
+        super().__init__(initial,end,interpolants or timeschedule,to_arr,from_arr,conditioning,method,methodargs);
 
 
 
@@ -505,7 +517,7 @@ def brownian_bridge(timepoints:Sequence[float], in_shape:tuple[int,...]|int,sigm
     return B
 
 class PerturbedPath(IntegrableSequence[X,C]):
-    def __init__(self, path: IntegrablePath[X,C], perturbation_schedule:Literal["uniform","data"], sigma: float, conditioning:C):
+    def __init__(self, path: IntegrablePath[X,C], perturbation_schedule:Literal["uniform","data"], sigma: float, conditioning:C, method:str, methodargs:dict[str,Any]):
         points = list(path)
         shape = path.to_arr(points[0][0]).shape
         if perturbation_schedule == "data":
@@ -516,7 +528,7 @@ class PerturbedPath(IntegrableSequence[X,C]):
             raise ValueError(perturbation_schedule)
         offsets = brownian_bridge(times, shape, sigma=sigma)
 
-        super().__init__([(x + offset, t) for (x,t),offset in zip(points,offsets)],path.to_arr,path.from_arr,conditioning)
+        super().__init__([(x + offset, t) for (x,t),offset in zip(points,offsets)],path.to_arr,path.from_arr,conditioning,method,methodargs)
 
 ## I hate this so fucking much. I'm going to write a manifesto and send it to pytorch in the mail
 # from https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/8
