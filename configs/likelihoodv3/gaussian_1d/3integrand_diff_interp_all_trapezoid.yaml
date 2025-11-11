@@ -1,6 +1,6 @@
 # @package _global_
 checkpoint: checkpoints/1d_trinormal_smax70.ckpt
-out_dir: ../likelihood_results/likelihoodv3/gaussian_1d/ground_truth/3integrand_diff_midpointint
+out_dir: ../likelihood_results/likelihoodv3/gaussian_1d/3integrand_diff_10interp_all_trapezoidint
 sigma_min: 0.1
 sigma_max: 70
 clamp_diffusion_coefficient: False
@@ -15,19 +15,21 @@ prior_fns:
   smax_gaussian
   convolved_data
 path_type: sde_trajectories
+
 integral_type: 'diff'
 
-tr_type: ground_truth
+tr_type: non_conservative
 
 integration:
-  method: midpoint
+  method: trapezoid
 
 ode_steps: 100
 num_workers: 4
 
+interpolate_trajectories: True
+num_interpolants: 10
+
 save_trajectories: True
 
-device: cpu
-
 batched: True
-batch_size: 64
+batch_size: 32

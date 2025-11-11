@@ -8,8 +8,8 @@
 # python scripts/likelihoodv3_gaussian_1d.py --config-name=likelihood_gaussian_1d_gtscore_translation_perturbed.yaml '++overwrite_output=True' && \
 # python scripts/likelihoodv3_gaussian_1d.py --config-name=likelihood_gaussian_1d_gtscore_translation_diffint.yaml '++overwrite_output=True' && \
 
-python scripts/likelihoodv3_gaussian_1d.py --config-name=gaussian_1d/gtscore/diff_interp_midpoint && \
+python scripts/likelihoodv3_gaussian_1d.py --config-name=gaussian_1d/gtscore/diff_interp_trapezoid && \
 python scripts/likelihoodv3_gaussian_1d.py --config-name=gaussian_1d/gtscore/diff_interp_backwards && \
-python scripts/likelihoodv3_gaussian_1d.py --config-name=gaussian_1d/gtscore/diff_midpoint && \
+python scripts/likelihoodv3_gaussian_1d.py --config-name=gaussian_1d/gtscore/diff_trapezoid && \
 python scripts/likelihoodv3_gaussian_1d.py --config-name=gaussian_1d/gtscore/diff_backwards && \
 echo "all likelihoods computed successfully!"
