@@ -18,7 +18,7 @@ offset_type: "Translation"
 #   smax_gaussian
 path_type: sde_trajectories
 
-integral_type: 'diff'
+# integral_type: 'diff'
 
 tr_type: non_conservative
 

@@ -1,14 +1,12 @@
 # @package _global_
-##Calculate forces along a *flow* trajectory (_traj_flow is sampled diffusion trajectory)
 checkpoint: checkpoints/diffenergy_tr_0.ckpt
-out_dir: ../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_flowtraj_forces
+out_dir: ../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_traj_forces_2A1A
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
-# pdb_dir: ../sample_results/dfmdock_single_trajectories_flow_40_offset/pdb
-# # data_samples: ../sample_results/dfmdock_tr/samples.csv
-# trajectory_dir: ../sample_results/dfmdock_single_trajectories_flow_40_offset/trajectories
-# trajectory_index_file: ../sample_results/dfmdock_single_trajectories_flow_40_offset/trajectories/trajectory_index.csv
+pdb_dir: ../sample_results/dfmdock_inference_trtrained_deterministic
+trajectory_dir: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs
+trajectory_index_file: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs/trajectory_index_single_2A1A.csv
 
 offset_type: "Translation"
 

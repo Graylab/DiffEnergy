@@ -1,11 +1,11 @@
 # @package _global_
 checkpoint: checkpoints/1d_trinormal_smax70.ckpt
-out_dir: ../likelihood_results/likelihoodv3/gaussian_1d/3integrand_diff_10interp_all_backwardint
+out_dir: ../likelihood_results/likelihoodv3/gaussian_1d/3integrand_diff_10interp_1000_backwardint
 sigma_min: 0.1
 sigma_max: 70
 clamp_diffusion_coefficient: False
 data_samples: ../sample_results/trinormal_1d_smax70.csv
-trajectory_index_file: ../sample_results/trinormal_1d_smax70_traj/trajectory_index.csv
+trajectory_index_file: ../sample_results/trinormal_1d_smax70_traj/trajectory_index_1000.csv
 
 integrand_types:
   TotalIntegrand:
@@ -22,14 +22,14 @@ tr_type: non_conservative
 
 integration:
   method: euler_backward
-
+  
 ode_steps: 100
 num_workers: 4
 
 interpolate_trajectories: True
 num_interpolants: 10
 
-save_trajectories: True
+save_trajectories: False
 
 batched: True
-batch_size: 32
+batch_size: 16
