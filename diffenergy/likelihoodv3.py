@@ -113,6 +113,8 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
                 I2 = [integrand.diffintegrand(x2,t2,dx,dt,self.condition) for integrand in integrands]
 
                 [acc[i].append(acc[i][-1] + (I1[i] + I2[i])/2) for i in range(len(acc))]
+            else:
+                raise ValueError(self.method)
 
             (x,t) = (x2,t2)
             accx.append(x)
