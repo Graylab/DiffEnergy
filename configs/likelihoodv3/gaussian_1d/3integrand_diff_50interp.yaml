@@ -29,7 +29,7 @@ num_workers: 4
 interpolate_trajectories: True
 num_interpolants: 50
 
-save_trajectories: True
+save_trajectories: False
 
 batched: True
 batch_size: 16

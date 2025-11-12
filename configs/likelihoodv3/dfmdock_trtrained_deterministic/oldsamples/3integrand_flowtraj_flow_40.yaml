@@ -22,7 +22,7 @@ path_type: flow_along_trajectory
 
 load_trajectory_type: pdb
 
-integral_type: 'diff'
+integral_type: ode
 
 tr_type: non_conservative
 
