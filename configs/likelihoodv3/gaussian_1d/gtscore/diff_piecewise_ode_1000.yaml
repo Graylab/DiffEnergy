@@ -1,0 +1,35 @@
+# @package _global_
+checkpoint: checkpoints/1d_trinormal_smax70.ckpt
+out_dir: ../likelihood_results/likelihoodv3/gaussian_1d/ground_truth/3integrand_diff_piecewise_10interp_ode_1000
+sigma_min: 0.1
+sigma_max: 70
+clamp_diffusion_coefficient: False
+data_samples: ../sample_results/trinormal_1d_smax70.csv
+trajectory_index_file: ../sample_results/trinormal_1d_smax70_traj/trajectory_index_1000.csv
+
+integrand_types:
+  TotalIntegrand:
+  TimeIntegrand:
+  SpaceIntegrand:
+prior_fns:
+  smax_gaussian
+  convolved_data
+
+tr_type: ground_truth
+
+path_type: piecewise_trajectories
+num_interpolants: 10
+
+integral_type: 'diff'
+integration:
+  integral_type: ode
+  method: rk4
+  rtol: 1e-5
+  atol: 1e-5
+
+device: cpu
+
+save_trajectories: True
+
+batched: True
+batch_size: 64

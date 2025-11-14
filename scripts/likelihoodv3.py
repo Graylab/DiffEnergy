@@ -1,7 +1,7 @@
 import itertools
 import omegaconf
 from torch.utils.data import Dataset
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihood, run_diff_likelihoods, run_ode_likelihood, run_ode_likelihoods
+from diffenergy.likelihoodv3 import FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiableSequence, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihood, run_diff_likelihoods, run_ode_likelihood, run_ode_likelihoods
 
 import torch
 from omegaconf import DictConfig
@@ -184,6 +184,22 @@ def get_paths[X,C,T,I](
                               int_args))
                 for id,path,condition in tqdm(trajectories)
             )
+        case "piecewise_trajectories":
+            #piecewise sde: linear paths between points on diffusion trajectory
+            trajectories = load_trajectories()
+
+            paths = (
+                (id,PiecewiseDifferentiableSequence(
+                    get_trajectory(path,condition),
+                    config.num_interpolants,
+                    to_array,
+                    from_array,
+                    condition,
+                    int_method,
+                    int_args))
+                for id,path,condition in tqdm(trajectories)
+            )
+
         case "linear_trajectories":
             #linear: take sampled paths, and just make a straight line from start to end
             trajectories = load_trajectories()
@@ -217,6 +233,7 @@ def get_paths[X,C,T,I](
                     int_args))
                     for id,sample,condition in tqdm(dataloader)
                 )
+            
         case "diff_data_translation":
             # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
             # Requires a prior function compatible with t0 sampling
@@ -379,6 +396,8 @@ def get_likelihoods[X,C,I](
     device = torch.device(device)
 
     ### RUN LIKELIHOOD COMPUTATION
+
+    #parallel setup (currently nonfunctional)
     parallel = config.get("parallel",False)
     cluster_kwargs = config.get("cluster_kwargs",{})
     if parallel:
@@ -388,8 +407,13 @@ def get_likelihoods[X,C,I](
     if device.type == 'cuda' and 'num_gpus' not in actor_kwargs:
         actor_kwargs['num_gpus'] = 1 #assume each actor will consume an entire gpu
 
+
+
     reset_seed_each_path = config.get("reset_seed_each_path",False)
     seed = config.get("seed",0)
+
+    #attempted optimization, hope it works
+    accumulate_path = config.get("save_trajectories",False)
 
     int_type = config.get("integral_type")
     if int_type == "ode":
@@ -397,14 +421,14 @@ def get_likelihoods[X,C,I](
         for id,path in paths:
             if reset_seed_each_path:
                 torch.manual_seed(seed)
-            yield run_ode_likelihood(id,path,integrands)
+            yield run_ode_likelihood(id,path,integrands,accumulate=accumulate_path)
         
     elif int_type == "diff":
         #use standard integration
         for id,path in paths:
             if reset_seed_each_path:
                 torch.manual_seed(seed)
-            yield run_diff_likelihood(id,path,integrands)
+            yield run_diff_likelihood(id,path,integrands,accumulate=accumulate_path)
     else:
         raise ValueError(f"Unknown integral type: {int_type}. For standard (non-ode solver) numerical integration, use integral_type: \"diff\" (the default).")
 

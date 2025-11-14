@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import functools
 import itertools
 from decorator import decorator
-from typing import Any, Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Optional, Sequence, Sized, TypeVar, TypeVarTuple, TypedDict, Union, overload
+from typing import Any, Callable, ClassVar, Generic, Iterable, Iterator, Literal, Mapping, Optional, Sequence, Sized, TypeVar, TypeVarTuple, TypedDict, Union, overload, override
 from numpy.typing import ArrayLike
 
 import torch
@@ -22,7 +22,8 @@ C = TypeVar("C") #Condition
 ##### Abstract Classes / Helpers #####
 
 #### Integrands (diffusion and ode) ####
-
+# TODO: REFACTOR DIFFINTEGRAND/ODEINTEGRAND TO RETURN A TUPLE OF F_x, T_x AND THEN DOT THEM DURING INTEGRATION.
+## ^ maybe wait until we figure out riemannian diffusion to do this, though...
 class LikelihoodIntegrand(ABC,Generic[X,C]):
 
     def name(self)->str:
@@ -86,12 +87,15 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
     def delta(self)->Iterable[tuple[X,float]]:
         return map(lambda xt: (self.from_arr(self.to_arr(xt[1][0]) - self.to_arr(xt[0][0])),xt[1][1]-xt[0][1]), itertools.pairwise(self))
     
-    def diffintegrate(self, *integrands: LikelihoodIntegrand[X,C])->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
+    def diffintegrate(self, *integrands: LikelihoodIntegrand[X,C], accumulate=True)->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
         it = iter(self)
         (x,t) = next(it)
-        acc:list[list[float|Array]] = [[i.zero(x)] for i in integrands]
-        accx = [x]
-        acct = [t]
+        likelihoods = [i.zero(x) for i in integrands]
+        
+        acc:list[list[float|Array]] = [[l] for l in likelihoods] if accumulate else []
+        accx = [x] if accumulate else []
+        acct = [t] if accumulate else []
+
         for (x2,t2) in it:
             xarr,x2arr = self.to_arr(x), self.to_arr(x2)
             dxarr = x2arr-xarr
@@ -99,67 +103,38 @@ class IntegrablePath(ABC,Sized,Iterable[tuple[X,float]],Generic[X,C]):
             dt = t2-t
             
             if self.method == 'euler':
-                [acc[i].append(acc[i][-1] + integrand.diffintegrand(x,t,dx,dt,self.condition)) for i,integrand in enumerate(integrands)] 
+                for i,integrand in enumerate(integrands): likelihoods[i] += integrand.diffintegrand(x,t,dx,dt,self.condition)
             elif self.method == 'euler_backward':
                 #NOTE this is technically not backwards euler. it's just the same dumb euler but using the other endpoint for the riemann sum
-                [acc[i].append(acc[i][-1] + integrand.diffintegrand(x2,t2,dx,dt,self.condition)) for i,integrand in enumerate(integrands)] 
-                
+                for i,integrand in enumerate(integrands): likelihoods[i] += integrand.diffintegrand(x2,t2,dx,dt,self.condition)
             elif self.method == 'trapezoid': # now we're getting somewhere. 
                 # TODO: refactor this using smarter diffintegrand so we are guaranteed to not recalculate the score every time!
-                # (once I figure out the better X system for riemannian diffusion, at least)
+                # (once I figure out the better X system for riemannian diffusion, at least). For now, just betting on caching
 
                 #do all of the previoius point before asking for the next to prevent cache invalidation
                 I1 = [integrand.diffintegrand(x,t,dx,dt,self.condition) for integrand in integrands] 
                 I2 = [integrand.diffintegrand(x2,t2,dx,dt,self.condition) for integrand in integrands]
 
-                [acc[i].append(acc[i][-1] + (I1[i] + I2[i])/2) for i in range(len(acc))]
+                for i,(i1,i2) in enumerate(zip(I1,I2)): likelihoods[i] += (i1 + i2)/2
             else:
                 raise ValueError(self.method)
 
             (x,t) = (x2,t2)
-            accx.append(x)
-            acct.append(t)
-
-        return accx,acct,acc
-    
-    # TODO: REFACTOR DIFFINTEGRAND/ODEINTEGRAND TO RETURN A TUPLE OF F_x, T_x AND THEN DOT THEM DURING INTEGRATION.
-    ## ^ maybe wait until we figure out riemannian diffusion to do this, though...
-    # TODO: INCORPORATE THIS METHOD INTO DIFFINTEGRATE WITH 'method' PARAMETER
-    # def diffintegrate_trapezoid(self, *integrands: LikelihoodIntegrand[X,C],device:str|torch.device='cuda')->tuple[Sequence[X],Sequence[float],list[list[float|Array]]]:
-    #     pass
+            if accumulate:
+                accx.append(x)
+                acct.append(t)
+                [accl.append(l) for accl,l in zip(acc,likelihoods)]
         
-        
-        # path = list(self)
-        # pathx = [p[0] for p in path]; patht = [p[1] for p in path]
-
-        # dx = [self.from_arr(self.to_arr(x1) - self.to_arr(x0)) for x1,x0 in itertools.pairwise(pathx)]
-        # dt = [t1 - t0 for t1,t0 in itertools.pairwise(patht)]
-
-        # accints = []
-        # for integrand in integrands:
-        #     grand = [integrand.diffintegrand(x,t,ddx,ddt,self.condition) for x,t,ddx,ddt in zip(pathx,patht,dx,dt)]
-        #     try:
-        #         grand = torch.as_tensor(grand,device=device)
-        #     except:
-        #         grand = torch.stack(grand,dim=0).to(device=device)
-
-        #     int_shape = grand.shape[1:] #we need to flatten the integrand into a 1d vector, so record for later. pretty much exactly what odeintegrate does behind the scenes
-        #     grand = grand.swapaxes(0,-1).reshape(-1,len(dx))
-
-        #     grand.swapaxes_(0,1)
-            
-        #     #we've already evaluated the integrand at our desired points - so just calculate the result
-        #     cum_int = torchquad.Boole().calculate_result()
-
-        # dx = torch.diff(torch.stack([self.to_arr(x) for x in pathx],axis=0))
-        # dt = torch.diff(torch.as_tensor(patht,device=dx.device,dtype=dx.dtype))
-
-
-
+        if accumulate:
+            return accx,acct,acc
+        else:
+            return [x],[t],[[l] for l in likelihoods] #keep return type the same
 
 
 class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X,C]): #where path is an explicit sequence of x and t
-    def __init__(self,path:Sequence[tuple[X,float]],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any]):
+    def __init__(self,path:Iterable[tuple[X,float]],to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any]):
+        if not isinstance(path,Sequence):
+            path = list(path)
         self.path = path
         super().__init__(to_arr,from_arr,conditioning,method,methodargs)
     
@@ -174,8 +149,11 @@ class IntegrableSequence(Sequence[tuple[X,float]],IntegrablePath[X,C]): #where p
         return len(self.path)
     
 class InterpolatedIntegrableSequence(IntegrableSequence[X,C]):
-    def __init__(self,  n_interp: int, path:Sequence[tuple[X,float]], to_arr: Callable[[X],Array], from_arr: Callable[[ArrayLike],X], conditioning:C, method:str, methodargs:dict[str,Any], tmin: float = 0, tmax: float = 1):
+    def __init__(self,  n_interp: int, path:Iterable[tuple[X,float]], to_arr: Callable[[X],Array], from_arr: Callable[[ArrayLike],X], conditioning:C, method:str, methodargs:dict[str,Any], tmin: float = 0, tmax: float = 1):
         """n_interp of i means i-1 extra points in between each original points. n_interp of 1 is the original sequence"""
+        if not isinstance(path,Sequence):
+            path = list(path)
+        assert n_interp >= 1
         self.n_interp = n_interp
         self.orig_sequence = path = list(path)
         it = ((torch.as_tensor(to_arr(x)),t) for x,t in path)
@@ -247,7 +225,7 @@ class ODEIntegrablePath(IntegrablePath[X,C],ABC):
         return len(self.timeschedule)
     
     
-    def odeintegrate(self,*integrands:ODELikelihoodIntegrand[X,C])->tuple[Sequence[X],Sequence[float],list[Sequence[float|Array]]]:
+    def odeintegrate(self,*integrands:ODELikelihoodIntegrand[X,C], accumulate=True)->tuple[Sequence[X],Sequence[float],list[Sequence[float|Array]]]:
         def ode_func(i:float,v:tuple[Tensor,...]):
             x,t,*_ = v
             x,t = self.from_arr(x), t.item()
@@ -259,8 +237,13 @@ class ODEIntegrablePath(IntegrablePath[X,C],ABC):
         res = odeint(ode_func,self.xntensor(*self.initial,*(integrand.zero(self.initial[0])[None,...] for integrand in integrands)),self.tensor(self.timeschedule), rtol=self.rtol, atol=self.atol, method=self.method, options=self.methodargs)
         xs,ts,*I = res
 
-        ## make sure to remove the null dimension from each integrand via [0]
-        return list(map(self.from_arr,xs)),list(map(Tensor.item,ts)),[i[:,0] for i in I]
+
+        if accumulate:
+            ## make sure to remove the null dimension from each integrand via [...,0]
+            return list(map(self.from_arr,xs)),list(map(Tensor.item,ts)),[i[:,0] for i in I]
+        else:
+            ## make sure to remove the null dimension from each integrand via [...,0]
+            return [self.from_arr(xs[-1])],[ts[-1].item()],[i[-1,0] for i in I] #keep return type consistent
     
 
 ##### Concrete Classes #####
@@ -466,6 +449,91 @@ class InterpolatedUniformIntegrableSequence(InterpolatedIntegrableSequence[X,C])
         super().__init__(n_interp,list(zip(points,t)),to_arr,from_arr,conditioning,method,methodargs)
 
 
+# Piecewise Differentiable Sequence. Note that since dx and dt are not defined at the vertices, it's not ODEIntegrable. However, since the subpaths are LinearPaths, they can be odeintegrated
+# individually. Thus, by default this path will use ode integration using the provided 'method'. However, this behavior can be changed using the 'integral_type' method argument.
+# Additionally, to forgo the custom diffintegrate method, use {"integral_type":"original"} for the method arguments. The method and all other method arguments will be used in the default
+# diffintegrate instead of the subpaths'.
+
+#TODO: Lots of possible generalizations. Different subpaths other than LinearPath, ways to define other than sequence, etc
+class PiecewiseDifferentiableSequence(IntegrablePath[X,C]):
+    def __init__(self,points:Iterable[tuple[X,float]],n_interp:int, to_arr:Callable[[X],Array], from_arr:Callable[[ArrayLike],X], conditioning:C, method:str, methodargs:dict[str,Any]):
+        
+        if not isinstance(points,Sequence):
+            points = list(points)
+        self.points = points
+
+        super().__init__(to_arr,from_arr,conditioning,method,methodargs)
+        methodargs = methodargs.copy()
+        self.integral_type = methodargs.pop("integral_type","ode") #remove integral_type so it doesn't interfere with LinearPath's method args
+
+        # Like InterpolatedIntegrableSequence, adds n_interp - 1 points to each step. That is, each step (x1,x2) will go from having 2 points to n_interp + 1 points (sharing endpoints with neighboring steps).
+        # Note that while each path contains the entire n_interp - 1 points for integration purposes, iterating over this path will skip the first point of each path except the initial one so no points are repeated
+        assert n_interp >= 1
+        self.n_interp = n_interp
+        
+        self.pathclass = LinearPath #for forward compatibility
+        self.paths = [
+            LinearPath(x1,x2,np.linspace(0,1,n_interp+1),to_arr,from_arr,conditioning,method,methodargs) for (x1,x2) in itertools.pairwise(points)
+        ]
+
+        if self.integral_type == 'ode' and not issubclass(self.pathclass,ODEIntegrablePath):
+            raise ValueError(f"Can't use ODE integration for non-integrable piecewise path: {self.pathclass}")
+
+        
+
+    @override
+    def diffintegrate(self, *integrands: LikelihoodIntegrand[X, C], accumulate=True) -> tuple[Sequence[X], Sequence[float], list[list[float | Array]]]:
+        if self.integral_type == 'original':
+            return super().diffintegrate(*integrands)
+        elif self.integral_type == 'diff' or self.integral_type == 'ode':
+            x,t = self.points[0]
+            likelihoods = [i.zero(x) for i in integrands]
+            
+            accx = [x] if accumulate else []
+            acct = [t] if accumulate else []
+            acc:list[list[float|Array]] = [[l] for l in likelihoods] if accumulate else []
+
+            for path in self.paths:
+                #get subpath likelihoods
+                if self.integral_type == 'diff':
+                    X,T,L = path.diffintegrate(*integrands, accumulate=accumulate)
+                elif self.integral_type == 'ode':
+                    assert isinstance(path,ODEIntegrablePath)
+                    X,T,L = path.odeintegrate(*integrands, accumulate=accumulate)
+                else:
+                    raise Exception()
+
+                #add subpath likelihoods to running total (and accumulate trajectory if specified)
+                x = X[-1]
+                t = T[-1]
+                if accumulate:
+                    accx.extend(X)
+                    acct.extend(T)
+                    [accl.extend([l0 + li for li in Li]) for accl,Li,l0 in zip(acc,L,likelihoods)] #add the current accumulated likelihood value to each of the likelihoods returned by the subpath
+                    likelihoods = [accl[-1] for accl in acc] #the final step of each of the accumulated likelihoods
+                else:
+                    likelihoods = [l0 + Li[-1] for Li,l0 in zip(L,likelihoods)]
+
+            if accumulate:
+                return accx,acct,acc
+            else:
+                return [x],[t],[[l] for l in likelihoods]
+
+        else:
+            raise ValueError(f"Unknown integral type: {self.integral_type}")
+
+    def __len__(self) -> int:
+        return len(self.paths)*(self.n_interp-1) + 1
+
+    def __iter__(self) -> Iterator[tuple[X, float]]:
+        for i,path in enumerate(self.paths):
+            for j,point in enumerate(path):
+                if j != 0 and i == 0: #skip the first point of every path except the first to prevent endpoint overlap
+                    yield point
+
+
+
+
 class UniformODEIntegrablePath(ODEIntegrablePath[X,C]):
     def dt(self, i: float, x: X, t: float) -> float:
         return 1
@@ -543,6 +611,16 @@ class PerturbedPath(IntegrableSequence[X,C]):
 
         super().__init__([(x + offset, t) for (x,t),offset in zip(points,offsets)],path.to_arr,path.from_arr,conditioning,method,methodargs)
 
+
+
+
+
+
+
+
+#### Likelihood Calculation ####
+
+
 ## I hate this so fucking much. I'm going to write a manifesto and send it to pytorch in the mail
 # from https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/8
 def tensorify(lst,device=None,dtype=None):
@@ -568,18 +646,16 @@ def tensorify(lst,device=None,dtype=None):
     tensor_lst = torch.stack(lst, dim=0)
     return tensor_lst
 
-#### Likelihood Calculation ####
-
 _I = TypeVar("_I") # id type
-def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]])->tuple[_I,Sequence[X],Sequence[float],C,dict[str,np.ndarray]]:
+def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True)->tuple[_I,Sequence[X],Sequence[float],C,dict[str,np.ndarray]]:
 
     with torch.profiler.record_function("Likelihood Integration"):
         if method == 'diff':
-            trajectory, times, deltas = path.diffintegrate(*integrands)
+            trajectory, times, deltas = path.diffintegrate(*integrands,accumulate=accumulate)
         elif method == 'ode':
             if not isinstance(path,ODEIntegrablePath):
                 raise ValueError(f"Path {path} is not ODEIntegrable! Please use an ODEIntegrable path or set the integral_type to 'diff' to use the path in euclidean mode");
-            trajectory, times, deltas = path.odeintegrate(*integrands)
+            trajectory, times, deltas = path.odeintegrate(*integrands,accumulate=accumulate)
     ##Since we assume the path goes from unknown to known, we negate the delta. The last data point is the accumulated integrand (but we pass the whole thing as output so we can save it)
     integrand_results:dict[str,np.ndarray] = {integrand.name(): (-tensorify(delta,device='cpu').detach().cpu().numpy()) for integrand,delta in zip(integrands,deltas)}
     # prior_endpoint:tuple[X,float] = trajectory[-1]
@@ -587,11 +663,11 @@ def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],
 
     return (id, trajectory, times, path.condition, integrand_results)
 
-def run_diff_likelihood(id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]]):
-    return _run_likelihood('diff',id,path,integrands)
+def run_diff_likelihood(id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True):
+    return _run_likelihood('diff',id,path,integrands,accumulate=accumulate)
 
-def run_ode_likelihood(id:_I,path:ODEIntegrablePath[X,C],integrands:Sequence[ODELikelihoodIntegrand[X,C]]):
-    return _run_likelihood('ode',id,path,integrands)
+def run_ode_likelihood(id:_I,path:ODEIntegrablePath[X,C],integrands:Sequence[ODELikelihoodIntegrand[X,C]],accumulate:bool=True):
+    return _run_likelihood('ode',id,path,integrands,accumulate=accumulate)
 
 # try:
 #     from ray.util.joblib import register_ray
@@ -618,13 +694,13 @@ def run_ode_likelihood(id:_I,path:ODEIntegrablePath[X,C],integrands:Sequence[ODE
 #         yield from (func(*args) for args in starargs)
 
 
-def run_diff_likelihoods(paths:Iterable[tuple[_I,IntegrablePath[X,C]]],integrands:Sequence[LikelihoodIntegrand[X,C]],parallel=False,remote_kwargs={}):
+def run_diff_likelihoods(paths:Iterable[tuple[_I,IntegrablePath[X,C]]],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True,parallel=False,remote_kwargs={}):
     if parallel: raise NotImplemented
-    yield from (run_diff_likelihood(id,path,integrands) for id,path in paths)
+    yield from (run_diff_likelihood(id,path,integrands,accumulate=accumulate) for id,path in paths)
     # yield from istarmap_joblib(run_diff_likelihood,((id,path,integrands) for id,path in paths),parallel,remote_kwargs)
 
-def run_ode_likelihoods(paths:Iterable[tuple[_I,ODEIntegrablePath[X,C]]],integrands:Sequence[ODELikelihoodIntegrand[X,C]],parallel=False,remote_kwargs={}):
+def run_ode_likelihoods(paths:Iterable[tuple[_I,ODEIntegrablePath[X,C]]],integrands:Sequence[ODELikelihoodIntegrand[X,C]],accumulate:bool=True,parallel=False,remote_kwargs={}):
     if parallel: raise NotImplemented
-    yield from (run_ode_likelihood(id,path,integrands) for id,path in paths)
+    yield from (run_ode_likelihood(id,path,integrands,accumulate=accumulate) for id,path in paths)
     # yield from istarmap_joblib(run_ode_likelihood,((id,path,integrands) for id,path in paths),parallel,remote_kwargs)
 
