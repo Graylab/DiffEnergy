@@ -25,6 +25,9 @@ def get_convolved_gaussian(x,t,means,sigmas,weights,sigma_min=0.1,sigma_max=30):
     kernel = norm.pdf(x,loc=0,scale=np.sqrt(int_diffusion_coeff_sq(t,sigma_min,sigma_max).numpy()))
     return np.convolve(gauss,kernel,mode='same') / np.sum(kernel)
 
+
+
+
 if __name__ == "__main__":
     plt.close('all')
     x = np.linspace(-100, 100, 800)
@@ -79,7 +82,7 @@ if __name__ == "__main__":
     xt_cpu = torch.as_tensor(x,device='cpu',dtype=torch.float)[:,None] #make 1d not 0d
     gt_model_eval.to(dtype=xt_cpu.dtype,device=xt_cpu.device)
 
-    if True:
+    if False:
         ## compare convolved_gaussian prior with assumed smax prior
         prior_pdf = get_gaussian(x,means=[0],sigmas=[sigma_max],weights=[1.0])
 
@@ -115,7 +118,7 @@ if __name__ == "__main__":
         plt.legend()
         plt.show()
 
-    if False:
+    if True:
         ## plot scores and error over time
 
         times = np.linspace(0,1,40)
@@ -124,14 +127,14 @@ if __name__ == "__main__":
         score_errors = np.ndarray((x.shape[0],times.shape[0]))
         div_errors = np.ndarray((x.shape[0],times.shape[0]))
         for i,t in enumerate(tqdm(times)):
-            gt_score = gt_model_eval.batch_score(xt_cpu,t).detach().cpu().numpy()
-            score = model_eval.score(xt_cuda,t).detach().cpu().numpy()
+            gt_score = gt_model_eval.batch_score(xt_cpu,t,None).detach().cpu().numpy()
+            score = model_eval.batch_score(xt_cuda,t,None).detach().cpu().numpy()
 
-            gt_div = gt_model_eval.batch_divergence(xt_cpu,t).numpy()
+            gt_div = gt_model_eval.batch_divergence(xt_cpu,t,None).numpy()
             
             div = np.ndarray(gt_div.shape)#,device=xt.device,dtype=xt.dtype)
             for j in range(div.shape[0]):
-                div[j:j+1] = model_eval.divergence(xt_cuda[j:j+1],time).detach().cpu().numpy()
+                div[j:j+1] = model_eval.divergence(xt_cuda[j:j+1],time,None).detach().cpu().numpy()
 
             
 

@@ -406,7 +406,11 @@ def write_likelihood_outputs(
                     xtraj = xtraj[:,0] #1d position into scalar
                     ttraj = torch.as_tensor(time).numpy(force=True)
                     trajectory_df = pd.DataFrame({"Timestep":ttraj,"Sample":xtraj})
+                    if integrand_results is not None:
+                        for name,result in integrand_results.items():
+                            trajectory_df[f"accumulated_integrand:{name}"] = result
                     trajectory_df.to_csv(trajectory_file,index_label="index")
+                    
 
                     for cutoff,file,writer in trajectory_indices:
                         if cutoff is None or acc_trajnum <= cutoff:
