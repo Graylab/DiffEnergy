@@ -1,7 +1,7 @@
 import itertools
 import omegaconf
 from torch.utils.data import Dataset
-from diffenergy.likelihoodv3 import FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiableSequence, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihood, run_diff_likelihoods, run_ode_likelihood, run_ode_likelihoods
+from diffenergy.likelihoodv3 import EnsembledIntegrablePath, FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiableSequence, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand, run_diff_likelihood, run_diff_likelihoods, run_ode_likelihood, run_ode_likelihoods
 
 import torch
 from omegaconf import DictConfig
@@ -307,7 +307,33 @@ def get_paths[X,C,T,I](
                     int_method,
                     int_args))        
                 for (id,initial,condition) in tqdm(samples))
-        
+        case "ensembled_forward_sde":
+            samples = load_samples()
+            n_paths = config.get("ensemble_num_paths")
+            noise_scale = config.get("noise_scale",1)
+            paths = (
+                (id,EnsembledIntegrablePath(
+                    (
+                        ForwardSDEPath(diffusion_coeff_fn,
+                                    noise_scale,
+                                    sde_times,
+                                    initial,
+                                    to_array,
+                                    from_array,
+                                    condition,
+                                    int_method,
+                                    int_args)
+                        for _ in range(n_paths)
+                    ),
+                    to_array,
+                    from_array,
+                    condition,
+                    int_method,
+                    int_args,
+                ))
+                for (id,initial,condition) in tqdm(samples)
+            )
+
         case "flow_along_trajectory": #that is, calculate the flowtime integral from t=0 to t=1 for each point in each diffusion trajectory
             trajectories = load_trajectories() #each trajectory of N timesteps will produce N flow results
 
