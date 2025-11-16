@@ -532,7 +532,36 @@ class PiecewiseDifferentiableSequence(IntegrablePath[X,C]):
                     yield point
 
 
+#this is kind of strecthing the definition of an integrable 'path' but whatever. The "right" way would be to add a *more* abstract class like
+#AbstractIntegrableObject which just needs a diffintegrate method but I'm not doing that lol.
+class EnsembledIntegrablePath(IntegrablePath[X,C]):
+    def __init__(self, paths:Iterable[IntegrablePath[X,C]], to_arr: Callable[[X], Array], from_arr: Callable[[ArrayLike], X], conditioning: C, method: str, methodargs: dict[str, Any]):
+        #I don't think method or methodargs will be used here but more arguments are always nice. They could hold weighted average information or sometihng
+        super().__init__(to_arr, from_arr, conditioning, method, methodargs)
 
+        #at the moment this class is very dumb, just integrating paths in parallel (then averaging) with no understanding of what they are.
+        #We might later find that it's better to average based on the path (e.g. marginalization by multiplying by relative probability of that path or something)
+        self.paths = paths 
+
+    def diffintegrate(self, *integrands: LikelihoodIntegrand[X, C], accumulate=True) -> tuple[Sequence[X], Sequence[float], list[list[float | Array]]]:
+        xres = []
+        tres = []
+        lres = [[]]*len(integrands)
+
+        for path in self.paths:
+            X,T,L = path.diffintegrate(*integrands,accumulate=accumulate)
+            xres.append(X)
+            tres.append(T)
+            [lres[i].append(L[i]) for i in range(len(L))]
+        
+        return xres, tres, [[torch.as_tensor(lres[i][t]) for t in range(len(lres[i]))] for i in range(len(lres))] #idk maybe it works
+    
+    #again this should maybe be just an integrable class not an integrable path but w/e
+    def __iter__(self) -> Iterator[tuple[X, float]]:
+        raise ValueError()
+    
+    def __len__(self) -> int:
+        raise ValueError()
 
 class UniformODEIntegrablePath(ODEIntegrablePath[X,C]):
     def dt(self, i: float, x: X, t: float) -> float:
