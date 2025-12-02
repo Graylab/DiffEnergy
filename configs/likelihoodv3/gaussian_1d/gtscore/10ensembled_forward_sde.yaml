@@ -18,7 +18,7 @@ prior_fns:
 tr_type: ground_truth
 
 path_type: ensembled_forward_sde
-ensembled_num_paths: 10
+ensemble_num_paths: 10
 sde_steps: 1000 #match reverse diffusion
 
 integral_type: 'diff'

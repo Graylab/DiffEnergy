@@ -309,7 +309,7 @@ def get_paths[X,C,T,I](
                 for (id,initial,condition) in tqdm(samples))
         case "ensembled_forward_sde":
             samples = load_samples()
-            n_paths = config.get("ensemble_num_paths")
+            n_paths = config.ensemble_num_paths
             noise_scale = config.get("noise_scale",1)
             paths = (
                 (id,EnsembledIntegrablePath(
