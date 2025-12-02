@@ -554,7 +554,11 @@ class EnsembledIntegrablePath(IntegrablePath[X,C]):
             tres.append(T)
             [lres[i].append(L[i]) for i in range(len(L))]
         
-        return xres, tres, [[torch.as_tensor(lres[i][t]) for t in range(len(lres[i]))] for i in range(len(lres))] #idk maybe it works
+        xres = [torch.stack(x,dim=0) for x in itertools.zip_longest(*xres,fillvalue=torch.nan)]
+        tres = [torch.stack(t,dim=0) for t in itertools.zip_longest(*tres,fillvalue=torch.nan)]
+        lres = [list(itertools.zip_longest(*res,fillvalue=torch.nan)) for res in lres]
+
+        return xres,tres,lres #idk maybe it works
     
     #again this should maybe be just an integrable class not an integrable path but w/e
     def __iter__(self) -> Iterator[tuple[X, float]]:
@@ -666,7 +670,11 @@ def tensorify(lst,device=None,dtype=None):
         elif type(lst[0]) == torch.Tensor:
             return torch.stack(lst, dim=0)
         else:  # if the elements of lst are floats or something like that
-            return torch.as_tensor(lst,dtype=dtype,device=device)
+            try:
+                return torch.as_tensor(lst,dtype=dtype,device=device)
+            except ValueError:
+                print(lst[0])
+                raise 
     current_dimension_i = len(lst)
     for d_i in range(current_dimension_i):
         tensor = tensorify(lst[d_i])
@@ -676,7 +684,7 @@ def tensorify(lst,device=None,dtype=None):
     return tensor_lst
 
 _I = TypeVar("_I") # id type
-def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True)->tuple[_I,Sequence[X],Sequence[float],C,dict[str,np.ndarray]]:
+def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True)->tuple[_I,Sequence[X],Sequence[float],C,dict[str,list[np.ndarray]]]:
 
     with torch.profiler.record_function("Likelihood Integration"):
         if method == 'diff':
@@ -686,7 +694,7 @@ def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],
                 raise ValueError(f"Path {path} is not ODEIntegrable! Please use an ODEIntegrable path or set the integral_type to 'diff' to use the path in euclidean mode");
             trajectory, times, deltas = path.odeintegrate(*integrands,accumulate=accumulate)
     ##Since we assume the path goes from unknown to known, we negate the delta. The last data point is the accumulated integrand (but we pass the whole thing as output so we can save it)
-    integrand_results:dict[str,np.ndarray] = {integrand.name(): (-tensorify(delta,device='cpu').detach().cpu().numpy()) for integrand,delta in zip(integrands,deltas)}
+    integrand_results:dict[str,list[np.ndarray]] = {integrand.name(): ([-tensorify(delta[i],device='cpu').detach().cpu().numpy() for i in range(len(delta))]) for integrand,delta in zip(integrands,deltas)}
     # prior_endpoint:tuple[X,float] = trajectory[-1]
     # prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in prior_fns}
 
