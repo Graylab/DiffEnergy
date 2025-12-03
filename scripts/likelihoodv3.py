@@ -113,6 +113,25 @@ def get_paths[X,C,T,I](
         assert t0 == 0 and t1 == 1
         return x0, x1
     
+    if (num_subsample := config.get('num_subsample')) is not None: #subsample loaded trajectory with num_subsample points
+        #try to evenly distribute the subsampled points (as much as possible). from https://stackoverflow.com/a/9873935/13682828
+        from math import ceil
+        _get_trajectory = get_trajectory
+        def subsampled_trajectory(arg:T,condition:C)->Sequence[tuple[X,float]]:
+            #make sure we keep the endpoints
+            assert num_subsample >= 2 
+            
+            traj = _get_trajectory(arg,condition)
+            indices = [(int(ceil(i * (len(traj)-1) / (num_subsample-1))),) for i in range(num_subsample)]
+            
+            #make sure we keep the endpoints!!
+            assert (0,) in indices 
+            assert ((len(traj) - 1),) in indices
+            
+            return MapDataset(indices,lambda i: traj[i])
+        
+        get_trajectory = subsampled_trajectory
+    
 
     int_args = config.get("integration",DictConfig({}))
 
