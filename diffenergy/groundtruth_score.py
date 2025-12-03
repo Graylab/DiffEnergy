@@ -40,7 +40,7 @@ def batched_normpdf_matrix(dx:Tensor,covariances:Optional[Tensor]=None,scale_tri
         
     # add batch dimensions
     dist = torch.distributions.MultivariateNormal(means,covariance_matrix=covariances[None,...] if covariances is not None else None, scale_tril=scale_tril[None,...] if scale_tril is not None else None)
-    # add dimension for #of gaussians
+
     return torch.exp(dist.log_prob(dx))
     
 
