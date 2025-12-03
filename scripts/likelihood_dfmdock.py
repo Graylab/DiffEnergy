@@ -8,11 +8,10 @@ from pathlib import Path
 import csv
 import functools
 import shutil
-from typing import Any, Callable, Collection, Iterable, Literal, Mapping, Optional, ParamSpec, Protocol, Sequence, Sized, TypeVar, TypeVarTuple, overload, override
+from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence, overload
 import warnings
 
 import numpy as np
-from tqdm import tqdm
 from diffenergy.dfmdock_tr.docked_dataset import DockedDatum, PDBImporter
 from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
 from diffenergy.dfmdock_tr.score_model import Score_Model
@@ -24,10 +23,10 @@ import hydra
 
 from diffenergy.dfmdock_tr.utils.biotite_utils import get_offset_pdb,save_structure
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords
-from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_nd
+from diffenergy.helper import int_diffusion_coeff_sq, diffusion_coeff, prior_gaussian_nd
 from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
-from diffenergy.likelihoodv3 import Array, ArrayLike, LikelihoodIntegrand
-from scripts.likelihoodv3 import MapDataset, SizeWrappedIter, SizedIter, get_integrands, get_likelihoods, get_paths
+from diffenergy.likelihood import Array, ArrayLike, LikelihoodIntegrand
+from scripts.likelihood import MapDataset, SizeWrappedIter, SizedIter, get_integrands, get_likelihoods, get_paths
 
 
 def dockeddatum_to_condition(datum:DockedDatum,device:str|torch.device)->DFMDict:
@@ -77,18 +76,6 @@ def load_samples(data_file, pdb_dir, offset_type: Literal["Translation", "Rotati
     pdb_dir = Path(pdb_dir)
     
     return MapDataset([(i,) for i in range(len(ids))],getpdb)
-
-
-
-    # Convert to tensors
-    samples = torch.tensor(samples, dtype=torch.float32, device=device)[...,None]  # samples as floats, add a dimension to make them vectors
-
-    if batch_size is None:
-        return [(str(int(id.item())),x) for id,x in zip(ids,samples)]
-    else:
-        assert batch_size > 0
-        return [([str(int(id)) for id in ids[i*batch_size:(i+1)*batch_size].tolist()],samples[i*batch_size:(i+1)*batch_size]) 
-                for i in range(math.ceil(len(samples)/batch_size))]
 
 
 @overload

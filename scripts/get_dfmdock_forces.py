@@ -11,14 +11,12 @@ import torch
 from diffenergy.dfmdock_tr.docked_dataset import PDBImporter
 from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
 from diffenergy.dfmdock_tr.score_model import Score_Model
-from scripts.likelihoodv3 import get_paths
+from scripts.likelihood import get_paths
 
-from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
-from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_nd
-from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
-from diffenergy.likelihoodv3 import Array, ArrayLike, LikelihoodIntegrand
-from scripts.likelihoodv3 import MapDataset, SizeWrappedIter, SizedIter, get_integrands, get_likelihoods, get_paths
-from scripts.likelihoodv3_dfmdock import load_samples, load_trajectories, load_trajectory, offset_trajectory_columns
+from diffenergy.helper import diffusion_coeff
+from diffenergy.dfmdock_tr.likelihood_helpers import ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
+from scripts.likelihood import get_paths
+from scripts.likelihood_dfmdock import load_samples, load_trajectories, load_trajectory, offset_trajectory_columns
 
 
 @hydra.main(version_base=None, config_path='../configs/likelihoodv3')
