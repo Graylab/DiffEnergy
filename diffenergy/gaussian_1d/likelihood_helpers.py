@@ -1,10 +1,7 @@
 
+from typing import Optional, TypeVar
 
-import abc
-from typing import Optional, TypeVar, TypedDict
-
-import IPython
-from torch import FloatTensor, Tensor
+from torch import Tensor
 import torch
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.scoremodels import BatchScoreModelEvaluator

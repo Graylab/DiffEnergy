@@ -31,8 +31,7 @@ def sample_random_offset(rec_pos, lig_pos, sigma:float, offset_type:Literal["Tra
         # get trans update: random noise + translate x2 to x1
         restensors.append(torch.normal(0.0, sigma, size=(3,), device=device) + (rec_cen - lig_cen))
     if "Rotation" in offset_type:
-        raise NotImplemented #uhhhhhh
-        restensors.append(matrix_to_axis_angle(torch.from_numpy(Rotation.random().as_matrix()).float().to(device)))
+        raise NotImplemented
     
     return torch.cat(restensors,dim=0);
 

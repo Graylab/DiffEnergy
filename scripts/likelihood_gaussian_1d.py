@@ -1,4 +1,3 @@
-from fileinput import filename
 from io import TextIOWrapper
 import itertools
 from logging import warning
