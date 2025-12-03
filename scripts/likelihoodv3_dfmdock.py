@@ -573,7 +573,7 @@ def write_likelihood_outputs(config:DictConfig,
 
                     if traj_out:
                         for cutoff,file,writer in trajectory_indices:
-                            if cutoff is None or acc_trajnum <= cutoff:
+                            if cutoff is None or acc_trajnum < cutoff:
                                 writer.writerow(traj_out)
                         acc_trajnum += 1
                     
