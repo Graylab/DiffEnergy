@@ -1,4 +1,4 @@
-out_dir: ../sample_results_refactor/trinormal_1d_smax70
+out_dir: ../sample_results/trinormal_1d_smax70
 wt_file: checkpoints/1d_trinormal_smax70.ckpt
 # sample_file: trinormal_1d_smax70.csv
 sample_num: 10000
