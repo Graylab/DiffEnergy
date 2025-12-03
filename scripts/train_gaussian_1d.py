@@ -70,7 +70,7 @@ def main(config: DictConfig):
         raise NotImplementedError("Laplace dataset is not implemented yet.")
     elif tr_data == 'trimodal_gaussian':
         sampler = TrimodalGaussianSampler(mu1=-30, sigma1=8.0, w1=0.4 , mu2=0, sigma2=5.0, w2=0.3, mu3=40, sigma3=10.0, w3=0.3)
-        dataset = TrimodalGaussianDataset(sampler, noise_std=0.1, num_samples=60000)
+        dataset = TrimodalGaussianDataset(sampler, noise_std=sigma_noise, num_samples=60000)
         train_loader = DataLoader(dataset, batch_size = batch_size, shuffle = True, num_workers = num_workers)
 
     tr_type = config.tr_type

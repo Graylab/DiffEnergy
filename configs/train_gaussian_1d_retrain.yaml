@@ -4,6 +4,7 @@ sigma_max: 70
 n_epochs: 100
 batch_size: 32
 num_workers: 4
+sigma_noise: 0.1
 test_size: 0.1
 val_size: 0.2
 tr_data: trimodal_gaussian
