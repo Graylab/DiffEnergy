@@ -26,10 +26,11 @@
 # bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_flow.yaml                 &
 # bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_flow_40.yaml              &
 # bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_diff.yaml                 &
-# bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_diff_trapezoid.yaml                 &
+# bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_diff_trapezoid.yaml       &
+bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_diff_piecewise_ode.yaml   &
 # bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_linearized_flow.yaml      &
 # bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_linearized_diff.yaml      &
-# bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_diff_interp_trapezoid.yaml          &
+# bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_diff_interp_trapezoid.yaml&
 # bash scripts/sbatch_likelihoodv3_template_srun_dfmdock_gpu.sh dfmdock_trtrained_deterministic/3integrand_diff_50interp.yaml        &
 
 #DFMDock_trtrained_deterministic - 2SIC Only
@@ -127,8 +128,8 @@
 # bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh gaussian_1d/3integrand_diff_interp_all.yaml               &
 # bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh gaussian_1d/3integrand_diff_interp_all_trapezoid.yaml     &
 # bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh gaussian_1d/3integrand_diff_interp_all_backwards.yaml      &
-bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh gaussian_1d/3integrand_diff_piecewise_ode_1000.yaml   &
-bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh gaussian_1d/3integrand_diff_piecewise_ode_all.yaml   &
+# bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh gaussian_1d/3integrand_diff_piecewise_ode_1000.yaml   &
+# bash scripts/sbatch_likelihoodv3_template_srun_gpu.sh gaussian_1d/3integrand_diff_piecewise_ode_all.yaml   &
 
 #gaussian - GT
 # bash scripts/sbatch_likelihoodv3_template_srun.sh gaussian_1d/gtscore/flow.yaml                      &
