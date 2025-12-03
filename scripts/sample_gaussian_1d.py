@@ -2,44 +2,18 @@
 
 #Sampling is done using the same mechanism as normal likelihood computation - specifically, using ReverseSDEPath and saving the output
 import functools
-from logging import warning
 import math
-import os
-from pathlib import Path
-import shutil
-from typing import Callable, Iterable, Literal, Sequence
+from typing import Sequence
 import warnings
 import hydra
 from omegaconf import DictConfig, OmegaConf, open_dict
 import torch
 
-# from diffenergy.dfmdock_tr.docked_dataset import PDBImporter
-# from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
 from diffenergy.gaussian_1d.likelihood_helpers import from_array_batch, to_array as to_array_nobatch, from_array as from_array_nobatch, to_array_batch
 from diffenergy.helper import diffusion_coeff
-from scripts.likelihoodv3 import SizeWrappedIter, SizedIter, get_likelihoods, get_paths
-from scripts.likelihoodv3 import MapDataset
-from scripts.likelihoodv3_gaussian_1d import load_model, load_samples, write_likelihood_outputs
-
-
-# def sample_random_offset(rec_pos, lig_pos, sigma:float, offset_type:Literal["Translation", "Rotation", "Translation+Rotation"])->torch.Tensor:
-#     device=rec_pos.device
-
-#     # get center of mass
-#     rec_cen = torch.mean(rec_pos, dim=(0, 1))
-#     lig_cen = torch.mean(lig_pos, dim=(0, 1))
-
-#     # get rotat update: random rotation vector
-#     restensors = []
-    
-#     if "Translation" in offset_type:
-#         # get trans update: random noise + translate x2 to x1
-#         restensors.append(torch.normal(0.0, sigma, size=(1, 3), device=device) + (rec_cen - lig_cen))
-#     if "Rotation" in offset_type:
-#         raise NotImplemented #uhhhhhh
-#         restensors.append(matrix_to_axis_angle(torch.from_numpy(Rotation.random().as_matrix()).float().to(device).unsqueeze(0)))
-    
-#     return torch.cat(restensors,dim=0);
+from scripts.likelihood import SizedIter, get_likelihoods, get_paths
+from scripts.likelihood import MapDataset
+from scripts.likelihood_gaussian_1d import load_model, write_likelihood_outputs
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="sample_gaussian_1d")
@@ -82,10 +56,6 @@ def main(config: DictConfig):
         config.write_samples=True
         config.write_likelihoods=False
         
-        
-
-        
-
     # set device
     device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
 
@@ -113,7 +83,6 @@ def main(config: DictConfig):
 
 
     ## SAMPLE DIFFUSION TRAJECTORIES
-
     def load_noised_samples()->SizedIter[tuple[int|Sequence[int],torch.Tensor,None]]:
         bsize = batch_size or 1
         indices = [(i,) for i in range(math.ceil(config.sample_num//bsize))] #make into tuples grumble
@@ -144,7 +113,6 @@ def main(config: DictConfig):
 
 
     ## COMPUTE "LIKELIHOODS"
-
     likelihoods = get_likelihoods(config,
                                  paths,
                                  [],

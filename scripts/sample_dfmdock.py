@@ -2,11 +2,7 @@
 
 #Sampling is done using the same mechanism as normal likelihood computation - specifically, using ReverseSDEPath and saving the output
 import functools
-from logging import warning
-import os
-from pathlib import Path
-import shutil
-from typing import Callable, Iterable, Literal, Sequence
+from typing import Literal
 import warnings
 import hydra
 from omegaconf import DictConfig, OmegaConf, open_dict
@@ -17,8 +13,8 @@ from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
 from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
 from diffenergy.dfmdock_tr.score_model import Score_Model
 from diffenergy.helper import diffusion_coeff
-from scripts.likelihoodv3 import SizeWrappedIter, SizedIter, get_likelihoods, get_paths, ArrayLike
-from scripts.likelihoodv3_dfmdock import load_samples, write_likelihood_outputs
+from scripts.likelihood import SizeWrappedIter, SizedIter, get_likelihoods, get_paths, ArrayLike
+from scripts.likelihood_dfmdock import load_samples, write_likelihood_outputs
 
 
 def sample_random_offset(rec_pos, lig_pos, sigma:float, offset_type:Literal["Translation", "Rotation", "Translation+Rotation"])->torch.Tensor:
