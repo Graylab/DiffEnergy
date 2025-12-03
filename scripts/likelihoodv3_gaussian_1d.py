@@ -413,7 +413,7 @@ def write_likelihood_outputs(
                     
 
                     for cutoff,file,writer in trajectory_indices:
-                        if cutoff is None or acc_trajnum <= cutoff:
+                        if cutoff is None or acc_trajnum < cutoff:
                             writer.writerow({"index":id,"filename":trajectory_name})
                     acc_trajnum += 1
 
