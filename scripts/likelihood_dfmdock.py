@@ -441,7 +441,7 @@ def write_likelihood_outputs(config:DictConfig,
     likelihoods_writer: Optional[csv.DictWriter] = None
     if write_likelihoods:
         likelihoods_handle = open(likelihoods_file,"w")
-        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
+        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for (name,prior) in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
         likelihoods_writer = csv.DictWriter(likelihoods_handle,fieldnames=fieldnames)
         likelihoods_writer.writeheader()
 

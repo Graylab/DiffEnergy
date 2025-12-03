@@ -1,14 +1,11 @@
 
 
-import abc
-from typing import Generic, Iterable, Literal, Optional, Protocol, Sequence, TypeVar, TypeVarTuple, TypedDict
+from typing import Literal, Optional, TypeVar, TypeVarTuple, TypedDict
 
-import IPython
-from torch import FloatTensor, Tensor
+from torch import Tensor
 import torch
 from diffenergy.dfmdock_tr.score_model import Score_Model
-from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.scoremodels import CachedScoreModelEvaluator, ScoreModelEvaluator
+from diffenergy.scoremodels import CachedScoreModelEvaluator
 
 class DFMDict(TypedDict):
     orig_pdb: str

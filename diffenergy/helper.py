@@ -58,31 +58,6 @@ def int_diffusion_coeff_sq(t, sigma_min, sigma_max):
     int_diff_coeff = var_min * ((var_max / var_min) ** t - 1)
     return int_diff_coeff
 
-
-def prior_dfmdock_tr(batch, sigma):
-    """The likelihood of a Gaussian distribution with mean zero and 
-            standard deviation sigma."""
-    # shape = z.shape
-    # N = np.prod(shape)
-    # return -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - torch.sum(z**2, dim=(0,1,2)) / (2 * sigma**2)
-    lig_pos = batch['sample']
-    rec_pos = batch['rec_pos']
-    com_diff = lig_pos[...,1,:].mean(dim=0) - rec_pos[...,1,:].mean(dim=0)
-    N = com_diff.numel()
-    prior_logp = -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = lig_pos.device)) - torch.sum(com_diff**2) / (2 * sigma**2)
-    return prior_logp, N
-    
-
-def prior_gaussian_1d(batch, sigma):
-    """The likelihood of a Gaussian distribution with mean zero and 
-            standard deviation sigma."""
-    # shape = z.shape
-    # N = np.prod(shape)
-    z = batch['sample']
-    N = z.numel()
-    prior_logp = -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - (z**2) / (2 * sigma**2)
-    return prior_logp, N
-
 def prior_gaussian_nd(x, sigma):
     """The likelihood of a D-dimensional Gaussian distribution with mean zero and 
             uniform standard deviation sigma. Assumes x is a D-dimensional or (*B)xD-dimensional array"""

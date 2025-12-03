@@ -1,8 +1,4 @@
-
-
-from dataclasses import dataclass
-import functools
-from typing import Callable, Optional, TypeVar
+from typing import Optional, TypeVar
 
 from torch import Tensor
 from torch.profiler import record_function
@@ -10,8 +6,6 @@ import torch
 
 from diffenergy.scoremodels import BatchScoreModelEvaluator
 from diffenergy.helper import int_diffusion_coeff_sq
-from diffenergy.scoremodels import ScoreModelEvaluator
-
 
 def batched_normpdf_scalar(dx:Tensor,variances:Tensor): #dx: BxNxD, variances: N, result: BxN
     assert dx.ndim == 3, f"{dx.ndim=}"
