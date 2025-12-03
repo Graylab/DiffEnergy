@@ -532,7 +532,40 @@ class PiecewiseDifferentiableSequence(IntegrablePath[X,C]):
                     yield point
 
 
+#this is kind of strecthing the definition of an integrable 'path' but whatever. The "right" way would be to add a *more* abstract class like
+#AbstractIntegrableObject which just needs a diffintegrate method but I'm not doing that lol.
+class EnsembledIntegrablePath(IntegrablePath[X,C]):
+    def __init__(self, paths:Iterable[IntegrablePath[X,C]], to_arr: Callable[[X], Array], from_arr: Callable[[ArrayLike], X], conditioning: C, method: str, methodargs: dict[str, Any]):
+        #I don't think method or methodargs will be used here but more arguments are always nice. They could hold weighted average information or sometihng
+        super().__init__(to_arr, from_arr, conditioning, method, methodargs)
 
+        #at the moment this class is very dumb, just integrating paths in parallel (then averaging) with no understanding of what they are.
+        #We might later find that it's better to average based on the path (e.g. marginalization by multiplying by relative probability of that path or something)
+        self.paths = paths 
+
+    def diffintegrate(self, *integrands: LikelihoodIntegrand[X, C], accumulate=True) -> tuple[Sequence[X], Sequence[float], list[list[float | Array]]]:
+        xres = []
+        tres = []
+        lres = [[]]*len(integrands)
+
+        for path in self.paths:
+            X,T,L = path.diffintegrate(*integrands,accumulate=accumulate)
+            xres.append(X)
+            tres.append(T)
+            [lres[i].append(L[i]) for i in range(len(L))]
+        
+        xres = [torch.stack(x,dim=0) for x in itertools.zip_longest(*xres,fillvalue=torch.nan)]
+        tres = [torch.stack(t,dim=0) for t in itertools.zip_longest(*tres,fillvalue=torch.nan)]
+        lres = [list(itertools.zip_longest(*res,fillvalue=torch.nan)) for res in lres]
+
+        return xres,tres,lres #idk maybe it works
+    
+    #again this should maybe be just an integrable class not an integrable path but w/e
+    def __iter__(self) -> Iterator[tuple[X, float]]:
+        raise ValueError()
+    
+    def __len__(self) -> int:
+        raise ValueError()
 
 class UniformODEIntegrablePath(ODEIntegrablePath[X,C]):
     def dt(self, i: float, x: X, t: float) -> float:
@@ -637,7 +670,11 @@ def tensorify(lst,device=None,dtype=None):
         elif type(lst[0]) == torch.Tensor:
             return torch.stack(lst, dim=0)
         else:  # if the elements of lst are floats or something like that
-            return torch.as_tensor(lst,dtype=dtype,device=device)
+            try:
+                return torch.as_tensor(lst,dtype=dtype,device=device)
+            except ValueError:
+                print(lst[0])
+                raise 
     current_dimension_i = len(lst)
     for d_i in range(current_dimension_i):
         tensor = tensorify(lst[d_i])
@@ -647,7 +684,7 @@ def tensorify(lst,device=None,dtype=None):
     return tensor_lst
 
 _I = TypeVar("_I") # id type
-def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True)->tuple[_I,Sequence[X],Sequence[float],C,dict[str,np.ndarray]]:
+def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True)->tuple[_I,Sequence[X],Sequence[float],C,dict[str,list[np.ndarray]]]:
 
     with torch.profiler.record_function("Likelihood Integration"):
         if method == 'diff':
@@ -657,7 +694,7 @@ def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],
                 raise ValueError(f"Path {path} is not ODEIntegrable! Please use an ODEIntegrable path or set the integral_type to 'diff' to use the path in euclidean mode");
             trajectory, times, deltas = path.odeintegrate(*integrands,accumulate=accumulate)
     ##Since we assume the path goes from unknown to known, we negate the delta. The last data point is the accumulated integrand (but we pass the whole thing as output so we can save it)
-    integrand_results:dict[str,np.ndarray] = {integrand.name(): (-tensorify(delta,device='cpu').detach().cpu().numpy()) for integrand,delta in zip(integrands,deltas)}
+    integrand_results:dict[str,list[np.ndarray]] = {integrand.name(): ([-tensorify(delta[i],device='cpu').detach().cpu().numpy() for i in range(len(delta))]) for integrand,delta in zip(integrands,deltas)}
     # prior_endpoint:tuple[X,float] = trajectory[-1]
     # prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in prior_fns}
 
