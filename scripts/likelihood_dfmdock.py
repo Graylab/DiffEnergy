@@ -492,7 +492,6 @@ def write_likelihood_outputs(config:DictConfig,
 
     ## WRITE OUTPUT
     try:
-        i = 0
         for ids,trajectories,times,conditions,integrand_resultss in likelihoods:
             with torch.profiler.record_function("Writing Likelihoods"):
                 ##Calculate priors
@@ -508,20 +507,7 @@ def write_likelihood_outputs(config:DictConfig,
                     integrand_resultss = [integrand_resultss]
                     prior_resultss = [prior_result]
                 else:
-                    raise ValueError()
-                    batch = len(prior_eval_endpoint[0]) #size of this batch, could be smaller than batch_size if last batch
-                    ids: Iterable[str] = ids
-                    trajectories = torch.stack(trajectories,dim=1) #put time-axis in dimension 1 so we can iterate over the batch dimension
-                    assert trajectories.ndim == 3 #BxNxD
-                    times = itertools.repeat(times)
-                    integrand_resultss = [
-                        {name:np.array(result)[i] for name,result in integrand_resultss.items()}
-                        for i in range(batch)
-                    ]
-                    prior_resultss = [
-                        {name:np.array(result)[i] for name,result in prior_result.items()}
-                        for i in range(batch)
-                    ]
+                    raise ValueError("Batching not supported for DFMDock")
 
                 for id, trajectory, time, integrand_results, prior_results \
                     in zip(ids, trajectories, times, integrand_resultss, prior_resultss):
@@ -563,10 +549,6 @@ def write_likelihood_outputs(config:DictConfig,
                             if cutoff is None or acc_trajnum < cutoff:
                                 writer.writerow(traj_out)
                         acc_trajnum += 1
-                    
-                    # i += 1
-                    # if i == 5:
-                    #     return
 
 
     finally:

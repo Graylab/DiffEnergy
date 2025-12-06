@@ -86,7 +86,6 @@ def main(config: DictConfig):
     
         
     
-
     # set device
     device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
 
@@ -124,7 +123,6 @@ def main(config: DictConfig):
         diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.get("clamp_diffusion_coefficient",False))
 
 
-
     assert batch_size is None
     def load_noised_samples()->SizedIter[tuple[str,LigDict,DFMDict]]:
         dataset = load_samples(config.data_samples, config.pdb_dir, offset_type, pdb_importer, batch_size=batch_size, device=device)
@@ -137,7 +135,6 @@ def main(config: DictConfig):
         
         samples_each = config.samples_per_pdb
         return SizeWrappedIter((get_noised_sample(f"{id}_{i}",lig,cond) for (id,lig,cond) in dataset for i in range(samples_each)),samples_each*len(dataset))
-
 
     def err(*args): raise ValueError()
     load_trajectories_fn = err

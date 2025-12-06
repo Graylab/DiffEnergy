@@ -52,8 +52,8 @@ def main(config:DictConfig):
 
     model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_eval",False),manual_seed=config.get("seed",0))
     
-    scorefn = model_eval.score# if not batched else model_eval.batch_score
-    divergencefn = model_eval.divergence# if not batched else model_eval.batch_divergence
+    scorefn = model_eval.score
+    divergencefn = model_eval.divergence
 
     esm_model = ESMLanguageModel()
     pdb_importer = PDBImporter(esm_model,esm_model.alphabet)
