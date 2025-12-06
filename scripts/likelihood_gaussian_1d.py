@@ -309,7 +309,7 @@ def write_likelihood_outputs(
     likelihoods_writer: Optional[csv.DictWriter] = None
     if write_likelihoods:
         likelihoods_handle = open(likelihoods_file,"w")
-        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
+        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for (name,prior) in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
         likelihoods_writer = csv.DictWriter(likelihoods_handle,fieldnames=fieldnames)
         likelihoods_writer.writeheader()
 
@@ -332,7 +332,7 @@ def write_likelihood_outputs(
     trajectory_indices: list[tuple[int|None,TextIOWrapper,csv.DictWriter]] = [] #a little silly lol
     acc_trajnum = 0
     save_trajectories = config.get("save_trajectories",False)
-    save_trajectory_index = config.get("write_trajectory_index",False) and save_trajectories
+    save_trajectory_index = config.get("write_trajectory_index",True) and save_trajectories
     if save_trajectories:
         try:
             next(trajectory_folder.glob("*")) #if any files in directory, clear directory

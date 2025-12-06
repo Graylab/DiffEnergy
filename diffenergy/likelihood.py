@@ -694,8 +694,6 @@ def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],
             trajectory, times, deltas = path.odeintegrate(*integrands,accumulate=accumulate)
     ##Since we assume the path goes from unknown to known, we negate the delta. The last data point is the accumulated integrand (but we pass the whole thing as output so we can save it)
     integrand_results:dict[str,list[np.ndarray]] = {integrand.name(): ([-tensorify(delta[i],device='cpu').detach().cpu().numpy() for i in range(len(delta))]) for integrand,delta in zip(integrands,deltas)}
-    # prior_endpoint:tuple[X,float] = trajectory[-1]
-    # prior_results:dict[str,float|ArrayLike] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in prior_fns}
 
     return (id, trajectory, times, path.condition, integrand_results)
 
@@ -704,39 +702,3 @@ def run_diff_likelihood(id:_I,path:IntegrablePath[X,C],integrands:Sequence[Likel
 
 def run_ode_likelihood(id:_I,path:ODEIntegrablePath[X,C],integrands:Sequence[ODELikelihoodIntegrand[X,C]],accumulate:bool=True):
     return _run_likelihood('ode',id,path,integrands,accumulate=accumulate)
-
-# try:
-#     from ray.util.joblib import register_ray
-#     from ray.util.joblib.ray_backend import RayBackend
-#     RayBackend.supports_return_generator = True
-#     register_ray()
-# except ImportError:
-#     pass
-
-# # Parallelism with joblib, w/ ray for keeping things in the cluster. remote_kwargs are passed to each actor and can specify resource requirements;
-# # set the ray cluster args to impose limits on the cluster based on the slurm spec.
-# _T = TypeVarTuple("_T")
-# _R = TypeVar("_R")
-# def istarmap_joblib(func:Callable[[*_T],_R],starargs:Iterable[tuple[*_T]],parallel:bool,remote_kwargs:dict):
-#     if parallel:
-#         from joblib import Parallel, delayed, parallel_backend
-#         with parallel_backend("ray",ray_remote_args=remote_kwargs):
-#             print("pre-parallel")
-#             res:Iterable[_R] = Parallel(return_as="generator")(delayed(func)(*args) for args in starargs)
-#             print("post-parallel")
-#             print(res,type(res))
-#             yield from res
-#     else:
-#         yield from (func(*args) for args in starargs)
-
-
-def run_diff_likelihoods(paths:Iterable[tuple[_I,IntegrablePath[X,C]]],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True,parallel=False,remote_kwargs={}):
-    if parallel: raise NotImplemented
-    yield from (run_diff_likelihood(id,path,integrands,accumulate=accumulate) for id,path in paths)
-    # yield from istarmap_joblib(run_diff_likelihood,((id,path,integrands) for id,path in paths),parallel,remote_kwargs)
-
-def run_ode_likelihoods(paths:Iterable[tuple[_I,ODEIntegrablePath[X,C]]],integrands:Sequence[ODELikelihoodIntegrand[X,C]],accumulate:bool=True,parallel=False,remote_kwargs={}):
-    if parallel: raise NotImplemented
-    yield from (run_ode_likelihood(id,path,integrands,accumulate=accumulate) for id,path in paths)
-    # yield from istarmap_joblib(run_ode_likelihood,((id,path,integrands) for id,path in paths),parallel,remote_kwargs)
-
