@@ -112,10 +112,10 @@ def main(config: DictConfig):
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
 
-    model_eval = load_model(config,sigma_min,sigma_max,device)
+    model_eval = load_model(config,sigma_min,sigma_max,batched,device)
     
-    scorefn = model_eval.score if not batched else model_eval.batch_score
-    divergencefn = model_eval.divergence if not batched else model_eval.batch_divergence
+    scorefn = model_eval.score
+    divergencefn = model_eval.divergence
 
     load_samples_fn = lambda: load_samples(config.data_samples, batch_size=batch_size, device=device)
     load_trajectories_fn = lambda: load_trajectories(config.trajectory_index_file,batch_size=batch_size)
@@ -167,6 +167,7 @@ def main(config: DictConfig):
 def load_model(config:DictConfig,
                sigma_min:float,
                sigma_max:float,
+               batched:bool,
                device:torch.device):
     # set marginal probability distribution and diffusion coefficient distribution
     marginal_prob_std_fn = functools.partial(
@@ -185,20 +186,21 @@ def load_model(config:DictConfig,
     if tr_type == 'non_conservative':
         score_model = ScoreNetMLP(
             input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
-        print("wow")
         score_model.load_state_dict(ckpt)
-        model_eval = ModelEval(score_model)
+        
+        model_eval = ModelEval(score_model,batched=batched)
     elif tr_type == 'conservative':
         score_model = NegativeGradientMLP(
             input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
         score_model.load_state_dict(ckpt)
-        model_eval = ModelEval(score_model)
+
+        model_eval = ModelEval(score_model,batched=batched)
     elif tr_type == 'ground_truth':
         means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float)
         variances = torch.tensor([8.0,5.0,10.0])**2
         weights = torch.tensor([0.4,0.3,0.3])
 
-        model_eval = MultimodalGaussianGroundTruthScoreModel(means,variances,weights,sigma_min,sigma_max)
+        model_eval = MultimodalGaussianGroundTruthScoreModel(means,variances,weights,sigma_min,sigma_max,batched=batched)
         model_eval.to(device)
     else:
         raise ValueError(tr_type)
