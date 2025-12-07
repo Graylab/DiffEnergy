@@ -1,6 +1,5 @@
 from io import TextIOWrapper
 import itertools
-from logging import warning
 import math
 import os
 from pathlib import Path
@@ -8,6 +7,7 @@ import csv
 import functools
 import shutil
 from typing import Callable, Iterable, Mapping, Optional, Sequence, overload
+import warnings
 
 import numpy as np
 
@@ -291,7 +291,7 @@ def write_likelihood_outputs(
             raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
         else:
             backup_out = out_dir.with_stem(out_dir.stem + "_backup")
-            warning(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
+            warnings.warn(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
             if backup_out.exists():
                 shutil.rmtree(backup_out)
             os.rename(out_dir,backup_out)
