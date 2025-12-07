@@ -683,7 +683,7 @@ def tensorify(lst,device=None,dtype=None):
     return tensor_lst
 
 _I = TypeVar("_I") # id type
-def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True)->tuple[_I,Sequence[X],Sequence[float],C,dict[str,list[np.ndarray]]]:
+def _run_likelihood(method:Literal['diff','ode'],path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True)->tuple[Sequence[X],Sequence[float],dict[str,list[np.ndarray]]]:
 
     with torch.profiler.record_function("Likelihood Integration"):
         if method == 'diff':
@@ -695,10 +695,10 @@ def _run_likelihood(method:Literal['diff','ode'],id:_I,path:IntegrablePath[X,C],
     ##Since we assume the path goes from unknown to known, we negate the delta. The last data point is the accumulated integrand (but we pass the whole thing as output so we can save it)
     integrand_results:dict[str,list[np.ndarray]] = {integrand.name(): ([-tensorify(delta[i],device='cpu').detach().cpu().numpy() for i in range(len(delta))]) for integrand,delta in zip(integrands,deltas)}
 
-    return (id, trajectory, times, path.condition, integrand_results)
+    return (trajectory, times, integrand_results)
 
-def run_diff_likelihood(id:_I,path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True):
-    return _run_likelihood('diff',id,path,integrands,accumulate=accumulate)
+def run_diff_likelihood(path:IntegrablePath[X,C],integrands:Sequence[LikelihoodIntegrand[X,C]],accumulate:bool=True):
+    return _run_likelihood('diff',path,integrands,accumulate=accumulate)
 
-def run_ode_likelihood(id:_I,path:ODEIntegrablePath[X,C],integrands:Sequence[ODELikelihoodIntegrand[X,C]],accumulate:bool=True):
-    return _run_likelihood('ode',id,path,integrands,accumulate=accumulate)
+def run_ode_likelihood(path:ODEIntegrablePath[X,C],integrands:Sequence[ODELikelihoodIntegrand[X,C]],accumulate:bool=True):
+    return _run_likelihood('ode',path,integrands,accumulate=accumulate)
