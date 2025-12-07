@@ -453,9 +453,6 @@ def write_likelihood_outputs(config:DictConfig,
     samples_handle: Optional[TextIOWrapper] = None
     samples_writer: Optional[csv.DictWriter] = None
 
-    samples_pdb_folder = out_dir/"pdb"
-    samples_save_pdb = config.get("write_sample_save_pdb",False)
-
     if write_samples:
         samples_handle = open(samples_file,"w")
         fieldnames = ["index","Filename"]
@@ -463,9 +460,6 @@ def write_likelihood_outputs(config:DictConfig,
             fieldnames += offset_trajectory_columns(offset_type)
         samples_writer = csv.DictWriter(samples_handle,fieldnames=fieldnames) #TODO: regularize capitalization aaaa
         samples_writer.writeheader()
-
-        if samples_save_pdb:
-            samples_pdb_folder.mkdir(exist_ok=True)
 
     ## WRITE TRAJECTORIES PREP
     trajectory_folder = out_dir/"trajectories"
