@@ -41,10 +41,9 @@ def main(config: DictConfig):
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
     marginal_prob_std_fn = functools.partial(marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
-    # diffusion_coeff_fn = functools.partial(diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max)
 
     # noise
-    sigma_noise = config.sigma_noise
+    sigma_noise = config.get("sigma_noise",0) #added noise to the original training distribution. You probably just want to leave this as zero.
     # number of epochs
     n_epochs = config.n_epochs
     # size of a mini-batch
