@@ -85,10 +85,10 @@ def main(config: DictConfig):
     sigma_max = config.sigma_max
 
     # set models
-    model_eval = load_model(config,sigma_min,sigma_max,device);
+    model_eval = load_model(config,sigma_min,sigma_max,batched,device);
     
-    scorefn = model_eval.score if not batched else model_eval.batch_score
-    divergencefn = model_eval.divergence if not batched else model_eval.batch_divergence
+    scorefn = model_eval.score
+    divergencefn = model_eval.divergence
 
     diffusion_coeff_fn = functools.partial(
         diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = config.get("clamp_diffusion_coefficient",False))
