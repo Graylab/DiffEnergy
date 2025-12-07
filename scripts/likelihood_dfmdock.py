@@ -1,18 +1,15 @@
 from io import TextIOWrapper
 import itertools
-from logging import warning
-import logging
 import math
 import os
 from pathlib import Path
 import csv
 import functools
 import shutil
-from typing import Any, Callable, Collection, Iterable, Literal, Mapping, Optional, ParamSpec, Protocol, Sequence, Sized, TypeVar, TypeVarTuple, overload, override
+from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence, overload
 import warnings
 
 import numpy as np
-from tqdm import tqdm
 from diffenergy.dfmdock_tr.docked_dataset import DockedDatum, PDBImporter
 from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
 from diffenergy.dfmdock_tr.score_model import Score_Model
@@ -24,10 +21,10 @@ import hydra
 
 from diffenergy.dfmdock_tr.utils.biotite_utils import get_offset_pdb,save_structure
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords
-from diffenergy.helper import int_diffusion_coeff_sq, marginal_prob_std, diffusion_coeff, prior_gaussian_nd
+from diffenergy.helper import int_diffusion_coeff_sq, diffusion_coeff, prior_gaussian_nd
 from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
-from diffenergy.likelihoodv3 import Array, ArrayLike, LikelihoodIntegrand
-from scripts.likelihoodv3 import MapDataset, SizeWrappedIter, SizedIter, get_integrands, get_likelihoods, get_paths
+from diffenergy.likelihood import Array, ArrayLike, LikelihoodIntegrand
+from scripts.likelihood import MapDataset, SizeWrappedIter, SizedIter, get_integrands, get_likelihoods, get_paths
 
 
 def dockeddatum_to_condition(datum:DockedDatum,device:str|torch.device)->DFMDict:
@@ -77,18 +74,6 @@ def load_samples(data_file, pdb_dir, offset_type: Literal["Translation", "Rotati
     pdb_dir = Path(pdb_dir)
     
     return MapDataset([(i,) for i in range(len(ids))],getpdb)
-
-
-
-    # Convert to tensors
-    samples = torch.tensor(samples, dtype=torch.float32, device=device)[...,None]  # samples as floats, add a dimension to make them vectors
-
-    if batch_size is None:
-        return [(str(int(id.item())),x) for id,x in zip(ids,samples)]
-    else:
-        assert batch_size > 0
-        return [([str(int(id)) for id in ids[i*batch_size:(i+1)*batch_size].tolist()],samples[i*batch_size:(i+1)*batch_size]) 
-                for i in range(math.ceil(len(samples)/batch_size))]
 
 
 @overload
@@ -436,7 +421,7 @@ def write_likelihood_outputs(config:DictConfig,
             raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
         else:
             backup_out = out_dir.with_stem(out_dir.stem + "_backup")
-            warning(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
+            warnings.warn(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
             if backup_out.exists():
                 shutil.rmtree(backup_out)
             os.rename(out_dir,backup_out)
@@ -454,7 +439,7 @@ def write_likelihood_outputs(config:DictConfig,
     likelihoods_writer: Optional[csv.DictWriter] = None
     if write_likelihoods:
         likelihoods_handle = open(likelihoods_file,"w")
-        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name,prior in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
+        fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for (name,prior) in priors] + [f"integrand:{integrand.name()}" for integrand in integrands]
         likelihoods_writer = csv.DictWriter(likelihoods_handle,fieldnames=fieldnames)
         likelihoods_writer.writeheader()
 
@@ -505,81 +490,51 @@ def write_likelihood_outputs(config:DictConfig,
 
     ## WRITE OUTPUT
     try:
-        i = 0
-        for ids,trajectories,times,conditions,integrand_resultss in likelihoods:
+        for id,trajectory,time,condition,integrand_results in likelihoods:
             with torch.profiler.record_function("Writing Likelihoods"):
                 ##Calculate priors
-                prior_eval_endpoint:tuple[LigDict,float,DFMDict] = (trajectories[-1], times[-1], conditions)
+                prior_eval_endpoint:tuple[LigDict,float,DFMDict] = (trajectory[-1], time[-1], condition)
 
-                prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_eval_endpoint))) for name,prior_fn in priors}
+                prior_results:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_eval_endpoint))) for name,prior_fn in priors}
 
-                ## Unbatch results for writing
-                if not batched:
-                    ids:Iterable[str] = [ids]
-                    trajectories = [trajectories]
-                    times = [times]
-                    integrand_resultss = [integrand_resultss]
-                    prior_resultss = [prior_result]
-                else:
-                    raise ValueError()
-                    batch = len(prior_eval_endpoint[0]) #size of this batch, could be smaller than batch_size if last batch
-                    ids: Iterable[str] = ids
-                    trajectories = torch.stack(trajectories,dim=1) #put time-axis in dimension 1 so we can iterate over the batch dimension
-                    assert trajectories.ndim == 3 #BxNxD
-                    times = itertools.repeat(times)
-                    integrand_resultss = [
-                        {name:np.array(result)[i] for name,result in integrand_resultss.items()}
-                        for i in range(batch)
-                    ]
-                    prior_resultss = [
-                        {name:np.array(result)[i] for name,result in prior_result.items()}
-                        for i in range(batch)
-                    ]
+                prior_endpoint:tuple[LigDict,float] = (trajectory[-1], time[-1])
+                assert isinstance(id,str),id
 
-                for id, trajectory, time, integrand_results, prior_results \
-                    in zip(ids, trajectories, times, integrand_resultss, prior_resultss):
-                    prior_endpoint:tuple[LigDict,float] = (trajectory[-1], time[-1])
-                    assert isinstance(id,str),id
+                if write_likelihoods:
+                    row = {"id":id,
+                        "prior_position":to_array_nobatch(prior_endpoint[0]).tolist(),
+                            "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
+                            **{f"prior:{name}":val for name,val in prior_results.items()},
+                            **{f"integrand:{name}":val[-1] for name,val in integrand_results.items()}} #write last accumulated likelihood
+                    likelihoods_writer.writerow(row)
 
-                    if write_likelihoods:
-                        row = {"id":id,
-                            "prior_position":to_array_nobatch(prior_endpoint[0]).tolist(),
-                                "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
-                                **{f"prior:{name}":val for name,val in prior_results.items()},
-                                **{f"integrand:{name}":val[-1] for name,val in integrand_results.items()}} #write last accumulated likelihood
-                        likelihoods_writer.writerow(row)
+                sample_out, traj_out = write_dfmdock_samples(
+                    trajectory_folder,
+                    pdb_folder,
+                    id,
+                    trajectory,
+                    time,
+                    condition,
+                    offset_type,
+                    write_samples,
+                    save_trajectories,
+                    integrand_results=integrand_results if config.get("save_trajectory_likelihoods") else None,
+                    save_pdb_references=config.get("save_pdb_references",False),
+                    pdb_reference_point=config.get("pdb_reference_point",None),
+                    sample_save_point=config.get("sample_save_point","end"),
+                    sample_save_type=config.get("sample_save_type","offset"),
+                    force_copy_duplicate_sample=config.get("force_copy_duplicate_sample",False),
+                    trajectory_save_type=config.get("trajectory_save_type","offset"),
+                )
 
-                    sample_out, traj_out = write_dfmdock_samples(
-                        trajectory_folder,
-                        pdb_folder,
-                        id,
-                        trajectory,
-                        time,
-                        conditions,
-                        offset_type,
-                        write_samples,
-                        save_trajectories,
-                        integrand_results=integrand_results if config.get("save_trajectory_likelihoods") else None,
-                        save_pdb_references=config.get("save_pdb_references",False),
-                        pdb_reference_point=config.get("pdb_reference_point",None),
-                        sample_save_point=config.get("sample_save_point","end"),
-                        sample_save_type=config.get("sample_save_type","offset"),
-                        force_copy_duplicate_sample=config.get("force_copy_duplicate_sample",False),
-                        trajectory_save_type=config.get("trajectory_save_type","offset"),
-                    )
+                if sample_out:
+                    samples_writer.writerow(sample_out)
 
-                    if sample_out:
-                        samples_writer.writerow(sample_out)
-
-                    if traj_out:
-                        for cutoff,file,writer in trajectory_indices:
-                            if cutoff is None or acc_trajnum < cutoff:
-                                writer.writerow(traj_out)
-                        acc_trajnum += 1
-                    
-                    # i += 1
-                    # if i == 5:
-                    #     return
+                if traj_out:
+                    for cutoff,file,writer in trajectory_indices:
+                        if cutoff is None or acc_trajnum < cutoff:
+                            writer.writerow(traj_out)
+                    acc_trajnum += 1
 
 
     finally:

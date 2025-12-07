@@ -1,46 +1,32 @@
 
 
 #Sampling is done using the same mechanism as normal likelihood computation - specifically, using ReverseSDEPath and saving the output
+import csv
 import functools
-from logging import warning
+from io import TextIOWrapper
+import itertools
 import math
 import os
 from pathlib import Path
 import shutil
-from typing import Callable, Iterable, Literal, Sequence
+from typing import Iterable, Optional, Sequence, TypeVar
 import warnings
 import hydra
 from omegaconf import DictConfig, OmegaConf, open_dict
+import pandas as pd
 import torch
 
-# from diffenergy.dfmdock_tr.docked_dataset import PDBImporter
-# from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
 from diffenergy.gaussian_1d.likelihood_helpers import from_array_batch, to_array as to_array_nobatch, from_array as from_array_nobatch, to_array_batch
 from diffenergy.helper import diffusion_coeff
-from scripts.likelihoodv3 import SizeWrappedIter, SizedIter, get_likelihoods, get_paths
-from scripts.likelihoodv3 import MapDataset
-from scripts.likelihoodv3_gaussian_1d import load_model, load_samples, write_likelihood_outputs
+from scripts.likelihood import SizedIter, get_likelihoods, get_paths
+from scripts.likelihood import MapDataset
+from scripts.likelihood_gaussian_1d import load_model, write_likelihood_outputs
 
-
-# def sample_random_offset(rec_pos, lig_pos, sigma:float, offset_type:Literal["Translation", "Rotation", "Translation+Rotation"])->torch.Tensor:
-#     device=rec_pos.device
-
-#     # get center of mass
-#     rec_cen = torch.mean(rec_pos, dim=(0, 1))
-#     lig_cen = torch.mean(lig_pos, dim=(0, 1))
-
-#     # get rotat update: random rotation vector
-#     restensors = []
-    
-#     if "Translation" in offset_type:
-#         # get trans update: random noise + translate x2 to x1
-#         restensors.append(torch.normal(0.0, sigma, size=(1, 3), device=device) + (rec_cen - lig_cen))
-#     if "Rotation" in offset_type:
-#         raise NotImplemented #uhhhhhh
-#         restensors.append(matrix_to_axis_angle(torch.from_numpy(Rotation.random().as_matrix()).float().to(device).unsqueeze(0)))
-    
-#     return torch.cat(restensors,dim=0);
-
+X = TypeVar('X')
+Y = TypeVar('Y')
+def unzip(it:Iterable[tuple[X,Y]])->tuple[list[X],list[Y]]:
+    x,y = zip(*it)
+    return list(x),list(y)
 
 @hydra.main(version_base=None, config_path="../configs", config_name="sample_gaussian_1d")
 def main(config: DictConfig):
@@ -82,10 +68,6 @@ def main(config: DictConfig):
         config.write_samples=True
         config.write_likelihoods=False
         
-        
-
-        
-
     # set device
     device = torch.device(config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
 
@@ -113,7 +95,6 @@ def main(config: DictConfig):
 
 
     ## SAMPLE DIFFUSION TRAJECTORIES
-
     def load_noised_samples()->SizedIter[tuple[int|Sequence[int],torch.Tensor,None]]:
         bsize = batch_size or 1
         indices = [(i,) for i in range(math.ceil(config.sample_num//bsize))] #make into tuples grumble
@@ -141,21 +122,107 @@ def main(config: DictConfig):
                       load_trajectories_fn,
                       get_trajectory_fn,
                       device)
-
-
-    ## COMPUTE "LIKELIHOODS"
-
-    likelihoods = get_likelihoods(config,
-                                 paths,
-                                 [],
-                                 device)
     
-    write_likelihood_outputs(config,
-                             likelihoods,
-                             [],
-                             [],
-                             batch_size)
+    ### WRITE OUTPUT
+    out_dir = Path(config.out_dir)
     
+    if out_dir.exists():
+        if not config.get("overwrite_output",False):
+            raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
+        else:
+            backup_out = out_dir.with_stem(out_dir.stem + "_backup")
+            warnings.warn(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
+            if backup_out.exists():
+                shutil.rmtree(backup_out)
+            os.rename(out_dir,backup_out)
+    out_dir.mkdir(parents=True,exist_ok=True)
+
+    ## WRITE CONFIG
+    config_copy = out_dir/"config.yaml"
+    with open(config_copy,"w") as f:
+        f.write(OmegaConf.to_yaml(config))
+    
+    ## WRITE SAMPLES PREP
+    samples_file = out_dir/"samples.csv"
+    write_samples = config.get("write_samples",False)
+    samples_handle: Optional[TextIOWrapper] = None
+    samples_writer: Optional[csv.DictWriter] = None
+
+    if write_samples:
+        samples_handle = open(samples_file,"w")
+        fieldnames = ["index","Samples"]
+        samples_writer = csv.DictWriter(samples_handle,fieldnames=fieldnames) #TODO: regularize capitalization aaaa
+        samples_writer.writeheader()
+
+
+
+    ## WRITE TRAJECTORIES PREP
+    trajectory_folder = out_dir/"trajectories"
+    trajectory_indices: list[tuple[int|None,TextIOWrapper,csv.DictWriter]] = [] #a little silly lol
+    acc_trajnum = 0
+    save_trajectories = config.get("save_trajectories",False)
+    save_trajectory_index = config.get("write_trajectory_index",True) and save_trajectories
+    if save_trajectories:
+        try:
+            next(trajectory_folder.glob("*")) #if any files in directory, clear directory
+            shutil.rmtree(trajectory_folder)
+        except StopIteration:
+            pass
+        trajectory_folder.mkdir(exist_ok=True)
+    if save_trajectory_index:
+        indices: list[tuple[int|None,TextIOWrapper]] = [(None,open(trajectory_folder/"trajectory_index.csv","w"))]
+        if (extra := config.get("trajectory_extra_indices",None)):
+            indices += [(ind,open(trajectory_folder/f"trajectory_index_{ind}.csv","w")) for ind in extra]
+        trajectory_indices = [(ind,f,csv.DictWriter(f,fieldnames=["index","filename"])) for (ind,f) in indices]
+        [index[2].writeheader() for index in trajectory_indices]
+    
+
+    ## WRITE OUTPUT
+    try:
+        for (ids,path) in paths:
+            
+            #potentially batched
+            trajectories, times = unzip(path)
+
+            ## Unbatch results for writing
+            #since trajectories are in 'array' form they always have a batch dimension
+            trajectories = torch.stack(trajectories,dim=1) #put time-axis in dimension 1 so we can iterate over the batch dimension
+            assert trajectories.ndim == 3 #BxNxD
+            if not batched:
+                ids:Iterable[str|int] = [ids]
+                times = [times]
+            else:
+                ids: Iterable[str|int] = ids
+                times = itertools.repeat(times)
+
+            for id, trajectory, time in zip(ids, trajectories, times):
+                if write_samples:
+                    #TODO: CONFIGURATION FOR WHICH POINT TO SAVE
+                    sample = {"index":id,"Samples":trajectory[-1].item()}
+                    samples_writer.writerow(sample)
+
+                if save_trajectories: #save trajectory to folder
+                    trajectory_name = f"trajectory_{id}.csv"
+                    trajectory_file = trajectory_folder/f"trajectory_{id}.csv"
+                    xtraj = torch.as_tensor(trajectory).numpy(force=True)
+                    assert xtraj.ndim == 2
+                    assert xtraj.shape[1] == 1
+                    xtraj = xtraj[:,0] #1d position into scalar
+                    ttraj = torch.as_tensor(time).numpy(force=True)
+                    trajectory_df = pd.DataFrame({"Timestep":ttraj,"Sample":xtraj})
+                    trajectory_df.to_csv(trajectory_file,index_label="index")
+                    
+
+                    for cutoff,file,writer in trajectory_indices:
+                        if cutoff is None or acc_trajnum < cutoff:
+                            writer.writerow({"index":id,"filename":trajectory_name})
+                    acc_trajnum += 1
+    finally:
+        #make sure the files are closed!!!
+        if samples_handle is not None:
+            samples_handle.close()
+        for cutoff,file,writer in trajectory_indices:
+            file.close()
 
 if __name__ == '__main__':
     main()

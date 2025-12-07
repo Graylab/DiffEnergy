@@ -1,6 +1,5 @@
 from pathlib import Path
-from typing import Iterable
-from biotite.structure.io.general import load_structure, save_structure
+from biotite.structure.io.general import load_structure
 from biotite.structure import AtomArray, get_chains
 try:
     from biotite.structure import filter_peptide_backbone

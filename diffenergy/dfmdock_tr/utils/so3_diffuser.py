@@ -208,7 +208,7 @@ class SO3Diffuser:
         return np.digitize(sigma, self.discrete_sigma) - 1
 
     def sigma(self, t: np.ndarray):
-        """Extract \sigma(t) corresponding to chosen sigma schedule."""
+        r"""Extract \sigma(t) corresponding to chosen sigma schedule."""
         if np.any(t < 0) or np.any(t > 1):
             raise ValueError(f'Invalid t={t}')
         if self.schedule == 'logarithmic':

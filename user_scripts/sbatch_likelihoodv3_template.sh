@@ -10,5 +10,5 @@ sbatch <<EOT
 module load anaconda
 conda activate diffenergy
 
-python scripts/likelihoodv3_gaussian_1d.py --config-name=$1
+python scripts/likelihood_gaussian_1d.py --config-name=$1
 EOT
