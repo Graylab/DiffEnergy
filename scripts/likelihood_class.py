@@ -7,14 +7,21 @@ from io import TextIOWrapper
 import os
 from pathlib import Path
 import shutil
-from typing import Iterable, Optional
+from typing import Generator, Generic, Iterable, Optional, Sequence, TypeVar
 from functools import cached_property
 import warnings
 
+import numpy as np
 from omegaconf import DictConfig
+import torch
+
+from diffenergy.likelihood import IntegrablePath, LikelihoodIntegrand, run_diff_likelihood, run_ode_likelihood
 
 
-class DiffEnergyLikelihood(abc.ABC):
+X = TypeVar("X") #data type of point
+C = TypeVar("C") #data type of diffusion conditioning
+I = TypeVar("I") #id. #TODO: is this really necessary... 
+class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
     def __init__(self,config:DictConfig) -> None:
         self.config = config
         self._out_dir = None
@@ -49,16 +56,18 @@ class DiffEnergyLikelihood(abc.ABC):
         if not self._out_dir:
             raise ValueError(f"Output directory not initialized! Please call initialize_out_dir() before using {type(self).__name__}.out_dir")
         return self._out_dir
-        
+    
+    @property
+    def out_likelihoods_file(self):
+        return self.out_dir/"likelihood.csv"
+    
     @contextmanager
-    def likelihoods_writer(self,prior_names:Iterable[str]=[],integrand_names:Iterable[str]=[],extra_fieldnames:Iterable[str]=[]):
+    def likelihoods_writer(self,write_likelihoods:bool,prior_names:Iterable[str]=[],integrand_names:Iterable[str]=[],extra_fieldnames:Iterable[str]=[]):
         ## WRITE LIKELIHOODS PREP
-        likelihoods_file = self.out_dir/"likelihood.csv"
-        write_likelihoods = self.config.get("write_likelihoods",True)
         likelihoods_handle: Optional[TextIOWrapper] = None
-        likelihoods_writer: Optional[csv.DictWriter] = None
+        likelihoods_writer = None
         if write_likelihoods:
-            with open(likelihoods_file,"w") as likelihoods_handle:
+            with open(self.out_likelihoods_file,"w") as likelihoods_handle:
                 fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name in prior_names] + [f"integrand:{name}" for name in integrand_names]
                 fieldnames.extend(extra_fieldnames)
                 likelihoods_writer = csv.DictWriter(likelihoods_handle,fieldnames=fieldnames)
@@ -67,18 +76,21 @@ class DiffEnergyLikelihood(abc.ABC):
         else:
             yield None
     
+    @property
+    def out_samples_file(self):
+        return self.out_dir/"samples.csv"
+    
     @contextmanager
     def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[]):
         ## WRITE SAMPLES PREP
-        samples_file = self.out_dir/"samples.csv"
         samples_handle: Optional[TextIOWrapper] = None
         samples_writer: Optional[csv.DictWriter] = None
 
         if write_samples:
-            with open(samples_file,"w") as samples_handle:
-                fieldnames = ["index","Samples"]
+            with open(self.out_samples_file,"w") as samples_handle:
+                fieldnames = ["index","Samples"] #TODO: regularize capitalization aaaa
                 fieldnames.extend(extra_fieldnames)
-                samples_writer = csv.DictWriter(samples_handle,fieldnames=fieldnames) #TODO: regularize capitalization aaaa
+                samples_writer = csv.DictWriter(samples_handle,fieldnames=fieldnames) 
                 samples_writer.writeheader()
                 yield samples_writer
         else:
@@ -86,28 +98,85 @@ class DiffEnergyLikelihood(abc.ABC):
     
     
     @cached_property
-    def trajectory_folder(self):
+    def out_trajectory_folder(self):
         res = self.out_dir/"trajectories"
         res.mkdir(parents=True,exist_ok=True)
         return res
     
+    @property
+    def out_trajectory_index(self):
+        return self.out_trajectory_folder/"trajectory_index.csv"
+    
+    @property
+    def out_trajectory_indices(self):
+        indices: dict[int|None,Path] = {None:self.out_trajectory_index}
+        for index_limit in self.config.get("trajectory_extra_indices",[]):
+            indices[index_limit] = self.out_trajectory_folder/f"trajectory_index_{index_limit}.csv"
+        return indices
+            
     @contextmanager
     def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
         if write_indices:
-            index_handles: list[tuple[int|None,TextIOWrapper]] = [(None,open(self.trajectory_folder/"trajectory_index.csv","w"))]
-            if (extra := self.config.get("trajectory_extra_indices",None)):
-                index_handles += [(ind,open(self.trajectory_folder/f"trajectory_index_{ind}.csv","w")) for ind in extra]
+            index_handles: dict[int|None,TextIOWrapper] = {ind:open(file,"w",newline='') for ind,file in self.out_trajectory_indices.items()}
+            
             extras = list(extra_fieldnames)
-            trajectory_indices = [(ind,csv.DictWriter(f,fieldnames=["index","PDB_File","Trajectory_File"] + extras)) for (ind,f) in index_handles]
-            [index[1].writeheader() for index in trajectory_indices]
+            trajectory_indices = {ind:csv.DictWriter(f,fieldnames=["index","PDB_File","Trajectory_File"] + extras) for (ind,f) in index_handles.items()}
+            [writer.writeheader() for writer in trajectory_indices.values()]
             
             try:
                 yield trajectory_indices
             finally:
-                for _,handle in index_handles:
+                for handle in index_handles.values():
                     handle.close()
         else:
-            yield []
+            yield {}
+            
+            
+    def get_likelihoods(
+        self,
+        paths:Iterable[tuple[I,IntegrablePath[X,C]]],
+        integrands:Sequence[LikelihoodIntegrand],
+        device:str|torch.device,
+                        )->Generator[tuple[I, Sequence[X], Sequence[float], C, dict[str, list[np.ndarray]]],None,None]:
+        device = torch.device(device)
+
+        ### RUN LIKELIHOOD COMPUTATION
+
+        #TODO: remove from public release
+        # #parallel setup (currently nonfunctional)
+        # parallel = self.config.get("parallel",False)
+        # cluster_kwargs = self.config.get("cluster_kwargs",{})
+        # if parallel:
+        #     import ray
+        #     ray.init(**cluster_kwargs)
+        # actor_kwargs = self.config.get("actor_kwargs",{})
+        # if device.type == 'cuda' and 'num_gpus' not in actor_kwargs:
+        #     actor_kwargs['num_gpus'] = 1 #assume each actor will consume an entire gpu
+
+
+        reset_seed_each_path = self.config.get("reset_seed_each_path",False)
+        seed = self.config.get("seed",0)
+
+        #attempted optimization, hope it works
+        accumulate_path = self.config.get("save_trajectories",False)
+
+        int_type = self.config.get("integral_type")
+        if int_type == "ode":
+            #just assume paths are ode integrable. error will be thrown otherwise
+            for id,path in paths:
+                if reset_seed_each_path:
+                    torch.manual_seed(seed)
+                yield run_ode_likelihood(id,path,integrands,accumulate=accumulate_path)
+            
+        elif int_type == "diff":
+            #use standard integration
+            for id,path in paths:
+                if reset_seed_each_path:
+                    torch.manual_seed(seed)
+                yield run_diff_likelihood(id,path,integrands,accumulate=accumulate_path)
+        else:
+            raise ValueError(f"Unknown integral type: {int_type}. For standard (non-ode solver) numerical integration, use integral_type: \"diff\" (the default).")
+
             
             
     

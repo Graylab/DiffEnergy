@@ -248,7 +248,7 @@ def write_dfmdock_samples(trajectory_dir:str|Path,
                           offset_type:Literal["Translation", "Rotation", "Translation+Rotation"],
                           save_samples:bool,
                           save_trajectories:bool,
-                          integrand_results:Optional[dict[str,Sequence[float|ArrayLike]]]=None,
+                          integrand_results:Optional[Mapping[str,Sequence[float|ArrayLike]]]=None,
                           save_pdb_references:bool=False,
                           pdb_reference_point:Literal[None,'start','end']=None,
                           sample_save_point:Literal['reference','start','end']='end', #None here means match the original pdb!! set to the same value as pdb_reference_point or explicitly 'reference' to save the reference as the sample

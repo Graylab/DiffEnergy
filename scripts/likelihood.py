@@ -5,7 +5,6 @@ from diffenergy.likelihood import EnsembledIntegrablePath, FlowEquivalentODEPath
 
 import torch
 from omegaconf import DictConfig
-from tqdm import tqdm
 
 from diffenergy.likelihood import (
     ArrayLike,
@@ -167,7 +166,7 @@ def get_paths[X,C,T,I](
                     condition,
                     int_method,
                     int_args))
-                    for (id,initial,condition) in tqdm(dataloader)
+                    for (id,initial,condition) in  (dataloader)
                 )
         case "sde_trajectories":
             #sde: get paths from diffusion tajectories
@@ -184,7 +183,7 @@ def get_paths[X,C,T,I](
                               condition,
                               int_method,
                               int_args))
-                for id,path,condition in tqdm(trajectories)
+                for id,path,condition in  (trajectories)
             )
         case "sde_trajectories_unreversed":
             #sde: get paths from diffusion tajectories, going from *1 to 0* 
@@ -201,7 +200,7 @@ def get_paths[X,C,T,I](
                               condition,
                               int_method,
                               int_args))
-                for id,path,condition in tqdm(trajectories)
+                for id,path,condition in  (trajectories)
             )
         case "piecewise_trajectories":
             #piecewise sde: linear paths between points on diffusion trajectory
@@ -216,7 +215,7 @@ def get_paths[X,C,T,I](
                     condition,
                     int_method,
                     int_args))
-                for id,path,condition in tqdm(trajectories)
+                for id,path,condition in  (trajectories)
             )
 
         case "linear_trajectories":
@@ -224,7 +223,7 @@ def get_paths[X,C,T,I](
             trajectories = load_trajectories()
 
             #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory,condition),condition) for id,trajectory,condition in tqdm(trajectories))
+            endpoints = ((id,load_endpoints(trajectory,condition),condition) for id,trajectory,condition in  (trajectories))
 
             paths = (
                 (id,LinearPath[X,C]((start,0),(end,1),ode_times,
@@ -250,7 +249,7 @@ def get_paths[X,C,T,I](
                     condition,
                     int_method,
                     int_args))
-                    for id,sample,condition in tqdm(dataloader)
+                    for id,sample,condition in  (dataloader)
                 )
             
         case "diff_data_translation":
@@ -271,7 +270,7 @@ def get_paths[X,C,T,I](
                               condition,
                               int_method,
                               int_args))
-                for id,path,condition in tqdm(trajectories)
+                for id,path,condition in  (trajectories)
             )
 
         case "data_translation":
@@ -282,7 +281,7 @@ def get_paths[X,C,T,I](
             trajectories = load_trajectories()
 
             #we love inline generators
-            endpoints = ((id,load_endpoints(trajectory,condition),condition) for id,trajectory,condition in tqdm(trajectories))
+            endpoints = ((id,load_endpoints(trajectory,condition),condition) for id,trajectory,condition in  (trajectories))
 
             paths = (
                 (id,LinearPath((start,0),(end,0),ode_times, #start and end both 0!
@@ -309,7 +308,7 @@ def get_paths[X,C,T,I](
                     condition,
                     int_method,
                     int_args))        
-                for (id,initial,condition) in tqdm(samples))
+                for (id,initial,condition) in  (samples))
             
         case "forward_sde":
             samples = load_samples()
@@ -325,7 +324,7 @@ def get_paths[X,C,T,I](
                     condition,
                     int_method,
                     int_args))        
-                for (id,initial,condition) in tqdm(samples))
+                for (id,initial,condition) in  (samples))
         case "ensembled_forward_sde":
             samples = load_samples()
             n_paths = config.ensemble_num_paths
@@ -350,7 +349,7 @@ def get_paths[X,C,T,I](
                     int_method,
                     int_args,
                 ))
-                for (id,initial,condition) in tqdm(samples)
+                for (id,initial,condition) in  (samples)
             )
 
         case "flow_along_trajectory": #that is, calculate the flowtime integral from t=0 to t=1 for each point in each diffusion trajectory
@@ -360,7 +359,7 @@ def get_paths[X,C,T,I](
             numtraj = len(trajectories)
             trajectories,copy = itertools.tee(trajectories)
             trajsize = len(get_trajectory(*next(copy)[1:]))
-            initials = tqdm(((f"{id}_{float(t)}",x,c) for (id,traj,c) in trajectories for (x,t) in get_trajectory(traj,c)),total=numtraj*trajsize)
+            initials =  (((f"{id}_{float(t)}",x,c) for (id,traj,c) in trajectories for (x,t) in get_trajectory(traj,c)),total=numtraj*trajsize)
             paths = (
                 (id,
                  FlowEquivalentODEPath(scorefn,
@@ -451,7 +450,6 @@ def get_likelihoods[X,C,I](
     actor_kwargs = config.get("actor_kwargs",{})
     if device.type == 'cuda' and 'num_gpus' not in actor_kwargs:
         actor_kwargs['num_gpus'] = 1 #assume each actor will consume an entire gpu
-
 
 
     reset_seed_each_path = config.get("reset_seed_each_path",False)
