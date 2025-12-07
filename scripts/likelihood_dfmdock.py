@@ -1,7 +1,5 @@
 from io import TextIOWrapper
 import itertools
-from logging import warning
-import logging
 import math
 import os
 from pathlib import Path
@@ -423,7 +421,7 @@ def write_likelihood_outputs(config:DictConfig,
             raise FileExistsError(out_dir,"Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.")
         else:
             backup_out = out_dir.with_stem(out_dir.stem + "_backup")
-            warning(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
+            warnings.warn(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
             if backup_out.exists():
                 shutil.rmtree(backup_out)
             os.rename(out_dir,backup_out)
@@ -492,63 +490,51 @@ def write_likelihood_outputs(config:DictConfig,
 
     ## WRITE OUTPUT
     try:
-        for ids,trajectories,times,conditions,integrand_resultss in likelihoods:
+        for id,trajectory,time,condition,integrand_results in likelihoods:
             with torch.profiler.record_function("Writing Likelihoods"):
                 ##Calculate priors
-                prior_eval_endpoint:tuple[LigDict,float,DFMDict] = (trajectories[-1], times[-1], conditions)
+                prior_eval_endpoint:tuple[LigDict,float,DFMDict] = (trajectory[-1], time[-1], condition)
 
-                prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_eval_endpoint))) for name,prior_fn in priors}
+                prior_results:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_eval_endpoint))) for name,prior_fn in priors}
 
-                ## Unbatch results for writing
-                if not batched:
-                    ids:Iterable[str] = [ids]
-                    trajectories = [trajectories]
-                    times = [times]
-                    integrand_resultss = [integrand_resultss]
-                    prior_resultss = [prior_result]
-                else:
-                    raise ValueError("Batching not supported for DFMDock")
+                prior_endpoint:tuple[LigDict,float] = (trajectory[-1], time[-1])
+                assert isinstance(id,str),id
 
-                for id, trajectory, time, integrand_results, prior_results \
-                    in zip(ids, trajectories, times, integrand_resultss, prior_resultss):
-                    prior_endpoint:tuple[LigDict,float] = (trajectory[-1], time[-1])
-                    assert isinstance(id,str),id
+                if write_likelihoods:
+                    row = {"id":id,
+                        "prior_position":to_array_nobatch(prior_endpoint[0]).tolist(),
+                            "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
+                            **{f"prior:{name}":val for name,val in prior_results.items()},
+                            **{f"integrand:{name}":val[-1] for name,val in integrand_results.items()}} #write last accumulated likelihood
+                    likelihoods_writer.writerow(row)
 
-                    if write_likelihoods:
-                        row = {"id":id,
-                            "prior_position":to_array_nobatch(prior_endpoint[0]).tolist(),
-                                "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
-                                **{f"prior:{name}":val for name,val in prior_results.items()},
-                                **{f"integrand:{name}":val[-1] for name,val in integrand_results.items()}} #write last accumulated likelihood
-                        likelihoods_writer.writerow(row)
+                sample_out, traj_out = write_dfmdock_samples(
+                    trajectory_folder,
+                    pdb_folder,
+                    id,
+                    trajectory,
+                    time,
+                    condition,
+                    offset_type,
+                    write_samples,
+                    save_trajectories,
+                    integrand_results=integrand_results if config.get("save_trajectory_likelihoods") else None,
+                    save_pdb_references=config.get("save_pdb_references",False),
+                    pdb_reference_point=config.get("pdb_reference_point",None),
+                    sample_save_point=config.get("sample_save_point","end"),
+                    sample_save_type=config.get("sample_save_type","offset"),
+                    force_copy_duplicate_sample=config.get("force_copy_duplicate_sample",False),
+                    trajectory_save_type=config.get("trajectory_save_type","offset"),
+                )
 
-                    sample_out, traj_out = write_dfmdock_samples(
-                        trajectory_folder,
-                        pdb_folder,
-                        id,
-                        trajectory,
-                        time,
-                        conditions,
-                        offset_type,
-                        write_samples,
-                        save_trajectories,
-                        integrand_results=integrand_results if config.get("save_trajectory_likelihoods") else None,
-                        save_pdb_references=config.get("save_pdb_references",False),
-                        pdb_reference_point=config.get("pdb_reference_point",None),
-                        sample_save_point=config.get("sample_save_point","end"),
-                        sample_save_type=config.get("sample_save_type","offset"),
-                        force_copy_duplicate_sample=config.get("force_copy_duplicate_sample",False),
-                        trajectory_save_type=config.get("trajectory_save_type","offset"),
-                    )
+                if sample_out:
+                    samples_writer.writerow(sample_out)
 
-                    if sample_out:
-                        samples_writer.writerow(sample_out)
-
-                    if traj_out:
-                        for cutoff,file,writer in trajectory_indices:
-                            if cutoff is None or acc_trajnum < cutoff:
-                                writer.writerow(traj_out)
-                        acc_trajnum += 1
+                if traj_out:
+                    for cutoff,file,writer in trajectory_indices:
+                        if cutoff is None or acc_trajnum < cutoff:
+                            writer.writerow(traj_out)
+                    acc_trajnum += 1
 
 
     finally:
