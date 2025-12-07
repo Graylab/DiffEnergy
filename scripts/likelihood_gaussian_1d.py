@@ -164,48 +164,6 @@ def main(config: DictConfig):
                              priors,
                              batch_size)
     
-def load_model(config:DictConfig,
-               sigma_min:float,
-               sigma_max:float,
-               batched:bool,
-               device:torch.device):
-    # set marginal probability distribution and diffusion coefficient distribution
-    marginal_prob_std_fn = functools.partial(
-        marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
-
-    # set models
-    weights_path = config.checkpoint
-    ckpt = torch.load(weights_path, map_location = device)
-
-    # Remove "module." prefix if necessary
-    if any(key.startswith("module.") for key in ckpt.keys()):
-        ckpt = {key.replace("module.", ""): value for key, value in ckpt.items()}
-
-    # Initialize score model, load the checkpoint weights into the model    
-    tr_type = config.tr_type
-    if tr_type == 'non_conservative':
-        score_model = ScoreNetMLP(
-            input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
-        score_model.load_state_dict(ckpt)
-        
-        model_eval = ModelEval(score_model,batched=batched)
-    elif tr_type == 'conservative':
-        score_model = NegativeGradientMLP(
-            input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
-        score_model.load_state_dict(ckpt)
-
-        model_eval = ModelEval(score_model,batched=batched)
-    elif tr_type == 'ground_truth':
-        means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float)
-        variances = torch.tensor([8.0,5.0,10.0])**2
-        weights = torch.tensor([0.4,0.3,0.3])
-
-        model_eval = MultimodalGaussianGroundTruthScoreModel(means,variances,weights,sigma_min,sigma_max,batched=batched)
-        model_eval.to(device)
-    else:
-        raise ValueError(tr_type)
-    
-    return model_eval
     
 def load_priors(config:DictConfig,
                 sigma_min:float,
