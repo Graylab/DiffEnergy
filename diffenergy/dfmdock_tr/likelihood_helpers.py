@@ -1,14 +1,11 @@
 
 
-import abc
-from typing import Generic, Iterable, Literal, Optional, Protocol, Sequence, TypeVar, TypeVarTuple, TypedDict
+from typing import Literal, Optional, TypeVar, TypeVarTuple, TypedDict
 
-import IPython
-from torch import FloatTensor, Tensor
+from torch import Tensor
 import torch
 from diffenergy.dfmdock_tr.score_model import Score_Model
-from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.scoremodels import CachedScoreModelEvaluator, ScoreModelEvaluator
+from diffenergy.scoremodels import CachedScoreModelEvaluator
 
 class DFMDict(TypedDict):
     orig_pdb: str
@@ -27,15 +24,6 @@ def to_array(x:LigDict)->Tensor:
     return x['offset']
 def from_array(a,device:str|torch.device='cuda')->LigDict:
     return {'offset':torch.as_tensor(a,dtype=torch.float,device=torch.device(device))}
-
-
-X = TypeVarTuple("X")
-R = TypeVar("R")
-def getcache(x:tuple[*X],t:float,cache:Optional[tuple[tuple[*X,float],R]])->Optional[R]:
-    if cache and all(x[i] is cache[0][i] for i in range(len(x))) and t == cache[0][-1]: #don't bother checking tensor equality - assume it never comes up (shouldn't)
-        return cache[1]
-    return None
-
 
 class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 1 in first dim, batched has size of N
     def __init__(self,
@@ -67,8 +55,8 @@ class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a si
         with torch.profiler.record_function("ModelEval: Score"):
             batch = x
 
-            cache = self._cached_score(batch,conditioning,t)
-            if cache is not None: return cache[1] if return_grad else cache[1].detach()
+            cache = self._cached_score(batch,t,conditioning)
+            if cache is not None: return cache if return_grad else cache.detach()
             
             self.score_model.zero_grad(set_to_none=True) #new inputs, so clear the gradient cache as well
             
@@ -123,7 +111,7 @@ class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a si
             else:
                 raise ValueError(self.offset_type)
 
-            self.scorecache = ((batch,conditioning,t),(offset,score))
+            self.scorecache = ((batch,t,conditioning),score)
             return score if return_grad else score.detach()
     
 
@@ -134,7 +122,7 @@ class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a si
             cache = self._cached_divergence(batch,conditioning,t)#
             if cache is not None: return cache if return_grad else cache.detach()
             
-            score = self._cached_score(batch,conditioning,t)
+            score = self._cached_score(batch,t,conditioning)
             if score is None:
                 self.scorecache = None #make sure to invalidate a bad cache
                 score = self.score(batch,t,conditioning,grad=True,return_grad=True)
@@ -152,7 +140,7 @@ class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a si
             if self.divide_div_by_N:
                 trace = trace/conditioning["lig_pos_orig"].shape[0] #divide by N
 
-            self.divcache = ((batch,conditioning,t),trace)
+            self.divcache = ((batch,t,conditioning),trace)
 
             return trace if return_grad else trace.detach() #essentially a float teehee
 

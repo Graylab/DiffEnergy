@@ -6,7 +6,7 @@ samples_stem = f"../sample_results/trinormal_1d_smax70_{nsteps}"
 # trajectory_index_file: ../sample_results/trinormal_1d_smax70_traj/trajectory_index_1000.csv
 
 command = lambda i: ["python", 
-                     "scripts/likelihoodv3_gaussian_1d.py", 
+                     "scripts/likelihood_gaussian_1d.py", 
                      f"--config-name={cfile}", 
                      f"++out_dir='../likelihood_results/likelihoodv3/interp_tests/3integrand_diff_{i}interp_1000_{nsteps}steps'", 
                      f"++num_interpolants={i}","++overwrite_output=True",
