@@ -15,7 +15,7 @@ import torch
 
 from diffenergy.dfmdock_tr.docked_dataset import PDBImporter
 from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
-from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
+from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, DFMDockModelEval, to_array as DFMDock_to_array_nobatch, from_array as DFMDock_from_array_nobatch
 from diffenergy.dfmdock_tr.score_model import Score_Model
 from diffenergy.helper import diffusion_coeff
 from scripts.likelihood import SizeWrappedIter, SizedIter, get_likelihoods, get_paths, ArrayLike
@@ -105,8 +105,8 @@ def main(config: DictConfig):
     if batched:
         raise ValueError("Batched DFMDock evaluation not supported!")
 
-    to_array = to_array_nobatch# if not batched else to_array_batch
-    from_array = functools.partial(from_array_nobatch,device=device)# if not batched else from_array_batch,device=device)
+    to_array = DFMDock_to_array_nobatch# if not batched else to_array_batch
+    from_array = functools.partial(DFMDock_from_array_nobatch,device=device)# if not batched else from_array_batch,device=device)
 
     # set sigma_values
     sigma_min = config.sigma_min
@@ -122,7 +122,7 @@ def main(config: DictConfig):
     if offset_type not in valid_offsets:
         raise ValueError("offset_type must be one of",valid_offsets)
 
-    model_eval = ModelEval(score_model,offset_type=offset_type)
+    model_eval = DFMDockModelEval(score_model,offset_type=offset_type)
     
     scorefn = model_eval.score# if not batched else model_eval.batch_score
     divergencefn = model_eval.divergence# if not batched else model_eval.batch_divergence

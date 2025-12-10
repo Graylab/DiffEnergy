@@ -83,7 +83,14 @@ def main(config:DictConfig):
                     force = scorefn(x,t,c)
                     div = divergencefn(x,t,c)
 
-                    forcedict = {"Index":i,"Timestep":torch.as_tensor(t).item(),'Diffusion_Coeff':diffusion_coeff_fn(t).item(),'Divergence':torch.as_tensor(div).item(),**dict(zip(scorecols,[force.item()])),**dict(zip(poscols,[x.item()]))}
+                    forcedict = {
+                        "Index":i,
+                        "Timestep":torch.as_tensor(t).item(),
+                        'Diffusion_Coeff':diffusion_coeff_fn(t).item(),
+                        'Divergence':torch.as_tensor(div).item(),
+                        **dict(zip(scorecols,[force.item()])),
+                        **dict(zip(poscols,[x.item()]))
+                    }
                     forces_writer.writerow(forcedict)
             
 

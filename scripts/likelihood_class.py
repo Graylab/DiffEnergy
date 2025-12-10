@@ -12,7 +12,7 @@ from functools import cached_property
 import warnings
 
 import numpy as np
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import torch
 
 from diffenergy.likelihood import IntegrablePath, LikelihoodIntegrand, run_diff_likelihood, run_ode_likelihood
@@ -56,6 +56,14 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
         if not self._out_dir:
             raise ValueError(f"Output directory not initialized! Please call initialize_out_dir() before using {type(self).__name__}.out_dir")
         return self._out_dir
+    
+    @property
+    def out_config_file(self):
+        return self.out_dir/"config.yaml"
+    
+    def write_config(self,file:str|Path):
+        with open(file,"w") as f:
+            f.write(OmegaConf.to_yaml(self.config))
     
     @property
     def out_likelihoods_file(self):

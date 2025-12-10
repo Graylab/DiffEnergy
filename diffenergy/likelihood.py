@@ -359,7 +359,7 @@ class SpaceIntegrand(ScoreDivDiffIntegrand[X,C]):
 #### Paths ####
 
 # Reverse SDE Path generator. Only goes from tnoise=1 to tdata=0, should be equivalent to neural network inference 
-# (meant to replace the euler_maruyama sampler for trajectory generation)
+# (replaces the euler_maruyama sampler for trajectory generation)
 class ReverseSDEPath(IntegrablePath[X,C]):
     def __init__(self, scorefn:Callable[[X,float,C],Array], diffcoefffn:Callable[[float],float], noise_scale:float, times: Sequence[float], initial: X, to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X], conditioning:C, method:str, methodargs:dict[str,Any]):
         self.scorefn = scorefn

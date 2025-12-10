@@ -25,7 +25,7 @@ def to_array(x:LigDict)->Tensor:
 def from_array(a,device:str|torch.device='cuda')->LigDict:
     return {'offset':torch.as_tensor(a,dtype=torch.float,device=torch.device(device))}
 
-class ModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 1 in first dim, batched has size of N
+class DFMDockModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 1 in first dim, batched has size of N
     def __init__(self,
                  score_model:Score_Model, 
                  offset_type:Literal["Translation","Rotation","Translation+Rotation"], 
