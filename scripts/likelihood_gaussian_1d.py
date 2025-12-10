@@ -164,6 +164,46 @@ def main(config: DictConfig):
                              priors,
                              batch_size)
     
+def load_model(config:DictConfig,
+               sigma_min:float,
+               sigma_max:float,
+               device:torch.device):
+    # set marginal probability distribution and diffusion coefficient distribution
+    marginal_prob_std_fn = functools.partial(
+        marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
+
+    # set models
+    weights_path = config.checkpoint
+    ckpt = torch.load(weights_path, map_location = device)
+
+    # Remove "module." prefix if necessary
+    if any(key.startswith("module.") for key in ckpt.keys()):
+        ckpt = {key.replace("module.", ""): value for key, value in ckpt.items()}
+
+    # Initialize score model, load the checkpoint weights into the model    
+    tr_type = config.tr_type
+    if tr_type == 'non_conservative':
+        score_model = ScoreNetMLP(
+            input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
+        print("wow")
+        score_model.load_state_dict(ckpt)
+        model_eval = ModelEval(score_model)
+    elif tr_type == 'conservative':
+        score_model = NegativeGradientMLP(
+            input_dim = 1, marginal_prob_std = marginal_prob_std_fn, embed_dim = 512, layers = (512, 512, 512)).to(device)
+        score_model.load_state_dict(ckpt)
+        model_eval = ModelEval(score_model)
+    elif tr_type == 'ground_truth':
+        means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float)
+        variances = torch.tensor([8.0,5.0,10.0])**2
+        weights = torch.tensor([0.4,0.3,0.3])
+
+        model_eval = MultimodalGaussianGroundTruthScoreModel(means,variances,weights,sigma_min,sigma_max)
+        model_eval.to(device)
+    else:
+        raise ValueError(tr_type)
+    
+    return model_eval
     
 def load_priors(config:DictConfig,
                 sigma_min:float,
@@ -316,7 +356,7 @@ def write_likelihood_outputs(
             prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_eval_endpoint))) for name,prior_fn in priors}
 
             ## Unbatch results for writing
-            #since trajectories are in 'array' form they always have a batch dimension
+            # since trajectories are in 'array' form they always have a batch dimension
             trajectories = torch.stack(trajectories,dim=1) #put time-axis in dimension 1 so we can iterate over the batch dimension
             assert trajectories.ndim == 3 #BxNxD
             if not batched:

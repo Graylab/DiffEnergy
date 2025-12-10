@@ -14,10 +14,9 @@ from diffenergy.dfmdock_tr.score_model import Score_Model
 from scripts.likelihood import get_paths
 
 from diffenergy.helper import diffusion_coeff
-from diffenergy.dfmdock_tr.likelihood_helpers import ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
+from diffenergy.dfmdock_tr.likelihood_helpers import DFMDockModelEval, to_array as DFMDock_to_array_nobatch, from_array as DFMDock_from_array_nobatch
 from scripts.likelihood import get_paths
 from scripts.likelihood_dfmdock import load_samples, load_trajectories, load_trajectory, offset_trajectory_columns
-
 
 @hydra.main(version_base=None, config_path='../configs/likelihoodv3')
 def main(config:DictConfig):
@@ -33,8 +32,8 @@ def main(config:DictConfig):
     if batched:
         raise ValueError("Batched DFMDock evaluation not supported!")
 
-    to_array = to_array_nobatch# if not batched else to_array_batch
-    from_array = functools.partial(from_array_nobatch,device=device)# if not batched else from_array_batch,device=device)
+    to_array = DFMDock_to_array_nobatch# if not batched else to_array_batch
+    from_array = functools.partial(DFMDock_from_array_nobatch,device=device)# if not batched else from_array_batch,device=device)
 
     # set sigma_values
     sigma_min = config.sigma_min
@@ -50,7 +49,7 @@ def main(config:DictConfig):
     if offset_type not in valid_offsets:
         raise ValueError("offset_type must be one of",valid_offsets)
 
-    model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_eval",False),manual_seed=config.get("seed",0))
+    model_eval = DFMDockModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_eval",False),manual_seed=config.get("seed",0))
     
     scorefn = model_eval.score
     divergencefn = model_eval.divergence
@@ -108,7 +107,14 @@ def main(config:DictConfig):
                     force = scorefn(x,t,c)
                     div = divergencefn(x,t,c)
 
-                    forcedict = {"Index":i,"Timestep":torch.as_tensor(t).item(),'Diffusion_Coeff':diffusion_coeff_fn(t).item(),'Divergence':div.item(),**dict(zip(scorecols,force.tolist())),**dict(zip(poscols,x["offset"].tolist()))}
+                    forcedict = {
+                        "Index":i,
+                        "Timestep":torch.as_tensor(t).item(),
+                        'Diffusion_Coeff':diffusion_coeff_fn(t).item(),
+                        'Divergence':div.item(),
+                        **dict(zip(scorecols,force.tolist())),
+                        **dict(zip(poscols,x["offset"].tolist()))
+                    }
                     forces_writer.writerow(forcedict)
             
 

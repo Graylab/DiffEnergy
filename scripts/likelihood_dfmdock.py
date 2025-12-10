@@ -22,7 +22,7 @@ import hydra
 from diffenergy.dfmdock_tr.utils.biotite_utils import get_offset_pdb,save_structure
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords
 from diffenergy.helper import int_diffusion_coeff_sq, diffusion_coeff, prior_gaussian_nd
-from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, ModelEval, to_array as to_array_nobatch, from_array as from_array_nobatch
+from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, DFMDockModelEval, to_array as DFMDock_to_array_nobatch, from_array as DFMDock_from_array_nobatch
 from diffenergy.likelihood import Array, ArrayLike, LikelihoodIntegrand
 from scripts.likelihood import MapDataset, SizeWrappedIter, SizedIter, get_integrands, get_likelihoods, get_paths
 
@@ -68,7 +68,7 @@ def load_samples(data_file, pdb_dir, offset_type: Literal["Translation", "Rotati
         else:
             offset = torch.as_tensor(offsets[idx],device=device,dtype=dfmdict["lig_pos_orig"].dtype)
         return (id,
-                from_array_nobatch(offset,device=device),
+                DFMDock_from_array_nobatch(offset,device=device),
                 dfmdict)
     
     pdb_dir = Path(pdb_dir)
@@ -142,7 +142,7 @@ def load_trajectory(data_path:str|Path|tuple[str|Path,...], pdb_dir:str|Path, of
             raise ValueError(f"incomplete columns in csv: {df.columns}")
 
         #make list of LigDict
-        sampleslist.append([from_array_nobatch(data[i],device=device) for i in range(data.shape[0])])
+        sampleslist.append([DFMDock_from_array_nobatch(data[i],device=device) for i in range(data.shape[0])])
     assert alltimes is not None
     samples:list[LigDict]|list[tuple[LigDict,...]] = [batch for batch in zip(*sampleslist)] if isinstance(data_path,tuple) else sampleslist[0] #needs to be NxB if batched so make sure to stack at dimension 1
     return list(zip(samples,alltimes))
@@ -232,8 +232,8 @@ def load_priors(config:DictConfig,
 
 
 def split_offset(offset:torch.Tensor,offset_type:Literal["Translation", "Rotation", "Translation+Rotation"],):
-    tr_update = offset[:3].cpu().detach().numpy() if 'Translation' in offset_type else None
-    rot_update = offset[-3:].cpu().detach().numpy() if 'Rotation' in offset_type else None
+    tr_update = offset[:3].cpu().detach() if 'Translation' in offset_type else None
+    rot_update = offset[-3:].cpu().detach() if 'Rotation' in offset_type else None
     
     return (tr_update,rot_update)
 
@@ -297,7 +297,7 @@ def write_dfmdock_samples(trajectory_dir:str|Path,
     def relative_to(path,reference):
         return Path(path).absolute().relative_to(Path(reference).absolute(),walk_up=True)
     
-    xtraj = torch.stack([to_array_nobatch(x) for x in trajectory]).detach().cpu() #Nx3 or Nx6
+    xtraj = torch.stack([DFMDock_to_array_nobatch(x) for x in trajectory]).detach().cpu() #Nx3 or Nx6
     ttraj = torch.as_tensor(times).detach().cpu()
 
     pdb_reference_file = condition["orig_pdb"]
@@ -496,7 +496,7 @@ def write_likelihood_outputs(config:DictConfig,
 
                 if write_likelihoods:
                     row = {"id":id,
-                        "prior_position":to_array_nobatch(prior_endpoint[0]).tolist(),
+                        "prior_position":DFMDock_to_array_nobatch(prior_endpoint[0]).tolist(),
                             "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
                             **{f"prior:{name}":val for name,val in prior_results.items()},
                             **{f"integrand:{name}":val[-1] for name,val in integrand_results.items()}} #write last accumulated likelihood
@@ -554,8 +554,8 @@ def main(config: DictConfig):
     if batched:
         raise ValueError("Batched DFMDock evaluation not supported!")
 
-    to_array = to_array_nobatch# if not batched else to_array_batch
-    from_array = functools.partial(from_array_nobatch,device=device)# if not batched else from_array_batch,device=device)
+    to_array = DFMDock_to_array_nobatch# if not batched else to_array_batch
+    from_array = functools.partial(DFMDock_from_array_nobatch,device=device)# if not batched else from_array_batch,device=device)
 
     # set sigma_values
     sigma_min = config.sigma_min
@@ -574,7 +574,7 @@ def main(config: DictConfig):
     if config.get("reset_seed_each_sample",False):
         raise ValueError("reset_seed_each_sample deprecated. Either use reset_seed_each_eval (original behavior of reset_seed_each_sample) or reset_seed_each_path.") 
 
-    model_eval = ModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_eval",False),manual_seed=config.get("seed",0),
+    model_eval = DFMDockModelEval(score_model,offset_type=offset_type,reset_seed_each_eval=config.get("reset_seed_each_eval",False),manual_seed=config.get("seed",0),
                            divide_div_by_N=config.get("small_divergence",False)) #test bug in old code
     
     scorefn = model_eval.score# if not batched else model_eval.batch_score
