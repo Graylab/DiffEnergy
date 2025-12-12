@@ -11,7 +11,7 @@ from diffenergy.likelihood import (
     Array)
 
 import functools
-from typing import Callable, Generic, Iterable, Iterator, Literal, Mapping, Protocol, Sequence, Optional, TypeVar, TypeVarTuple, overload
+from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Mapping, Protocol, Sequence, Optional, TypeVar, TypeVarTuple, Unpack, overload
 
 #some convenience wrappers for sized iterables
 X = TypeVar("X",covariant=True)
@@ -21,7 +21,7 @@ class SizedIter(Protocol,Generic[X]):
     def __iter__(self)->Iterator[X]:
         ...
 
-class SizeWrappedIter(SizedIter):
+class SizeWrappedIter(SizedIter[X]):
     def __init__(self,iter:Iterable[X],length:int):
         self.iter = iter
         self.length = length
@@ -33,19 +33,19 @@ class SizeWrappedIter(SizedIter):
         return iter(self.iter)
     
 P = TypeVarTuple("P")
-X = TypeVar("X")
-class MapDataset(Generic[X,*P], Dataset[X], SizedIter[X], Sequence[X]):
-    source:Sequence[tuple[*P]]
-    map:Callable[[*P],X]
+B = TypeVarTuple("B")
+class MapDataset(Generic[X,Unpack[P]], Dataset[X], SizedIter[X], Sequence[X]):
+    source:Sequence[tuple[Unpack[P]]]
+    map:Callable[[Unpack[P]],X]
 
     @classmethod
-    def chain[*B](cls:type["MapDataset[X,*P]"],source:"MapDataset[tuple[*B],*P]",map:Callable[[*B],X])->"MapDataset[X,*P]":
+    def chain(cls:type["MapDataset[X,*P]"],source:"MapDataset[tuple[Unpack[B]],*P]",map:Callable[[Unpack[B]],X])->"MapDataset[X,*P]":
         map2 = source.map
         def map_composed(*args:*P):
             return map(*map2(*args))
         return cls(source.source,map_composed)
 
-    def __init__(self,source:Sequence[tuple[*P]], map:Callable[[*P],X]):
+    def __init__(self,source:Sequence[tuple[Unpack[P]]], map:Callable[[Unpack[P]],X]):
         self.source = source
         self.map = map
 
@@ -67,7 +67,10 @@ class MapDataset(Generic[X,*P], Dataset[X], SizedIter[X], Sequence[X]):
         
 
 
-def get_paths[X,C,T,I](
+T = TypeVar("T")
+C = TypeVar("C")
+I = TypeVar("I")  # noqa: E741
+def get_paths(
         config:DictConfig,
         from_array:Callable[[ArrayLike],X],
         to_array:Callable[[X],Array],
@@ -77,7 +80,7 @@ def get_paths[X,C,T,I](
         load_samples:Callable[[],SizedIter[tuple[I,X,C]]],
         load_trajectories:Callable[[],SizedIter[tuple[I,T,C]]],
         get_trajectory:Callable[[T,C],Sequence[tuple[X,float]]],
-        device:str|torch.device)->Iterable[tuple[I,IntegrablePath[X,C]]]:
+        device:str|torch.device)->SizedIter[tuple[I,IntegrablePath[X,C]]]:
     
     device = torch.device(device)
 
@@ -149,13 +152,13 @@ def get_paths[X,C,T,I](
     int_method = int_args.pop("method")
 
     # load path and associated dataset
-    paths:Iterable[tuple[I,IntegrablePath[X,C]]]
+    paths:SizedIter[tuple[I,IntegrablePath[X,C]]]
     match config.path_type:
         case "flow_ode":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_samples()
+            samples = load_samples()
 
-            paths = ( #maybe this should be a dataloader or something idk
+            pathgen = ( #maybe this should be a dataloader or something idk
                 (id,FlowEquivalentODEPath[X,C](
                     scorefn,
                     diffusion_coeff_fn,
@@ -166,8 +169,10 @@ def get_paths[X,C,T,I](
                     condition,
                     int_method,
                     int_args))
-                    for (id,initial,condition) in  (dataloader)
+                    for (id,initial,condition) in (samples)
                 )
+            paths = SizeWrappedIter(pathgen,len(samples))
+            
         case "sde_trajectories":
             #sde: get paths from diffusion tajectories
             trajectories = load_trajectories()
@@ -176,7 +181,7 @@ def get_paths[X,C,T,I](
             if config.get("interpolate_trajectories",False):
                 pathclass = functools.partial(InterpolatedIntegrableSequence[X,C],config.num_interpolants)
 
-            paths = (
+            pathgen = (
                 (id,pathclass(get_trajectory(path,condition),
                               to_array,
                               from_array,
@@ -185,6 +190,8 @@ def get_paths[X,C,T,I](
                               int_args))
                 for id,path,condition in  (trajectories)
             )
+            paths = SizeWrappedIter(pathgen,len(trajectories))
+
         case "sde_trajectories_unreversed":
             #sde: get paths from diffusion tajectories, going from *1 to 0* 
             trajectories = load_trajectories()
@@ -193,7 +200,7 @@ def get_paths[X,C,T,I](
             if config.get("interpolate_trajectories",False):
                 pathclass = functools.partial(InterpolatedIntegrableSequence[X,C],config.num_interpolants)
 
-            paths = (
+            pathgen = (
                 (id,pathclass(get_trajectory(path,condition)[::-1], #REVERSE
                               to_array,
                               from_array,
@@ -202,11 +209,13 @@ def get_paths[X,C,T,I](
                               int_args))
                 for id,path,condition in  (trajectories)
             )
+            paths = SizeWrappedIter(pathgen,len(trajectories))
+
         case "piecewise_trajectories":
             #piecewise sde: linear paths between points on diffusion trajectory
             trajectories = load_trajectories()
 
-            paths = (
+            pathgen = (
                 (id,PiecewiseDifferentiableSequence(
                     get_trajectory(path,condition),
                     config.num_interpolants,
@@ -217,6 +226,7 @@ def get_paths[X,C,T,I](
                     int_args))
                 for id,path,condition in  (trajectories)
             )
+            paths = SizeWrappedIter(pathgen,len(trajectories))
 
         case "linear_trajectories":
             #linear: take sampled paths, and just make a straight line from start to end
@@ -225,7 +235,7 @@ def get_paths[X,C,T,I](
             #we love inline generators
             endpoints = ((id,load_endpoints(trajectory,condition),condition) for id,trajectory,condition in  (trajectories))
 
-            paths = (
+            pathgen = (
                 (id,LinearPath[X,C]((start,0),(end,1),ode_times,
                             to_array,
                             from_array,
@@ -234,11 +244,13 @@ def get_paths[X,C,T,I](
                             int_args))
                 for (id,(start,end),condition) in endpoints
             )
+            paths = SizeWrappedIter(pathgen,len(trajectories))
+
         case "linearized_flow":
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
-            dataloader = load_samples()
+            samples = load_samples()
 
-            paths = ( #maybe this should be a dataloader or something idk
+            pathgen = ( #maybe this should be a dataloader or something idk
                 (id,LinearizedFlowPath[X,C](
                     scorefn,
                     diffusion_coeff_fn,
@@ -249,8 +261,9 @@ def get_paths[X,C,T,I](
                     condition,
                     int_method,
                     int_args))
-                    for id,sample,condition in  (dataloader)
+                    for id,sample,condition in  (samples)
                 )
+            paths = SizeWrappedIter(pathgen,len(samples))
             
         case "diff_data_translation":
             # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
@@ -263,7 +276,7 @@ def get_paths[X,C,T,I](
             if config.get("interpolate_trajectories",False):
                 pathclass = functools.partial(InterpolatedIntegrableSequence[X,C],n_interp=config.num_interpolants)
 
-            paths = (
+            pathgen = (
                 (id,pathclass([(x,0) for x,t in (get_trajectory(path,condition))],
                               to_array,
                               from_array,
@@ -272,6 +285,7 @@ def get_paths[X,C,T,I](
                               int_args))
                 for id,path,condition in  (trajectories)
             )
+            paths = SizeWrappedIter(pathgen,len(trajectories))
 
         case "data_translation":
             # Linear translation in data space: like linear_trajectories, but always at time=0. 
@@ -283,7 +297,7 @@ def get_paths[X,C,T,I](
             #we love inline generators
             endpoints = ((id,load_endpoints(trajectory,condition),condition) for id,trajectory,condition in  (trajectories))
 
-            paths = (
+            pathgen = (
                 (id,LinearPath((start,0),(end,0),ode_times, #start and end both 0!
                             to_array,
                             from_array,
@@ -292,11 +306,12 @@ def get_paths[X,C,T,I](
                             int_args))
                 for (id,(start,end),condition) in endpoints
             )
+            paths = SizeWrappedIter(pathgen,len(trajectories))
 
         case "reverse_sde":
             samples = load_samples()
 
-            paths = (
+            pathgen = (
                 (id,ReverseSDEPath(
                     scorefn,
                     diffusion_coeff_fn,
@@ -309,11 +324,12 @@ def get_paths[X,C,T,I](
                     int_method,
                     int_args))        
                 for (id,initial,condition) in  (samples))
+            paths = SizeWrappedIter(pathgen,len(samples))
             
         case "forward_sde":
             samples = load_samples()
 
-            paths = (
+            pathgen = (
                 (id,ForwardSDEPath(
                     diffusion_coeff_fn,
                     config.get("noise_scale",1),
@@ -325,11 +341,13 @@ def get_paths[X,C,T,I](
                     int_method,
                     int_args))        
                 for (id,initial,condition) in  (samples))
+            paths = SizeWrappedIter(pathgen,len(samples))
+
         case "ensembled_forward_sde":
             samples = load_samples()
             n_paths = config.ensemble_num_paths
             noise_scale = config.get("noise_scale",1)
-            paths = (
+            pathgen = (
                 (id,EnsembledIntegrablePath(
                     (
                         ForwardSDEPath(diffusion_coeff_fn,
@@ -351,6 +369,7 @@ def get_paths[X,C,T,I](
                 ))
                 for (id,initial,condition) in  (samples)
             )
+            paths = SizeWrappedIter(pathgen,len(samples))
 
         case "flow_along_trajectory": #that is, calculate the flowtime integral from t=0 to t=1 for each point in each diffusion trajectory
             trajectories = load_trajectories() #each trajectory of N timesteps will produce N flow results
@@ -359,8 +378,8 @@ def get_paths[X,C,T,I](
             numtraj = len(trajectories)
             trajectories,copy = itertools.tee(trajectories)
             trajsize = len(get_trajectory(*next(copy)[1:]))
-            initials =  (((f"{id}_{float(t)}",x,c) for (id,traj,c) in trajectories for (x,t) in get_trajectory(traj,c)),total=numtraj*trajsize)
-            paths = (
+            initials =  (((f"{id}_{float(t)}",x,c) for (id,traj,c) in trajectories for (x,t) in get_trajectory(traj,c)))
+            pathgen = (
                 (id,
                  FlowEquivalentODEPath(scorefn,
                                        diffusion_coeff_fn,
@@ -373,6 +392,7 @@ def get_paths[X,C,T,I](
                                        int_args))
                 for (id,x,condition) in initials
             ) #technically we've broken typing here by changing the id but w/e. I guess really this should be a custom load_samples fn but I can't be bothered
+            paths = SizeWrappedIter(pathgen, trajsize*numtraj) 
 
         case _:
             raise ValueError("Unknown path type:",config.path_type)
@@ -382,11 +402,11 @@ def get_paths[X,C,T,I](
             raise ValueError("Can't stochastically perturb an ODE! However, ODEIntegrablePaths can be used in discrete integral mode. Please set integral_type to 'diff' or disable perturbation")
         sigma:float = config.perturbation_sigma
         schedule:Literal['uniform','data'] = config.get("perturbation_schedule","data")
-        paths = ((id,PerturbedPath[X,C](path,schedule,sigma,path.condition,int_method,int_args)) for id,path in paths) #god I love generators
+        paths = SizeWrappedIter(((id,PerturbedPath[X,C](path,schedule,sigma,path.condition,int_method,int_args)) for id,path in paths),len(paths)) #god I love generators
 
     return paths
 
-def get_integrands[X,C](
+def get_integrands(
         config:DictConfig,
         from_array:Callable[[ArrayLike],X],
         to_array:Callable[[X],Array],
