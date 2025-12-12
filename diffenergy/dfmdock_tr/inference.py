@@ -15,7 +15,7 @@ import torch
 from tqdm import tqdm
 from diffenergy.dfmdock_tr.docked_dataset import DockedDatum, PDBImporter
 from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
-from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, DFMDockModelEval
+from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, DFMDockModelEval, split_offset
 from diffenergy.dfmdock_tr.score_model import Score_Model
 from diffenergy.dfmdock_tr.utils.biotite_utils import get_offset_pdb
 from biotite.structure.io import save_structure
@@ -213,11 +213,8 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         
         return priors
 
-    def split_offset(self,offset:torch.Tensor):
-        tr_update = offset[:3].cpu().detach() if 'Translation' in self.offset_type else None
-        rot_update = offset[-3:].cpu().detach() if 'Rotation' in self.offset_type else None
-        
-        return (tr_update,rot_update)
+    def split_offset(self,offset:torch.Tensor,device:str|torch.device|None='cpu',detach:bool=True):
+        return split_offset(offset,self.offset_type,device=device,detach=detach)
 
     def write_samples(self,
                       trajectory_dir:str|Path,

@@ -25,6 +25,24 @@ def to_array(x:LigDict)->Tensor:
 def from_array(a,device:str|torch.device='cuda')->LigDict:
     return {'offset':torch.as_tensor(a,dtype=torch.float,device=torch.device(device))}
 
+def split_offset(offset:torch.Tensor, offset_type:Literal["Translation","Rotation","Translation+Rotation"],device:str|torch.device|None=None,detach:bool=False):
+    tr_update = offset[:3].to(device=device) if 'Translation' in offset_type else None
+    rot_update = offset[-3:].to(device=device) if 'Rotation' in offset_type else None
+    if detach and tr_update is not None: tr_update = tr_update.detach()
+    if detach and rot_update is not None: rot_update = rot_update.detach()
+    
+    return (tr_update,rot_update)
+
+def join_offset(tr:Tensor,rot:Tensor,offset_type:Literal["Translation","Rotation","Translation+Rotation"]):
+    if offset_type == "Translation+Rotation":
+        return torch.cat((tr,rot))
+    elif offset_type == "Translation":
+        return tr
+    elif offset_type == "Rotation":
+        return rot
+    else:
+        raise ValueError(offset_type)
+
 class DFMDockModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched has a size of 1 in first dim, batched has size of N
     def __init__(self,
                  score_model:Score_Model, 
@@ -43,7 +61,7 @@ class DFMDockModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched h
         # score cache stores both the input (with grad) and output, since the input gets cloned before eval
         self.always_grad = always_grad
         self.dtype = self.score_model.parameters()
-        self.offset_type = offset_type
+        self.offset_type:Literal["Translation","Rotation","Translation+Rotation"] = offset_type
 
         self.reset_seed_each_eval = reset_seed_each_eval
         self.manual_seed = manual_seed
@@ -55,79 +73,53 @@ class DFMDockModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched h
         with torch.profiler.record_function("ModelEval: Score"):
             batch = x
 
-            cache = self._cached_score(batch,t,conditioning)
-            if cache is not None: return cache if return_grad else cache.detach()
+            if (cache := self._cached_score(batch,t,conditioning, needs_grad=grad)) is not None: #make sure to ensure the is populated with tensor w/ gradient if grad=True
+                return cache[1] if return_grad else cache[1].detach()
             
             self.score_model.zero_grad(set_to_none=True) #new inputs, so clear the gradient cache as well
             
             if self.reset_seed_each_eval:
                 torch.manual_seed(self.manual_seed)
 
-            offset = batch["offset"] #make sure when we set requries_grad to True, it doesn't affect the original!
+            offset = batch["offset"] 
 
             assert offset.ndim == 1 #no batch support yet
 
             # enable grad to cache the gradients
             if self.always_grad or grad:
                 grad_ctx = torch.enable_grad
-                offset = offset.clone().detach()
+                offset = offset.clone().detach() #prevent memory leak from leftover gradients in the original x
                 offset.requires_grad_(True)
             else:
                 grad_ctx = torch.no_grad
                 offset.requires_grad_(False)
 
 
-            offset_tr = None; offset_rot = None
+            offset_tr,offset_rot = split_offset(offset,self.offset_type)
 
-            if self.offset_type == "Translation+Rotation":
-                offset_tr,offset_rot = offset[...,:3],offset[...,3:]
-            elif self.offset_type == "Translation":
-                offset_tr = offset
-            elif self.offset_type == "Rotation":
-                offset_rot = offset
-            else:
-                raise ValueError(self.offset_type)
-
-
-            new_batch = dict(**conditioning)
-            new_batch["offset_tr"] = offset_tr
-            new_batch["offset_rot"] = offset_rot
-
-            new_batch["t"] = torch.as_tensor(t,device=offset.device,dtype=offset.dtype)
+            # assemble batch for model eval
+            eval_batch = dict(**conditioning)
+            eval_batch["offset_tr"] = offset_tr
+            eval_batch["offset_rot"] = offset_rot
+            eval_batch["t"] = torch.as_tensor(t,device=offset.device,dtype=offset.dtype)
             
             with torch.profiler.record_function("ModelEval: Score: score_model"):
                 with grad_ctx(): #not sure if this actually is that important, might be enough to just set requires grad to true/false. don't think it can hurt, though
-                    scores = self.score_model(new_batch)
+                    scores = self.score_model(eval_batch)
 
             tr_score:Tensor = scores["tr_score"][0]; rot_score:Tensor = scores["rot_score"][0]
+            score = join_offset(tr_score,rot_score,self.offset_type)
 
-            score = None
-            if self.offset_type == "Translation+Rotation":
-                score = torch.cat((tr_score,rot_score))
-            elif self.offset_type == "Translation":
-                score = tr_score
-            elif self.offset_type == "Rotation":
-                score = rot_score
-            else:
-                raise ValueError(self.offset_type)
-
-            self.scorecache = ((batch,t,conditioning),score)
+            self._put_score(batch,t,conditioning,offset,score)
             return score if return_grad else score.detach()
     
 
     def divergence(self,x:LigDict,t:float,conditioning:DFMDict,return_grad:bool=False)->Tensor:
         with torch.profiler.record_function("ModelEval: Divergence"):
-            batch = x
-
-            cache = self._cached_divergence(batch,conditioning,t)#
-            if cache is not None: return cache if return_grad else cache.detach()
-            
-            score = self._cached_score(batch,t,conditioning)
-            if score is None:
-                self.scorecache = None #make sure to invalidate a bad cache
-                score = self.score(batch,t,conditioning,grad=True,return_grad=True)
-
-            (offset,score) = score #use input from score, not from x!
+            if (cache := self._cached_divergence(x,t,conditioning)) is not None: return cache if return_grad else cache.detach()
+            self.score(x,t,conditioning,grad=True)
+            assert self.scorecache is not None
+            offset,score = self.scorecache[1] #make sure we use the corresponding input tensor with the grad enabled
 
             assert score.ndim == 1 #shape = (3,) or (6,)
             assert offset.ndim == 1
@@ -140,9 +132,9 @@ class DFMDockModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched h
             if self.divide_div_by_N:
                 trace = trace/conditioning["lig_pos_orig"].shape[0] #divide by N
 
-            self.divcache = ((batch,t,conditioning),trace)
+            self._put_divergence(x,t,conditioning,trace)
 
-            return trace if return_grad else trace.detach() #essentially a float teehee
+            return trace if return_grad else trace.detach() #essentially a float
 
 
     
