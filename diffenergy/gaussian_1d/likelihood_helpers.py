@@ -1,5 +1,5 @@
 
-from typing import Optional, TypeVar
+from typing import TypeVar
 
 from torch import Tensor
 import torch
