@@ -71,6 +71,8 @@ def main(config: DictConfig):
         sampler = TrimodalGaussianSampler(mu1=-30, sigma1=8.0, w1=0.4 , mu2=0, sigma2=5.0, w2=0.3, mu3=40, sigma3=10.0, w3=0.3)
         dataset = TrimodalGaussianDataset(sampler, noise_std=sigma_noise, num_samples=60000)
         train_loader = DataLoader(dataset, batch_size = batch_size, shuffle = True, num_workers = num_workers)
+    else:
+        raise ValueError(tr_data)
 
     tr_type = config.tr_type
 
@@ -87,6 +89,8 @@ def main(config: DictConfig):
         score_model = score_model.to(device)
         optimizer = torch.optim.Adam(score_model.parameters(), lr = 1e-4, weight_decay = 1e-6)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
+    else:
+        raise ValueError(tr_type)
 
     tqdm_epoch = tqdm.trange(n_epochs)
     loss_train_values = []
