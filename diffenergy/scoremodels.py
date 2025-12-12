@@ -1,4 +1,5 @@
 import operator
+import warnings
 from torch import Tensor
 
 
@@ -25,7 +26,7 @@ class CachedScoreModelEvaluator(ScoreModelEvaluator[X,C]):
                  x_eq:Callable[[X,X],bool]=operator.is_,
                  t_eq:Callable[[float,float],bool]=operator.__eq__,
                  c_eq:Callable[[C,C],bool]=operator.is_):
-        self.scorecache: Optional[tuple[tuple[X,float,C],Tensor]] = None
+        self.scorecache: Optional[tuple[tuple[X,float,C],tuple[Tensor,Tensor]]] = None #Save the input to the score as well to retain the computation graph
         self.divcache: Optional[tuple[tuple[X,float,C],Tensor]] = None
 
         self.x_eq = x_eq
@@ -40,14 +41,15 @@ class CachedScoreModelEvaluator(ScoreModelEvaluator[X,C]):
         ):
             return cache[1]
 
-    def _cached_score(self,x:X,t:float,c:C,needs_grad:bool=False) -> Tensor | None:
+    def _cached_score(self,x:X,t:float,c:C,needs_grad:bool=False) -> tuple[Tensor,Tensor] | None:
         res = self._check_cache(self.scorecache,(x,t,c))
-        if res is not None and needs_grad and res.grad_fn is None:  #cache miss if we need to return a tensor with a gradient history
+        if res is not None and needs_grad and (res[0].requires_grad is False or res[1].grad_fn is None):  #cache miss if we need to return a tensor with a gradient history
+            warnings.warn("Cache miss because the cached tensor is missing a requested gradient! This greatly reduces performance - please make the original call require grad to prevent recalculation!")
             return None
-        return None
+        return res
     
-    def _put_score(self,x:X,t:float,c:C,score:Tensor):
-        self.scorecache = ((x,t,c),score)
+    def _put_score(self,x:X,t:float,c:C,input:Tensor,score:Tensor):
+        self.scorecache = ((x,t,c),(input,score))
 
     def _cached_divergence(self,x:X,t:float,c:C) -> Tensor | None:
         return self._check_cache(self.divcache,(x,t,c))

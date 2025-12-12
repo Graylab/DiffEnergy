@@ -26,13 +26,15 @@ class ModelEval(CachedScoreModelEvaluator[Tensor,None]):
         self.score_model = score_model
         self.batched = batched
 
-    def batchscore(self, x: Tensor, t: float, conditioning: None, grad: bool = True, return_grad: bool = False) -> Tensor:
-        if (cache := self._cached_score(x,t,conditioning, needs_grad=grad)) is not None: #make sure to ensure the is populated with tensor w/ gradient if grad=True
-            return cache if return_grad else cache.detach()
+    def batchscore(self, batch: Tensor, t: float, conditioning: None, grad: bool = True, return_grad: bool = False) -> Tensor:
+        if (cache := self._cached_score(batch,t,conditioning, needs_grad=grad)) is not None: #make sure to ensure the is populated with tensor w/ gradient if grad=True
+            return cache[1] if return_grad else cache[1].detach()
         
+        x = batch
         # enable grad to cache the gradients
         if grad:
             grad_ctx = torch.enable_grad
+            x = x.clone().detach() #prevent memory leak from leftover gradients in the original x
             x.requires_grad_(True)
         else:
             grad_ctx = torch.no_grad
@@ -41,7 +43,7 @@ class ModelEval(CachedScoreModelEvaluator[Tensor,None]):
         with grad_ctx(): #not sure if this actually is that important, might be enough to just set requires grad to true/false. don't think it can hurt, though
             score:Tensor = self.score_model(x, torch.as_tensor([t],device=x.device,dtype=x.dtype).expand((x.shape[0],)))
         
-        self._put_score(x,t,conditioning,score)
+        self._put_score(batch,t,conditioning,x,score)
         return score if return_grad else score.detach()
 
     def score(self, x: Tensor, t: float, conditioning: None, grad: bool = True, return_grad: bool = False) -> Tensor:
@@ -54,9 +56,11 @@ class ModelEval(CachedScoreModelEvaluator[Tensor,None]):
         else:
             raise ValueError("x must have size 1 in dimension 1 to use unbatched score! To use batched data, please initialize the model with batched=True.")
 
-    def batchdivergence(self, x: Tensor, t: float, conditioning: None, return_grad: bool = False) -> Tensor:
-        if (cache := self._cached_divergence(x,t,conditioning)) is not None: return cache
-        score = self.score(x,t,conditioning,grad=True,return_grad=True)
+    def batchdivergence(self, batch: Tensor, t: float, conditioning: None, return_grad: bool = False) -> Tensor:
+        if (cache := self._cached_divergence(batch,t,conditioning)) is not None: return cache if return_grad else cache.detach()
+        self.batchscore(batch,t,conditioning,grad=True) 
+        assert self.scorecache is not None
+        x,score = self.scorecache[1] #make sure we use the corresponding input tensor with the grad enabled
 
         grad_scores = torch.empty(x.shape,dtype=x.dtype,device=x.device)
         for b in range(x.shape[0]):
@@ -64,7 +68,7 @@ class ModelEval(CachedScoreModelEvaluator[Tensor,None]):
                 grad_scores[b,i] = torch.autograd.grad(score[b,i], x, retain_graph=True, create_graph=False)[0][b,i]
         trace = torch.sum(grad_scores, dim=1)
 
-        self._put_divergence(x,t,conditioning,trace)
+        self._put_divergence(batch,t,conditioning,trace)
         return trace if return_grad else trace.detach()
     
     def divergence(self,x:Tensor,t:float,conditioning:None,return_grad:bool=False) -> Tensor:
