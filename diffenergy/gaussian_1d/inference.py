@@ -235,7 +235,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
         batch_size = int(self.config.batch_size) if batched else None
 
         to_array = self.to_array if not batched else self.to_array_batch
-        from_array = functools.partial(self.from_array_batch if not batched else self.from_array,device=device)
+        from_array = functools.partial(self.from_array if not batched else self.from_array_batch,device=device)
 
         # set sigma_values
         sigma_min = self.config.sigma_min
@@ -454,7 +454,7 @@ class GaussianForces(ForcesMixin, GaussianLikelihood):
         seed = self.config.get("seed",0)
 
         with self.forces_index_writer() as index_writer:
-            for (id,P) in paths:
+            for (id,P) in tqdm(paths):
                 if reset_seed_each_path:
                     torch.manual_seed(seed)
 
