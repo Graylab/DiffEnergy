@@ -1,4 +1,5 @@
 from pathlib import Path
+import warnings
 from biotite.structure.io.general import load_structure
 from biotite.structure import AtomArray, get_chains
 try:
@@ -70,8 +71,8 @@ def get_offset_pdb(
     lig_filter = orig_structure.chain_id == offset_chain #get boolean mask
     lig_structure = orig_structure[lig_filter]
 
-    offset_rot = offset_rot if offset_rot is not None else torch.zeros((3,),dtype=float)
-    offset_tr = offset_tr if offset_tr is not None else torch.zeros((3,),dtype=float)
+    offset_rot = offset_rot if offset_rot is not None else torch.zeros((3,),dtype=torch.float)
+    offset_tr = offset_tr if offset_tr is not None else torch.zeros((3,),dtype=torch.float)
 
     #actually since we're modifying coord in-place I don't know if we need to re-assign but it probably makes a copy so safer than sorry
     lig_structure.coord = modify_aa_coords(lig_structure.coord,offset_rot,offset_tr) 
