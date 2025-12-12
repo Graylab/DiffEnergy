@@ -663,10 +663,11 @@ def tensorify(lst,device=None,dtype=None):
     :return: nested list D
     """
     # base case, if the current list is not nested anymore, make it into tensor
-    if type(lst[0]) != list:
-        if type(lst) == torch.Tensor:
+    if type(lst) is torch.Tensor: return lst
+    if type(lst[0]) is not list:
+        if type(lst) is torch.Tensor:
             return lst
-        elif type(lst[0]) == torch.Tensor:
+        elif type(lst[0]) is torch.Tensor:
             return torch.stack(lst, dim=0)
         else:  # if the elements of lst are floats or something like that
             try:
