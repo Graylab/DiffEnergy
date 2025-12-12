@@ -62,7 +62,7 @@ def load_samples(data_file, pdb_dir, offset_type: Literal["Translation", "Rotati
     def getpdb(idx:int)->tuple[str,LigDict,DFMDict]:
         id = str(ids[idx])
         pdb_path = pdb_dir/paths[idx]
-        dfmdict = dockeddatum_to_condition(importer.get_pdb(str(pdb_path),id,suppress_warnings=True),device)
+        dfmdict = dockeddatum_to_condition(importer.get_pdb(str(pdb_path),id),device)
         if offsets is None:
             offset = torch.zeros((6 if offset_type == "Translation+Rotation" else 3,),device=device,dtype=dfmdict["lig_pos_orig"].dtype)
         else:
@@ -88,7 +88,7 @@ def load_trajectories(trajectory_index_file:str|Path,pdb_dir:str|Path,trajectory
     assert trajectory_index_file.suffix == '.csv'
     df = pd.read_csv(trajectory_index_file)
     #since we're reading the condition pdbs as we load the trajectories, needs to be a generator so we don't load them all at once!
-    res:Iterable[tuple[str,Path,DFMDict]] = ((id,trajectory_dir/trajectory_filename,dockeddatum_to_condition(pdb_importer.get_pdb(str(pdb_dir/pdb_filename),id,suppress_warnings=True),device=device))
+    res:Iterable[tuple[str,Path,DFMDict]] = ((id,trajectory_dir/trajectory_filename,dockeddatum_to_condition(pdb_importer.get_pdb(str(pdb_dir/pdb_filename),id),device=device))
               for id,pdb_filename,trajectory_filename in zip(df["index"],df["PDB_File"],df["Trajectory_File"]))
     if batch_size is None:
         return SizeWrappedIter(res,len(df['index']))

@@ -104,7 +104,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         def getpdb(idx:int)->tuple[str,LigDict,DFMDict]:
             id = str(ids[idx])
             pdb_path = pdb_dir/paths[idx]
-            dfmdict = self.dockeddatum_to_condition(importer.get_pdb(str(pdb_path),id,suppress_warnings=True),device)
+            dfmdict = self.dockeddatum_to_condition(importer.get_pdb(str(pdb_path),id),device)
             if offsets is None:
                 offset = torch.zeros(len(offset_columns),device=device,dtype=dfmdict["lig_pos_orig"].dtype)
             else:
@@ -124,7 +124,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         assert trajectory_index_file.suffix == '.csv'
         df = pd.read_csv(trajectory_index_file)
         #since we're reading the condition pdbs as we load the trajectories, needs to be a generator so we don't load them all at once!
-        res:Iterable[tuple[str,Path,DFMDict]] = ((id,trajectory_dir/trajectory_filename,cls.dockeddatum_to_condition(pdb_importer.get_pdb(str(pdb_dir/pdb_filename),id,suppress_warnings=True),device=device))
+        res:Iterable[tuple[str,Path,DFMDict]] = ((id,trajectory_dir/trajectory_filename,cls.dockeddatum_to_condition(pdb_importer.get_pdb(str(pdb_dir/pdb_filename),id),device=device))
                 for id,pdb_filename,trajectory_filename in zip(df["index"],df["PDB_File"],df["Trajectory_File"]))
         return SizeWrappedIter(res,len(df['index']))
     
@@ -165,13 +165,14 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
             if all(coli in df.columns for coli in columns):
                 data = torch.as_tensor(df[columns].values,dtype=torch.float32,device=device) #this just works yesssss
             elif not any(coli in df.columns for coli in columns) and "PDB_File" in df.columns: #we're reading a PDB trajectory, turn into offset
-                offsets = torch.empty((len(df),3))
+                data = torch.empty((len(df),3),dtype=torch.float32,device=device)
                 for i,file in enumerate(df['PDB_File']):
                     pdb_file = Path(pdb_dir)/file
-                    step_pos, _ = load_coords(str(pdb_file),"B")
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        step_pos, _ = load_coords(str(pdb_file),"B")
                     dx = (torch.as_tensor(step_pos) - reference['lig_pos_orig'].cpu())[...,1,:].mean(dim=0) # we do /not/ need to move every pdb to the gpu lmao
-                    offsets[i] = dx
-                data = torch.tensor(offsets,dtype=torch.float32,device=device)
+                    data[i] = dx
                 assert data.ndim == 2 and data.shape[1] == 3
             else:
                 raise ValueError(f"incomplete columns in csv: {df.columns}")
