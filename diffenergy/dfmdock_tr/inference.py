@@ -1,3 +1,4 @@
+from csv import DictWriter
 import functools
 from functools import cached_property
 import itertools
@@ -20,15 +21,11 @@ from diffenergy.dfmdock_tr.utils.biotite_utils import get_offset_pdb
 from biotite.structure.io import save_structure
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords
 from diffenergy.helper import diffusion_coeff, prior_gaussian_nd
+from diffenergy.inference import ForcesMixin
+from diffenergy.inference import unzip
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
 from likelihood_class import DiffEnergyLikelihood
 from scripts.likelihood import MapDataset, SizeWrappedIter, SizedIter, get_integrands, get_paths
-
-X = TypeVar('X')
-Y = TypeVar('Y')
-def unzip(it:Iterable[tuple[X,Y]])->tuple[list[X],list[Y]]:
-    x,y = zip(*it)
-    return list(x),list(y)
 
 class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def __init__(self, config: DictConfig) -> None:
@@ -529,6 +526,100 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                             writer.writerow(traj_out)
                     acc_trajnum += 1
 
+
+class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main class maybe? depends on how hydra cli should work
+    def get_forces(self):
+        # Print the entire configuration
+        print(OmegaConf.to_yaml(self.config))
+
+        # set device
+        device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
+
+        batched = self.config.get("batched",False)
+        batch_size = int(self.config.batch_size) if batched else None
+        if batched:
+            raise ValueError("Batched DFMDock evaluation not supported!")
+
+        to_array = self.to_array
+        from_array = functools.partial(self.from_array,device=device)
+
+        # set sigma_values
+        sigma_min = self.config.sigma_min
+        sigma_max = self.config.sigma_max
+
+        # set models
+        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False))
+        score_model.freeze()
+        score_model.to(device)
+
+        model_eval = DFMDockModelEval(score_model,offset_type=self.offset_type,reset_seed_each_eval=self.config.get("reset_seed_each_eval",False),manual_seed=self.config.get("seed",0))
+
+        scorefn = model_eval.score
+        divergencefn = model_eval.divergence
+
+        esm_model = ESMLanguageModel()
+        pdb_importer = PDBImporter(esm_model,esm_model.alphabet)
+
+        assert batch_size is None
+        load_samples_fn = lambda: self.load_samples(self.config.data_samples, self.config.pdb_dir, pdb_importer, device=device)  # noqa: E731
+        load_trajectories_fn = lambda: self.load_trajectories(self.config.trajectory_index_file, self.config.pdb_dir, self.config.trajectory_dir, pdb_importer)  # noqa: E731
+        get_trajectory_fn = lambda trajectory_file,condition: self.load_trajectory(trajectory_file, self.config.pdb_dir, condition, device=device)  # noqa: E731
+
+        diffusion_coeff_fn = functools.partial(
+            diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = self.config.get("clamp_diffusion_coefficient",False))
+
+
+        paths = get_paths(self.config,
+                        from_array,
+                        to_array,
+                        scorefn,
+                        divergencefn,
+                        diffusion_coeff_fn,
+                        load_samples_fn,
+                        load_trajectories_fn,
+                        get_trajectory_fn,
+                        device)
+
+
+        ### RUN FORCES
+
+        self.initialize_out_dir()
+        self.write_config(self.out_config_file)
+
+        cols = self.offset_trajectory_columns
+        scorecols = [f'score:{col}' for col in cols]
+        poscols = [f'pos:{col}' for col in cols]
+
+        reset_seed_each_path = self.config.get("reset_seed_each_path",False)
+        seed = self.config.get("seed",0)
+
+        with self.forces_index_writer() as index_writer:
+            for (id,P) in paths:
+                if reset_seed_each_path:
+                    torch.manual_seed(seed)
+
+                c = P.condition
+                forces_csv_file = self.forces_folder/f'{id}.csv'
+                index_writer.writerow({"id":id,"Forces_CSV":forces_csv_file})
+                with open(forces_csv_file,'w',newline='') as f2:
+                    forces_writer = DictWriter(f2,fieldnames=['Index','Timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
+                    forces_writer.writeheader()
+                    for i,(x,t) in enumerate(P):
+                        force = scorefn(x,t,c)
+                        div = divergencefn(x,t,c)
+
+                        forcedict = {
+                            "Index":i,
+                            "Timestep":torch.as_tensor(t).item(),
+                            'Diffusion_Coeff':diffusion_coeff_fn(t).item(),
+                            'Divergence':div.item(),
+                            **dict(zip(scorecols,force.tolist())),
+                            **dict(zip(poscols,x["offset"].tolist()))
+                        }
+                        forces_writer.writerow(forcedict)
+
+class DFMDockSampler(DFMDockLikelihood):
+
     def sample_random_offset(self,rec_pos, lig_pos, sigma:float)->torch.Tensor:
         device=rec_pos.device
 
@@ -538,15 +629,15 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
 
         # get rotat update: random rotation vector
         restensors = []
-        
+
         if "Translation" in self.offset_type:
             # get trans update: random noise + translate x2 to x1
             restensors.append(torch.normal(0.0, sigma, size=(3,), device=device) + (rec_cen - lig_cen))
         if "Rotation" in self.offset_type:
             raise NotImplementedError()
-        
+
         return torch.cat(restensors,dim=0)
-    
+
     def sample(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
@@ -578,12 +669,12 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
 
             if self.config.get("wt_file",None):
                 self.config.checkpoint = self.config.wt_file
-            
+
             if self.config.get("sample_file",None):
                 warnings.warn("sample_file included, but will be ignored! Sample files are now always saved to {out_dir}/samples.csv!")
             if self.config.get("sample_num",None):
                 warnings.warn("sample_num is unused for dfmdock sampling; data is generated from noising pdbs, so please specify samples_per_pdb instead!")
-            
+
             if self.config.get("num_steps",None):
                 self.config.sde_steps = self.config.num_steps
 
@@ -593,9 +684,9 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 self.config.save_trajectories = True
             if self.config.get("save_trajectories",False):
                 self.config.write_trajectory_index = True
-        
-            
-        
+
+
+
         # set device
         device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
 
@@ -617,7 +708,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         score_model.to(device)
 
         model_eval = DFMDockModelEval(score_model,offset_type=self.offset_type)
-        
+
         scorefn = model_eval.score# if not batched else model_eval.batch_score
         divergencefn = model_eval.divergence# if not batched else model_eval.batch_divergence
 
@@ -631,13 +722,13 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         assert batch_size is None
         def load_noised_samples()->SizedIter[tuple[str,LigDict,DFMDict]]:
             dataset = self.load_samples(self.config.data_samples, self.config.pdb_dir, pdb_importer, device=device)
-            
+
             def get_noised_sample(id:str,lig:LigDict,cond:DFMDict):
                 assert torch.all(lig["offset"] == 0)
                 rand_offset = self.sample_random_offset(cond["rec_pos"],cond["lig_pos_orig"],sigma_max)
                 lig = {"offset":rand_offset}
                 return (id,lig,cond)
-            
+
             samples_each = self.config.samples_per_pdb
             return SizeWrappedIter((get_noised_sample(f"{id}_{i}",lig,cond) for (id,lig,cond) in dataset for i in range(samples_each)),samples_each*len(dataset))
 
@@ -656,8 +747,8 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                         load_trajectories_fn,
                         get_trajectory_fn,
                         device)
-        
-        
+
+
         ### RUN SAMPLING
 
         self.initialize_out_dir()
@@ -667,16 +758,16 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         write_samples = self.config.get("write_samples",True)
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
-        
+
         acc_trajnum = 0
         with (  #open the various global output csv.DictWriters
-                self.sample_index_writer(write_samples)                 as samples_writer, 
+                self.sample_index_writer(write_samples)                 as samples_writer,
                 self.trajectory_index_writers(write_trajectory_index)   as trajectory_indices
             ):
             for (id,path) in paths:
                 trajectory,time = unzip(path)
                 condition = path.condition
-                
+
                 sample_out, traj_out = self.write_samples(
                     self.out_trajectory_folder,
                     self.out_pdb_folder,
@@ -703,4 +794,3 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                         if cutoff is None or acc_trajnum < cutoff:
                             writer.writerow(traj_out)
                     acc_trajnum += 1
-
