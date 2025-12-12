@@ -21,7 +21,9 @@ def get_chain_structure(orig:str|Path|AtomArray,chain:str,backbone_only:bool=Fal
     if isinstance(orig,AtomArray):
         orig_structure = orig
     else:
-        orig_structure:AtomArray = load_structure(orig)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            orig_structure:AtomArray = load_structure(orig)
         
     all_chains = get_chains(orig_structure)
     if len(all_chains) == 0:
@@ -54,7 +56,9 @@ def get_offset_pdb(
     if isinstance(orig,AtomArray):
         orig_structure = orig.copy()
     else:
-        orig_structure:AtomArray = load_structure(orig)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            orig_structure:AtomArray = load_structure(orig)
         
     all_chains = get_chains(orig_structure)
     if len(all_chains) == 0:

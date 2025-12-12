@@ -35,11 +35,11 @@ class PDBImporter:
         self.esm_model = esm_model
         self.batch_converter = esm_alphabet.get_batch_converter()
 
-    def get_pdb(self,pdb_file:str,id:str,out_pdb: bool = False, suppress_warnings: bool = True)->DockedDatum:
+    def get_pdb(self,pdb_file:str,id:str,out_pdb: bool = False)->DockedDatum:
 
         # Get sequences and coords from files  
-        ctx = warnings.catch_warnings(action="ignore") if suppress_warnings else contextlib.nullcontext()
-        with ctx:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
             rec_pos, rec_seq = load_coords(pdb_file,"A")
             lig_pos, lig_seq = load_coords(pdb_file,"B")
 
