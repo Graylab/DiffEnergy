@@ -11,7 +11,7 @@ import os
 import shutil
 import warnings
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 from functools import cached_property
 from io import TextIOWrapper
 from pathlib import Path
@@ -61,9 +61,14 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
     def out_config_file(self):
         return self.out_dir/"config.yaml"
 
-    def write_config(self,file:str|Path):
+    def write_config(self,file:str|Path,strip_overwrite:bool=True):
+        config = self.config.copy()
+        if strip_overwrite:
+            with open_dict(config):
+                if "overwrite_output" in config: #make sure overwrite_output doesn't get propagated
+                    del config.overwrite_output
         with open(file,"w") as f:
-            f.write(OmegaConf.to_yaml(self.config))
+            f.write(OmegaConf.to_yaml(config))
 
     @property
     def out_likelihoods_file(self):
