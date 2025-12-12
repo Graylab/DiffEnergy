@@ -1,0 +1,23 @@
+# @package _global_
+wt_file: checkpoints/dfmdock_tr_0.ckpt
+out_dir: ../testconf/sample/dfmdock
+offset_type: "Translation"
+samples_per_pdb: 1
+
+pdb_dir: ../db5_pdbs_noised
+data_samples: ../db5_pdbs_noised/index.csv
+
+noise_scale: 0
+
+num_steps: 40
+sigma_min: 0.1
+sigma_max: 30
+
+#Write pdb references as samples, use as reference for trajectories as offsets
+save_trajectory: True
+save_pdb_references: True 
+pdb_reference_point: 'end'
+sample_save_point: 'reference' #make the samples point to the reference point instead of writing new file
+sample_save_type: 'pdb'
+trajectory_save_type: 'offset'
+trajectory_extra_indices: [1000,25]
