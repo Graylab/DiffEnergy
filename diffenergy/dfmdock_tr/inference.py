@@ -5,7 +5,7 @@ import itertools
 import math
 from pathlib import Path
 import shutil
-from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence, TypeVar
+from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence, override
 import warnings
 
 import numpy as np
@@ -76,9 +76,13 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
             "position_matrix": datum["position_matrix"].to(device),
         }
 
+    @override
+    def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
+        return super().trajectory_index_writers(write_indices,extra_fieldnames=['PDB_File','Trajectory_File',*extra_fieldnames])
 
-    def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[]):
-        return super().sample_index_writer(write_samples,extra_fieldnames=[*extra_fieldnames,*self.offset_trajectory_columns])
+    @override
+    def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[],offset_columns=False):
+        return super().sample_index_writer(write_samples,extra_fieldnames=['Filename',*(self.offset_trajectory_columns if offset_columns else []),*extra_fieldnames])
     
     def load_samples(self, data_file:str|Path, pdb_dir:str|Path, importer:PDBImporter, device:str|torch.device='cuda')->Sequence[tuple[str,LigDict,DFMDict]]|Sequence[tuple[Sequence[str],LigDict,DFMDict]]:
         """Loads pdbs from a CSV file containing filenames. Returns tuples of (id, LigDict, DFMDict),
@@ -460,15 +464,16 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         write_samples = self.config.get("write_samples",True)
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
+        sample_save_type = self.config.get("sample_save_type","offset")
         
         ## WRITE OUTPUT
         acc_trajnum = 0
         with (  #open the various global output csv.DictWriters
                 self.likelihoods_writer(True, 
                     prior_names=[name for (name,_) in priors],
-                    integrand_names=[integrand.name() for integrand in integrands])  as likelihoods_writer,
-                self.sample_index_writer(write_samples)                 as samples_writer, 
-                self.trajectory_index_writers(write_trajectory_index)   as trajectory_indices
+                    integrand_names=[integrand.name() for integrand in integrands])                 as likelihoods_writer,
+                self.sample_index_writer(write_samples,offset_columns=sample_save_type == 'offset') as samples_writer, 
+                self.trajectory_index_writers(write_trajectory_index)                               as trajectory_indices
             ):
             for (id,path) in tqdm(paths):
                 if reset_seed_each_path:
@@ -512,7 +517,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                     save_pdb_references=self.config.get("save_pdb_references",False),
                     pdb_reference_point=self.config.get("pdb_reference_point",None),
                     sample_save_point=self.config.get("sample_save_point","end"),
-                    sample_save_type=self.config.get("sample_save_type","offset"),
+                    sample_save_type=sample_save_type,
                     force_copy_duplicate_sample=self.config.get("force_copy_duplicate_sample",False),
                     trajectory_save_type=self.config.get("trajectory_save_type","offset"),
                 )
@@ -758,11 +763,12 @@ class DFMDockSampler(DFMDockLikelihood):
         write_samples = self.config.get("write_samples",True)
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
+        sample_save_type = self.config.get("sample_save_type","offset")
 
         acc_trajnum = 0
         with (  #open the various global output csv.DictWriters
-                self.sample_index_writer(write_samples)                 as samples_writer,
-                self.trajectory_index_writers(write_trajectory_index)   as trajectory_indices
+                self.sample_index_writer(write_samples,offset_columns=sample_save_type == 'offset') as samples_writer, 
+                self.trajectory_index_writers(write_trajectory_index)                               as trajectory_indices
             ):
             for (id,path) in paths:
                 trajectory,time = unzip(path)
@@ -781,7 +787,7 @@ class DFMDockSampler(DFMDockLikelihood):
                     save_pdb_references=self.config.get("save_pdb_references",False),
                     pdb_reference_point=self.config.get("pdb_reference_point",None),
                     sample_save_point=self.config.get("sample_save_point","end"),
-                    sample_save_type=self.config.get("sample_save_type","offset"),
+                    sample_save_type=sample_save_type,
                     force_copy_duplicate_sample=self.config.get("force_copy_duplicate_sample",False),
                     trajectory_save_type=self.config.get("trajectory_save_type","offset"),
                 )

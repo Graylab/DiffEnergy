@@ -101,7 +101,7 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
 
         if write_samples:
             with open(self.out_samples_file,"w") as samples_handle:
-                fieldnames = ["index","Samples"] #TODO: regularize capitalization aaaa
+                fieldnames = ["index"] #TODO: regularize capitalization aaaa
                 fieldnames.extend(extra_fieldnames)
                 samples_writer = csv.DictWriter(samples_handle,fieldnames=fieldnames)
                 samples_writer.writeheader()
@@ -133,7 +133,7 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
             index_handles: dict[int|None,TextIOWrapper] = {ind:open(file,"w",newline='') for ind,file in self.out_trajectory_indices.items()}
 
             extras = list(extra_fieldnames)
-            trajectory_indices = {ind:csv.DictWriter(f,fieldnames=["index","PDB_File","Trajectory_File"] + extras) for (ind,f) in index_handles.items()}
+            trajectory_indices = {ind:csv.DictWriter(f,fieldnames=["index"] + extras) for (ind,f) in index_handles.items()}
             [writer.writeheader() for writer in trajectory_indices.values()]
 
             try:
