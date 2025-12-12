@@ -458,7 +458,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         reset_seed_each_path = self.config.get("reset_seed_each_path",False)
         seed = self.config.get("seed",0)
 
-        write_samples = self.config.get("write_samples",True)
+        write_samples = self.config.get("write_samples",False)
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
         sample_save_type = self.config.get("sample_save_type","offset")
@@ -757,7 +757,7 @@ class DFMDockSampler(DFMDockLikelihood):
         self.write_config(self.out_config_file)
 
         ## WRITE OUTPUT
-        write_samples = self.config.get("write_samples",True)
+        write_samples = self.config.get("write_samples",False)
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
         sample_save_type = self.config.get("sample_save_type","offset")
