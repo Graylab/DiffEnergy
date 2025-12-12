@@ -596,7 +596,7 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main
         seed = self.config.get("seed",0)
 
         with self.forces_index_writer() as index_writer:
-            for (id,P) in paths:
+            for (id,P) in tqdm(paths):
                 if reset_seed_each_path:
                     torch.manual_seed(seed)
 
@@ -705,14 +705,14 @@ class DFMDockSampler(DFMDockLikelihood):
         sigma_max = self.config.sigma_max
 
         # set models
-        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint)
+        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False))
         score_model.freeze()
         score_model.to(device)
 
         model_eval = DFMDockModelEval(score_model,offset_type=self.offset_type)
 
-        scorefn = model_eval.score# if not batched else model_eval.batch_score
-        divergencefn = model_eval.divergence# if not batched else model_eval.batch_divergence
+        scorefn = model_eval.score
+        divergencefn = model_eval.divergence
 
         esm_model = ESMLanguageModel()
         pdb_importer = PDBImporter(esm_model,esm_model.alphabet)
