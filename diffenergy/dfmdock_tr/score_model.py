@@ -1,12 +1,9 @@
 import copy
-import hydra
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 import numpy as np
-from omegaconf import DictConfig
-from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict
 from diffenergy.dfmdock_tr.score_net import Score_Net
 from diffenergy.dfmdock_tr.utils.so3_diffuser import SO3Diffuser 
 from diffenergy.dfmdock_tr.utils.r3_diffuser import R3Diffuser 
