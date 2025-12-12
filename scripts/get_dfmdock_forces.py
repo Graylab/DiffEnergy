@@ -1,23 +1,8 @@
 
-
-from csv import DictWriter
-import functools
-from pathlib import Path
-from typing import Literal
 import hydra
-from omegaconf import DictConfig, OmegaConf
-import torch
+from omegaconf import DictConfig
 
-from diffenergy.dfmdock_tr.docked_dataset import PDBImporter
-from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
 from diffenergy.dfmdock_tr.inference import DFMDockForces
-from diffenergy.dfmdock_tr.score_model import Score_Model
-from scripts.likelihood import get_paths
-
-from diffenergy.helper import diffusion_coeff
-from diffenergy.dfmdock_tr.likelihood_helpers import DFMDockModelEval, to_array as DFMDock_to_array_nobatch, from_array as DFMDock_from_array_nobatch
-from scripts.likelihood import get_paths
-from scripts.likelihood_dfmdock_old import load_samples, load_trajectories, load_trajectory, offset_trajectory_columns
 
 @hydra.main(version_base=None, config_path='../configs/likelihoodv3')
 def main(config:DictConfig):
