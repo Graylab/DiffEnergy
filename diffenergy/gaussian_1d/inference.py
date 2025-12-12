@@ -21,7 +21,7 @@ import functools
 import itertools
 import math
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Optional, Sequence
+from typing import Callable, Iterable, Mapping, Optional, Sequence, override
 
 
 class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
@@ -123,6 +123,14 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
     @classmethod
     def load_trajectories_batched(cls,index_file:str|Path,batch_size:int):
         return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch),None) for batch in itertools.batched(cls.load_trajectories(index_file),batch_size)]
+    
+    @override
+    def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[]):
+        return super().sample_index_writer(write_samples,extra_fieldnames=['Samples',*extra_fieldnames])
+    
+    @override
+    def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
+        return super().trajectory_index_writers(write_indices,extra_fieldnames=['filename',*extra_fieldnames])
 
     @classmethod
     def load_trajectory(cls,data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda')->tuple[torch.Tensor,torch.Tensor]:
