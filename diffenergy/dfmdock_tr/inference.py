@@ -21,10 +21,10 @@ from diffenergy.dfmdock_tr.utils.biotite_utils import get_offset_pdb
 from biotite.structure.io import save_structure
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords
 from diffenergy.helper import diffusion_coeff, prior_gaussian_nd
-from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin
+from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin, MapDataset, SizeWrappedIter, get_integrands, get_paths
 from diffenergy.inference import unzip
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
-from scripts.likelihood import MapDataset, SizeWrappedIter, SizedIter, get_integrands, get_paths
+from diffenergy.inference import SizedIter
 
 class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def __init__(self, config: DictConfig) -> None:
