@@ -1,11 +1,11 @@
 # @package _global_
 checkpoint: checkpoints/diffenergy_tr_0.ckpt
-out_dir: ../testconf/likelihood/dfmdock_flow
+out_dir: results/likelihood/dfmdock_flow
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
-pdb_dir: ../sample_results/dfmdock_inference_trtrained_deterministic
-data_samples: ../sample_results/dfmdock_inference_trtrained_deterministic/samples.csv
+pdb_dir: results/sample_results/dfmdock
+data_samples: results/sample_results/dfmdock/samples.csv
 
 offset_type: "Translation"
 tr_type: non_conservative

@@ -1,12 +1,12 @@
 # @package _global_
 checkpoint: checkpoints/diffenergy_tr_0.ckpt
-out_dir: ../testconf/forces/dfmdock
+out_dir: results/forces/dfmdock
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
-pdb_dir: ../sample_results/dfmdock_inference_trtrained_deterministic
-trajectory_dir: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs
-trajectory_index_file: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs/trajectory_index_singles.csv
+pdb_dir: results/sample_results/dfmdock
+trajectory_dir: results/sample_results/dfmdock/trjs
+trajectory_index_file: results/sample_results/dfmdock/trjs/trajectory_index_singles.csv
 
 offset_type: "Translation"
 tr_type: non_conservative
