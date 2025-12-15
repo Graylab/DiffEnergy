@@ -23,6 +23,7 @@ dependencies = [
     "einops",
     "biopython",
     "dm-tree",
+    "seaborn", #for plotting
 ]
 
 [tool.setuptools.packages]
