@@ -250,7 +250,7 @@ class ODEIntegrablePath(IntegrablePath[X,C],ABC):
 
 class ScoreDivDiffIntegrand(ODELikelihoodIntegrand[X,C]):
     """Any integrand which is a function of score, divergence, and the diffusion coefficient (as a scalar function of time).
-    Base Class for TotalIntegrand, TimeIntegrand, and SpaceIntegrand.
+    Base Class for TotalIntegrand, FlowIntegrand, and SpaceIntegrand.
     Parameters:
     scorefn: (x,t) -> grad_xlogp(x,t))
     divfn: (x,t) -> laplacian_x(logp(x,t)) = sum((d/dx_i)^2 logp(x,t))
@@ -299,7 +299,7 @@ class TotalIntegrand(ScoreDivDiffIntegrand[X,C]):
 
         return dxterm + divterm + gradnormterm #not a float, teehee. scalar tensor though!
 
-class TimeIntegrand(ScoreDivDiffIntegrand[X,C]):
+class FlowIntegrand(ScoreDivDiffIntegrand[X,C]):
     """Assumes: f(x,t) = 0, G(x,t)=g(t)I_n. Also assumes dx/dt = f~(t), where f~ is the appropriate flow-equivalent ODE of the SDE being modeled.
     Parameters:
         scorefn: (x,t) -> grad_xlogp(x,t))

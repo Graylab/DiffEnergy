@@ -10,8 +10,7 @@ tr_type: non_conservative
 
 integrand_types:
   TotalIntegrand:
-  TimeIntegrand:
-  SpaceIntegrand:
+  FlowIntegrand:
 prior_fns:
   smax_gaussian
   convolved_data

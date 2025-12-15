@@ -20,7 +20,7 @@ import torch
 from torch.utils.data import Dataset
 
 from torch import Tensor
-from diffenergy.likelihood import ArrayLike, EnsembledIntegrablePath, FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiableSequence, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand
+from diffenergy.likelihood import ArrayLike, EnsembledIntegrablePath, FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiableSequence, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, FlowIntegrand, TotalIntegrand
 
 
 X = TypeVar("X") #data type of point
@@ -208,7 +208,7 @@ def get_integrands(
                     return p
             return config.get(p,*args)
 
-        intclasses:dict[str,type[ScoreDivDiffIntegrand[X,C]]] = {cls.__name__:cls for cls in [TotalIntegrand[X,C],TimeIntegrand[X,C],SpaceIntegrand[X,C]]}
+        intclasses:dict[str,type[ScoreDivDiffIntegrand[X,C]]] = {cls.__name__:cls for cls in [TotalIntegrand[X,C],FlowIntegrand[X,C],SpaceIntegrand[X,C]]}
 
         if integrand_type in intclasses:
             intcls = intclasses[integrand_type]
