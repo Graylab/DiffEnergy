@@ -19,7 +19,8 @@ import omegaconf
 import torch
 from torch.utils.data import Dataset
 
-from diffenergy.likelihood import ArrayLike, Array, EnsembledIntegrablePath, FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiableSequence, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand
+from torch import Tensor
+from diffenergy.likelihood import ArrayLike, EnsembledIntegrablePath, FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiableSequence, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, TimeIntegrand, TotalIntegrand
 
 
 X = TypeVar("X") #data type of point
@@ -184,10 +185,10 @@ I = TypeVar("I")  # noqa: E741
 def get_integrands(
         config:DictConfig,
         from_array:Callable[[ArrayLike],X],
-        to_array:Callable[[X],Array],
-        scorefn:Callable[[X,float,C],Array],
-        divergencefn:Callable[[X,float,C],float|Array],
-        diffusion_coeff_fn:Callable[[float],float|Array],
+        to_array:Callable[[X],Tensor],
+        scorefn:Callable[[X,float,C],Tensor],
+        divergencefn:Callable[[X,float,C],float|Tensor],
+        diffusion_coeff_fn:Callable[[float],float|Tensor],
         ):
 
     ### LOAD INTEGRANDS
@@ -280,10 +281,10 @@ class SizeWrappedIter(SizedIter[X]):
 def get_paths(
         config:DictConfig,
         from_array:Callable[[ArrayLike],X],
-        to_array:Callable[[X],Array],
-        scorefn:Callable[[X,float,C],Array],
-        divergencefn:Callable[[X,float,C],float|Array],
-        diffusion_coeff_fn:Callable[[float],float|Array],
+        to_array:Callable[[X],Tensor],
+        scorefn:Callable[[X,float,C],Tensor],
+        divergencefn:Callable[[X,float,C],float|Tensor],
+        diffusion_coeff_fn:Callable[[float],float|Tensor],
         load_samples:Callable[[],SizedIter[tuple[I,X,C]]],
         load_trajectories:Callable[[],SizedIter[tuple[I,T,C]]],
         get_trajectory:Callable[[T,C],Sequence[tuple[X,float]]],
