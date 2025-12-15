@@ -1,6 +1,6 @@
 # @package _global_
 wt_file: checkpoints/1d_trinormal_smax70_unnoised.ckpt
-out_dir: ../testconf/sample/gaussian_1d
+out_dir: results/sample_results/gaussian_1d
 sample_num: 10000
 tr_type: non_conservative
 num_steps: 1000

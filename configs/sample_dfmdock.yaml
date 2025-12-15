@@ -1,6 +1,6 @@
 # @package _global_
 wt_file: checkpoints/diffenergy_tr_0.ckpt
-out_dir: ../testconf/sample/dfmdock
+out_dir: results/sample_results/dfmdock
 offset_type: "Translation"
 samples_per_pdb: 120
 
