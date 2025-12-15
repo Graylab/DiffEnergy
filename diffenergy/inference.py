@@ -39,8 +39,10 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
     def initialize_out_dir(self,allow_existing=False):
         """Initialize output directory, where config, likelihoods, trajectories, samples, etc will be saved.
         By default, initialization requires the output directory to be empty, and (if overwrite_output=True) will clear it otherwise.
-        Use allow_existing=True to overwrite this behavior; existing files in the output directory will be overwritten upon write,
-        though extraneous files might remain from the old folder.
+        Use allow_existing=True to overwrite this behavior; when writing, existing files in the output directory will be overwritten,
+        though extraneous files might remain from the old folder. 
+        
+        allow_existing=True can be useful when instantiating DiffEnergyLikelihood with an existing config file
         """
 
         out_dir = Path(self.config.out_dir)
