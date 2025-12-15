@@ -122,15 +122,21 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
 
         assert trajectory_index_file.suffix == '.csv'
         df = pd.read_csv(trajectory_index_file)
+        
         #since we're reading the condition pdbs as we load the trajectories, needs to be a generator so we don't load them all at once!
-        res:Iterable[tuple[str,Path,DFMDict]] = ((id,trajectory_dir/trajectory_filename,cls.dockeddatum_to_condition(pdb_importer.get_pdb(str(pdb_dir/pdb_filename),id),device=device))
+        res:Iterable[tuple[str,Path,DFMDict]] = (
+            (id, 
+             trajectory_dir/trajectory_filename, 
+             cls.dockeddatum_to_condition(pdb_importer.get_pdb(str(pdb_dir/pdb_filename),id), device=device))
                 for id,pdb_filename,trajectory_filename in zip(df["index"],df["PDB_File"],df["Trajectory_File"]))
+        #add length hint for progress bar
         return SizeWrappedIter(res,len(df['index']))
     
     @classmethod
     def load_trajectories_batched(cls, trajectory_index_file:str|Path,pdb_dir:str|Path,trajectory_dir:str|Path,pdb_importer:PDBImporter,batch_size:int,device:str|torch.device='cuda')->SizedIter[tuple[tuple[str,...],tuple[Path,...],tuple[DFMDict,...]]]:
         unbatched = cls.load_trajectories(trajectory_index_file,pdb_dir,trajectory_dir,pdb_importer,device=device)
         num_batches = math.ceil(len(unbatched)//batch_size)
+        #add length hint for progress bar
         return SizeWrappedIter(((tuple(b[0] for b in batch),tuple(b[1] for b in batch), tuple(b[2] for b in batch)) for batch in itertools.batched(unbatched,batch_size)),num_batches)
 
 
