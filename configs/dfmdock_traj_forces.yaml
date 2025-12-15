@@ -9,9 +9,8 @@ trajectory_dir: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs
 trajectory_index_file: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs/trajectory_index_singles.csv
 
 offset_type: "Translation"
+tr_type: non_conservative
 
 path_type: sde_trajectories
-
-tr_type: non_conservative
 
 deterministic_score: True

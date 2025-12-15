@@ -10,6 +10,7 @@ trajectory_dir: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs
 trajectory_index_file: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs/trajectory_index.csv
 
 offset_type: "Translation"
+tr_type: non_conservative
 
 integrand_types:
   TotalIntegrand:
@@ -21,13 +22,8 @@ path_type: sde_trajectories
 
 integral_type: 'diff'
 
-tr_type: non_conservative
-
 integration:
   method: trapezoid
-
-ode_steps: 100
-num_workers: 4
 
 save_trajectories: True
 save_trajectory_likelihoods: True

@@ -6,6 +6,8 @@ sigma_max: 70
 clamp_diffusion_coefficient: False
 data_samples: ../sample_results/trinormal_1d_smax70_unnoised/samples.csv
 
+tr_type: non_conservative
+
 integrand_types:
   TotalIntegrand:
   TimeIntegrand:
@@ -16,14 +18,12 @@ prior_fns:
 path_type: flow_ode
 
 integral_type: 'ode'
-
-tr_type: non_conservative
-
-odeint_rtol: 1e-5
-odeint_atol: 1e-5
-odeint_method: rk4
 ode_steps: 100
-num_workers: 4
+
+integration:
+  method: rk4
+  rtol: 1e-5
+  atol: 1e-5
 
 save_trajectories: True
 

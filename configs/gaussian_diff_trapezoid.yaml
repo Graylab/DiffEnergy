@@ -7,6 +7,8 @@ clamp_diffusion_coefficient: False
 data_samples: ../sample_results/trinormal_1d_smax70_unnoised/samples.csv
 trajectory_index_file: ../sample_results/trinormal_1d_smax70_unnoised/trajectories/trajectory_index.csv
 
+tr_type: non_conservative
+
 integrand_types:
   TotalIntegrand:
   TimeIntegrand:
@@ -18,13 +20,8 @@ path_type: sde_trajectories
 
 integral_type: 'diff'
 
-tr_type: non_conservative
-
 integration:
   method: trapezoid
-
-ode_steps: 100
-num_workers: 4
 
 save_trajectories: False
 
