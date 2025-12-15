@@ -1,0 +1,17 @@
+# @package _global_
+checkpoint: checkpoints/diffenergy_tr_0.ckpt
+out_dir: ../testconf/forces/dfmdock
+sigma_min: 0.1
+sigma_max: 30
+clamp_diffusion_coefficient: False
+pdb_dir: ../sample_results/dfmdock_inference_trtrained_deterministic
+trajectory_dir: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs
+trajectory_index_file: ../sample_results/dfmdock_inference_trtrained_deterministic/trjs/trajectory_index_singles.csv
+
+offset_type: "Translation"
+
+path_type: sde_trajectories
+
+tr_type: non_conservative
+
+deterministic_score: True

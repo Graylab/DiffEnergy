@@ -1,0 +1,19 @@
+# @package _global_
+checkpoint: checkpoints/1d_trinormal_smax70_unnoised.ckpt
+out_dir: ../testconf/forces/gaussian_1000
+sigma_min: 0.1
+sigma_max: 70
+clamp_diffusion_coefficient: False
+trajectory_index_file: ../sample_results/trinormal_1d_smax70_unnoised/trajectories/trajectory_index_1000.csv
+
+path_type: sde_trajectories
+
+integral_type: 'diff'
+
+tr_type: non_conservative
+
+odeint_rtol: 1e-5
+odeint_atol: 1e-5
+odeint_method: rk4
+ode_steps: 100
+num_workers: 4
