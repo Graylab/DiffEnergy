@@ -5,7 +5,7 @@ from omegaconf import DictConfig
 
 from diffenergy.dfmdock_tr.inference import DFMDockSampler
 
-@hydra.main(version_base=None, config_path="../configs/likelihoodv3")
+@hydra.main(version_base=None, config_path="../configs")
 def main(config:DictConfig):
     sampler = DFMDockSampler(config)
     sampler.sample()

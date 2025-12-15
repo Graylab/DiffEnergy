@@ -3,7 +3,7 @@ from omegaconf import DictConfig
 
 from diffenergy.gaussian_1d.inference import GaussianForces
 
-@hydra.main(version_base=None, config_path='../configs/likelihoodv3')
+@hydra.main(version_base=None, config_path='../configs')
 def main(config:DictConfig):
     forces = GaussianForces(config)
     forces.get_forces()
