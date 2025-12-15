@@ -17,7 +17,6 @@
 
 import collections
 import functools
-import os
 from typing import Mapping, List, Tuple
 from importlib import resources
 
