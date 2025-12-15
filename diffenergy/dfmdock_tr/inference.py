@@ -531,7 +531,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                     acc_trajnum += 1
 
 
-class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main class maybe? depends on how hydra cli should work
+class DFMDockForces(ForcesMixin, DFMDockLikelihood):
     def get_forces(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
