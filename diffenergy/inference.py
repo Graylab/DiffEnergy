@@ -477,7 +477,7 @@ def get_paths(
 
         case "diff_data_translation":
             # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
-            # Requires a prior function compatible with t0 sampling
+            # Requires a prior function compatible with t0 sampling [e.g. ground truth]
 
             #sde: get paths from diffusion tajectories
             trajectories = load_trajectories()
@@ -499,7 +499,7 @@ def get_paths(
 
         case "data_translation":
             # Linear translation in data space: like linear_trajectories, but always at time=0. 
-            # Requires a prior function compatible with t0 sampling
+            # Requires a prior function compatible with t0 sampling [e.g. ground truth]
 
             # take sampled paths, and just make a straight line from start to end
             trajectories = load_trajectories()
