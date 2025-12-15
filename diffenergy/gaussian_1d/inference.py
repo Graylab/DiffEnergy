@@ -288,18 +288,6 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
         self.initialize_out_dir()
         self.write_config(self.out_config_file)
 
-        #TODO: remove from public release
-        # #parallel setup (currently nonfunctional)
-        # parallel = self.config.get("parallel",False)
-        # cluster_kwargs = self.config.get("cluster_kwargs",{})
-        # if parallel:
-        #     import ray
-        #     ray.init(**cluster_kwargs)
-        # actor_kwargs = self.config.get("actor_kwargs",{})
-        # if device.type == 'cuda' and 'num_gpus' not in actor_kwargs:
-        #     actor_kwargs['num_gpus'] = 1 #assume each actor will consume an entire gpu
-
-
         int_type = self.config.integral_type
 
         reset_seed_each_path = self.config.get("reset_seed_each_path",False)
