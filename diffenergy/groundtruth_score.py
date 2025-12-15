@@ -107,7 +107,7 @@ class MultimodalGaussianGroundTruthScoreModel(CachedScoreModelEvaluator[Tensor,N
         return self._intermediates(x,t)["wprobs_sum"]
 
     def batch_score(self, batch: Tensor, t: float, conditioning:None) -> Tensor:
-        if (cache := self._cached_score(batch,t,conditioning)): return cache
+        if (cache := self._cached_score(batch,t,conditioning)): return cache[1]
         
         ints = self._intermediates(batch,t)
         wprobs = ints["wprobs"]; transf_dx = ints["transf_dx"]; wprobs_sum = ints["wprobs_sum"]
@@ -115,7 +115,7 @@ class MultimodalGaussianGroundTruthScoreModel(CachedScoreModelEvaluator[Tensor,N
         with record_function("scoresum"):
             score = -torch.sum(wprobs[...,None]*transf_dx,dim=-2)/wprobs_sum[...,None]
 
-        self._put_score(batch,t,None,score)
+        self._put_score(batch,t,None,batch,score)
         return score
     
     def batch_divergence(self, batch: Tensor, t: float, conditioning:None) -> Tensor:
