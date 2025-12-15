@@ -19,7 +19,7 @@ class ScoreModelEvaluator(Protocol,Generic[X,C]):
 # Implementing classes call _cached_score/_cached_divergence at the beginning of their divergence function and update them with _put_cache 
 # at the end. _check_cache can be used if you want to cache other stuff.
 # The main reason to have this centralized is cause of x_eq, t_eq, c_eq - crucially, **the default equality check for the data (x) and the condition (c)
-# is *is*, not ==**. This is mostly cause I didn't want to have to deal with torch.all(), but it also helped a surprising amount with performance
+# is *is*, not == !** This is mostly cause I didn't want to have to deal with torch.all() when checking tensor equality, but it also helped a surprising amount with performance
 V = TypeVar("V") #cache value for general _check_cache
 class CachedScoreModelEvaluator(ScoreModelEvaluator[X,C]):
     def __init__(self,
