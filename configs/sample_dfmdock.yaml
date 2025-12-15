@@ -4,8 +4,8 @@ out_dir: results/sample_results/dfmdock
 offset_type: "Translation"
 samples_per_pdb: 120
 
-pdb_dir: ../db5_pdbs_noised
-data_samples: ../db5_pdbs_noised/index.csv
+pdb_dir: db5_test
+data_samples: db5_test/index.csv
 
 num_steps: 40
 sigma_min: 0.1
