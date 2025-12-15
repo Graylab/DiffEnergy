@@ -18,8 +18,7 @@ class DFMDict(TypedDict):
 class LigDict(TypedDict):
     offset: Tensor #either a 3d (Translation or Rotation) or 6d (Translation + Rotation) vector representing how to transform lig_pos in space
     
-# not gonna deal with shape nonsense, just gonna keep everything in its default (batched?) shape.
-# all the likelihood stuff can use arrays of any shape so it's fine
+
 def to_array(x:LigDict)->Tensor:
     return x['offset']
 def from_array(a,device:str|torch.device='cuda')->LigDict:
