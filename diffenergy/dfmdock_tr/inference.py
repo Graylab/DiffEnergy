@@ -767,7 +767,7 @@ class DFMDockSampler(DFMDockLikelihood):
                 self.sample_index_writer(write_samples,offset_columns=sample_save_type == 'offset') as samples_writer, 
                 self.trajectory_index_writers(write_trajectory_index)                               as trajectory_indices
             ):
-            for (id,path) in paths:
+            for (id,path) in tqdm(paths):
                 trajectory,time = unzip(path)
                 condition = path.condition
 

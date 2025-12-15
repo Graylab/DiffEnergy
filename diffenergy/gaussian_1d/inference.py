@@ -590,7 +590,7 @@ class GaussianSampler(GaussianLikelihood):
                 self.sample_index_writer(write_samples)                 as samples_writer,
                 self.trajectory_index_writers(write_trajectory_index)   as trajectory_indices
             ):
-            for (id_batch,path) in paths: #ids are potentially batched
+            for (id_batch,path) in tqdm(paths): #ids are potentially batched
 
                 #trajectories are potentially batched
                 trajectory_batch, times = unzip(path)
