@@ -1,0 +1,5 @@
+index,PDB_File,Trajectory_File
+2SIC_61,reference/2SIC_61.pdb,trajectory_2SIC_61.csv
+2SIC_119,reference/2SIC_119.pdb,trajectory_2SIC_119.csv
+2A1A_91,reference/2A1A_91.pdb,trajectory_2A1A_91.csv
+2A1A_103,reference/2A1A_103.pdb,trajectory_2A1A_103.csv
