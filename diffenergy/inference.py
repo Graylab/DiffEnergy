@@ -354,12 +354,12 @@ def get_paths(
                 raise ValueError(f"Mismatch between top-level {topname} ({newarg}) and integration parameter {argname} ({arg})")
             int_args[argname] = newarg
 
-    if "method" not in int_args and config.integral_type == "diff":
+    if "method" not in int_args and config.get("integral_type",None) == "diff":
         #for backwards compatibility, default method for "diff" integral type is "euler"
         int_args["method"] = "euler"
 
     int_args = dict(int_args)
-    int_method = int_args.pop("method")
+    int_method = int_args.pop("method",None)
 
     # load path and associated dataset
     paths:SizedIter[tuple[I,IntegrablePath[X,C]]]
