@@ -1,0 +1,31 @@
+# @package _global_
+checkpoint: checkpoints/diffenergy_tr_0.ckpt
+out_dir: results/likelihood/dfmdock_gt_flow
+sigma_min: 0.1
+sigma_max: 30
+clamp_diffusion_coefficient: False
+pdb_dir: db5_test
+data_samples: db5_test/index.csv
+
+offset_type: "Translation"
+tr_type: non_conservative
+
+integrand_types:
+  TotalIntegrand:
+  FlowIntegrand:
+prior_fns:
+  smax_gaussian
+path_type: flow_ode
+
+integral_type: 'ode'
+ode_steps: 40
+
+integration:
+  method: rk4
+  rtol: 1e-4
+  atol: 1e-4
+
+save_trajectories: True
+save_trajectory_likelihoods: True
+
+deterministic_score: True
