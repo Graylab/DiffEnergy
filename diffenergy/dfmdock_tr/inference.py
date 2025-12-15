@@ -660,14 +660,14 @@ class DFMDockSampler(DFMDockLikelihood):
             # num_steps -> sde_steps
             # save_trajectories: Also sets write_trajectory_index to True
 
-            ## Other relevant parameters: (see write_dfmdock_samples in the dfmdock likelihood script file for details)
+            ## Other relevant parameters: (see write_samples for details)
 
             # save_pdb_references: bool, default False. whether to save reference pdbs to the output folder. Default False, meaning offsets will be relative to the pdbs provided during training
             # pdb_reference_point: Literal[null,'start','end'], default null. what point on the trajectory path to save the reference, or null to just copy the original pdb
             # sample_save_point: Literal['reference','start','end'], default end. Save as above, but for the sampled point. 'reference' saves the reference point as the sample 
             # ^IF YOU WANT TRAJECTORIES RELATIVE TO A SAMPLE PDB, THIS IS HOW TO DO IT! SET SAVE PDB REFERENCE TO TRUE AND SAMPLE SAVE POINT TO REFERENCE
             # sample_save_type: Literal['offset','pdb'], default offset. Whether to save the samples as pdbs, or as offsets relative to the reference pdb.
-            # force_copy_duplicate_sample: bool, default False. Whether to force duplicate the pdb if the sample matches the pdb (See write_dfmdock_samples)
+            # force_copy_duplicate_sample: bool, default False. Whether to force duplicate the pdb if the sample matches the pdb (See write_samples)
             # trajectory_save_type: Literal['offset','pdb'], default offset. Whether to save trajectory points as pdbs or as offsets relative to the reference pdb.
             # trajectory_extra_indices: list of index cutoffs (e.g. [25, 1000]), default=[]. Will always include a full index
 
