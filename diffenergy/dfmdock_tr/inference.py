@@ -411,9 +411,6 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         score_model.freeze()
         score_model.to(device)
 
-        if self.config.get("reset_seed_each_sample",False):
-            raise ValueError("reset_seed_each_sample deprecated. Either use reset_seed_each_eval (original behavior of reset_seed_each_sample) or reset_seed_each_path.") 
-
         model_eval = DFMDockModelEval(score_model,offset_type=self.offset_type,reset_seed_each_eval=self.config.get("reset_seed_each_eval",False),manual_seed=self.config.get("seed",0))
         
         scorefn = model_eval.score# if not batched else model_eval.batch_score
