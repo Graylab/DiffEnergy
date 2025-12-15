@@ -348,11 +348,11 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
                     times = itertools.repeat(times) #only X is actually batched
                     likelihood_results = [
                         {name:np.array(result)[...,i] for name,result in likelihoods_batch.items()}
-                        for i in range(batch_size)
+                        for i in range(len(id_batch))
                     ]
                     prior_results = [
                         {name:np.array(result)[...,i] for name,result in prior_batch.items()}
-                        for i in range(batch_size)
+                        for i in range(len(id_batch))
                     ]
                 else: #wrap unbatched results as lists
                     ids:Iterable[str|int] = [id_batch] # pyright: ignore[reportAssignmentType]
