@@ -182,3 +182,4 @@ outputs/
 logs
 figures/**/*.png
 results
+user_scripts
