@@ -8,7 +8,6 @@ import seaborn as sns
 from pathlib import Path
 from typing import Callable, Literal
 from scipy.stats import norm, laplace
-from sklearn.metrics import r2_score
 from scipy.stats import spearmanr, pearsonr
 from matplotlib.ticker import FuncFormatter
 from scipy.ndimage import gaussian_filter1d
@@ -318,7 +317,7 @@ if __name__ == "__main__":
     setfont()
     
     # Figure 3
-    likelihood_dir = Path('../likelihood_results/likelihoodv3')
+    likelihood_dir = Path('results/likelihood')
 
     #going to try using subfigures. Hope this works!
     def add_comb_row(fig:SubFigure, parent_folder:Path, likelihood_subfolder:Path, integrand:str, prior:str, title:str, label:str, binline=False,):
@@ -339,7 +338,7 @@ if __name__ == "__main__":
     # Row size: (5.5,2.5)? extra .5 in width for spacing and .5 in height for titles
     f = plt.figure(figsize=(5,4),layout='constrained')
     subfs:list[SubFigure] = f.subfigures(nrows=2,wspace=0.5,squeeze=True)
-    add_comb_row(subfs[0],likelihood_dir,Path('gaussian_1d_unnoised/3integrand_diff_trapezoidint'),'integrand:TotalIntegrand','prior:smax_gaussian','Diffusion Trajectory','(a)',binline=True)
-    add_comb_row(subfs[1],likelihood_dir,Path('gaussian_1d_unnoised/3integrand_flow'),'integrand:TotalIntegrand','prior:smax_gaussian','Flow Trajectory','(b)',binline=True)
+    add_comb_row(subfs[0],likelihood_dir,Path('gaussian_1d_diff'),'integrand:TotalIntegrand','prior:smax_gaussian','Diffusion Trajectory','(a)',binline=True)
+    add_comb_row(subfs[1],likelihood_dir,Path('gaussian_1d_flow'),'integrand:TotalIntegrand','prior:smax_gaussian','Flow Trajectory','(b)',binline=True)
 
     f.savefig("figures/figure_3.png",dpi=600)

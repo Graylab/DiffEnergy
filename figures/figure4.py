@@ -151,12 +151,10 @@ if __name__ == "__main__":
     outdir = Path('figures/figure4_subs/')
     
     traj_likelihoods_folder = (
-        Path('../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_traj_flow_40'),
-        Path('../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_traj_flow_40_2A1A')
+        Path('results/likelihood/dfmdock_traj_flow')
     )    
     forces_folder = (
-        Path('../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_traj_forces'),
-        Path('../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_traj_forces_2A1A')
+        Path('results/forces/dfmdock'),
     )
     
     traj_likelihoods = get_traj_likelihoods(traj_likelihoods_folder)

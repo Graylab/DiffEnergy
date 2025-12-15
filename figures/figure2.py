@@ -68,9 +68,13 @@ def get_trajectories(traj_folder:str|Path,index_file:str|Path,index_offset=0): r
 if __name__ == "__main__":
     setfont()
     
-    flow_trajectories = get_trajectories('../likelihood_results/likelihoodv3/gaussian_1d_unnoised/3integrand_flow/trajectories','trajectory_index.csv')
-    diff_trajectories = get_trajectories('../sample_results/trinormal_1d_smax70_unnoised/trajectories','trajectory_index.csv')
-    difftraj_forces = get_forces(Path('../likelihood_results/likelihoodv3/gaussian_1d_unnoised/3integrand_traj_forces_1000'))
+    # flow_trajectories = get_trajectories('../likelihood_results/likelihoodv3/gaussian_1d_unnoised/3integrand_flow/trajectories','trajectory_index.csv')
+    # diff_trajectories = get_trajectories('../sample_results/trinormal_1d_smax70_unnoised/trajectories','trajectory_index.csv')
+    # difftraj_forces = get_forces(Path('../likelihood_results/likelihoodv3/gaussian_1d_unnoised/3integrand_traj_forces_1000'))
+    
+    flow_trajectories = get_trajectories('results/likelihood/gaussian_1d_flow/trajectories','trajectory_index.csv')
+    diff_trajectories = get_trajectories('results/sample_results/gaussian_1d/trajectories','trajectory_index.csv')
+    difftraj_forces = get_forces(Path('results/forces/gaussian_1000'))
     
     from typing import Iterable
     from typing import Any
