@@ -55,7 +55,7 @@ class ODELikelihoodIntegrand(LikelihoodIntegrand[X,C]):
 
     def zero(self,x:X)->Tensor:
         xt = self.to_tensor(x)
-        return torch.zeros(self.shape(x),dtype=xt.dtype,device=xt.device);
+        return torch.zeros(self.shape(x),dtype=xt.dtype,device=xt.device)
 
     def tensor(self,a:ArrayLike,**kwargs):
         return torch.as_tensor(a,**kwargs)
@@ -179,11 +179,11 @@ class ODEIntegrablePath(IntegrablePath[X,C],ABC):
         try:
             self.rtol = methodargs.pop('rtol')
         except KeyError:
-            raise ValueError(f"ODE Integration missing required parameter: \"rtol\"")
+            raise ValueError("ODE Integration missing required parameter: \"rtol\"")
         try:
             self.atol = methodargs.pop('atol')
         except KeyError:
-            raise ValueError(f"ODE Integration missing required parameter: \"atol\"")
+            raise ValueError("ODE Integration missing required parameter: \"atol\"")
         
         super().__init__(to_arr,from_arr,conditioning,method,methodargs)
             
@@ -577,9 +577,9 @@ class FlowEquivalentODEPath(UniformODEIntegrablePath[X,C]):
         super().__init__(timeschedule, initial, to_arr, from_arr,conditioning,method,methodargs)
 
     def dx(self, i: float, x: X, t: float) -> X:
-        delta = -1/2 * self.diffcoefffn(t)**2 * self.tensor(self.scorefn(x,t,self.condition)).detach();
+        delta = -1/2 * self.diffcoefffn(t)**2 * self.tensor(self.scorefn(x,t,self.condition)).detach()
 
-        return self.from_arr(delta);
+        return self.from_arr(delta)
 
 class LinearPath(ODEIntegrablePath[X,C]):
     def __init__(self, start:tuple[X,float], end:tuple[X,float], interpolants:Sequence[float], to_arr:Callable[[X],Array],from_arr:Callable[[ArrayLike],X],conditioning:C, method:str, methodargs:dict[str,Any]):
@@ -610,7 +610,7 @@ class LinearizedFlowPath(LinearPath[X,C]):
         self.flowpath = FlowEquivalentODEPath(scorefn,diffcoefffn,timeschedule,initial,to_arr,from_arr,conditioning,method,methodargs)
         self.path = list(self.flowpath)
         end = self.path[-1]
-        super().__init__(initial,end,interpolants or timeschedule,to_arr,from_arr,conditioning,method,methodargs);
+        super().__init__(initial,end,interpolants or timeschedule,to_arr,from_arr,conditioning,method,methodargs)
 
 
 
@@ -691,7 +691,7 @@ def _run_likelihood(method:Literal['diff','ode'],path:IntegrablePath[X,C],integr
             trajectory, times, deltas = path.diffintegrate(*integrands,accumulate=accumulate)
         elif method == 'ode':
             if not isinstance(path,ODEIntegrablePath):
-                raise ValueError(f"Path {path} is not ODEIntegrable! Please use an ODEIntegrable path or set the integral_type to 'diff' to use the path in euclidean mode");
+                raise ValueError(f"Path {path} is not ODEIntegrable! Please use an ODEIntegrable path or set the integral_type to 'diff' to use the path in euclidean mode")
             trajectory, times, deltas = path.odeintegrate(*integrands,accumulate=accumulate)
     ##Since we assume the path goes from unknown to known, we negate the delta. The last data point is the accumulated integrand (but we pass the whole thing as output so we can save it)
     integrand_results:dict[str,list[np.ndarray]] = {integrand.name(): ([-tensorify(delta[i],device='cpu').detach().cpu().numpy() for i in range(len(delta))]) for integrand,delta in zip(integrands,deltas)}

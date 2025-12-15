@@ -124,7 +124,7 @@ class MultimodalGaussianGroundTruthScoreModel(CachedScoreModelEvaluator[Tensor,N
         ints = self._intermediates(batch,t)
         score = self.batch_score(batch,t,conditioning) 
 
-        wprobs = ints["wprobs"]; transf_dx = ints["transf_dx"]; 
+        wprobs = ints["wprobs"]; transf_dx = ints["transf_dx"] 
         currvar_inv = ints["currvar_inv"]; wprobs_sum = ints["wprobs_sum"]
 
         with record_function("div_linalg"):

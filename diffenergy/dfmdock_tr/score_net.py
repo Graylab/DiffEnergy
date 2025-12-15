@@ -136,7 +136,6 @@ def get_knn_and_sample(points, knn=20, sample_size=40, epsilon=1e-10):
 
 # Deterministic nearest-neighbors sampler
 def get_knn(points, knn=60):
-    device = points.device
     n_points = points.size(0)
 
     if n_points < knn:

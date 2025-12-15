@@ -125,11 +125,13 @@ def main(config: DictConfig):
     # Plot the loss curve of training and validation
 
     window_size = 10
-    smoothed_loss_train_values = np.convolve(loss_train_values, np.ones(window_size)/window_size, mode='valid')
+    smoothed_loss_train_values = np.convolve(
+        loss_train_values, np.ones(window_size)/window_size, mode='valid')
     
     # Training loss
     plt.figure()
-    plt.plot(range(window_size, n_epochs + 1), smoothed_loss_train_values, label=f'Smoothed Training Loss (window={window_size})', linewidth=2)
+    plt.plot(range(window_size, n_epochs + 1), smoothed_loss_train_values, 
+             label=f'Smoothed Training Loss (window={window_size})', linewidth=2)
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Loss Curve')

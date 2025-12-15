@@ -6,7 +6,6 @@ try:
     from biotite.structure import filter_peptide_backbone
 except ImportError:
     from biotite.structure import filter_backbone as filter_peptide_backbone
-import numpy as np
 import torch
 from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
 from diffenergy.dfmdock_tr.utils.esm_utils import extract_coords_from_structure

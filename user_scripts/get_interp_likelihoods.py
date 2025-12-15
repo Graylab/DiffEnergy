@@ -1,3 +1,8 @@
+from io import TextIOWrapper
+import subprocess
+
+from tqdm import tqdm
+
 cfile = "likelihood_gaussian_1d_gtscore_diff_interp.yaml"
 
 nsteps = 5000
@@ -10,11 +15,8 @@ command = lambda i: ["python",
                      f"--config-name={cfile}", 
                      f"++out_dir='../likelihood_results/likelihoodv3/interp_tests/3integrand_diff_{i}interp_1000_{nsteps}steps'", 
                      f"++num_interpolants={i}","++overwrite_output=True",
-                     f"++data_samples={samples_stem + ".csv"}", f"++trajectory_index_file={samples_stem + "_traj/trajectory_index_1000.csv"}"]
-from io import TextIOWrapper
-import subprocess
+                     f"++data_samples={samples_stem + '.csv'}", f"++trajectory_index_file={samples_stem + '_traj/trajectory_index_1000.csv'}"]
 
-from tqdm import tqdm
 files:list[TextIOWrapper] = []
 processes:list[subprocess.Popen] = []
 try:
