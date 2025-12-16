@@ -149,6 +149,7 @@ if __name__ == "__main__":
     
     # Figure 4 Subfigures
     outdir = Path('figures/figure4_subs/')
+    outdir.mkdir(exist_ok=True)
     
     traj_likelihoods_folder = (
         Path('../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/3integrand_traj_flow_40'),
@@ -163,9 +164,11 @@ if __name__ == "__main__":
     traj_force_dict = read_forces(forces_folder)
     
     ## New Trajectories (generated with deterministic score model)
-    trajectories:list[tuple[str,tuple[str,str]]] = [('2SIC',('2SIC_p61','2SIC_p119')),
-                                                    ('2A1A',('2A1A_p91','2A1A_p103'))]
+    trajectories:list[tuple[str,tuple[str,str]]] = [('2SIC',('2SIC_61','2SIC_119')),
+                                                    ('2A1A',('2A1A_91','2A1A_103'))]
     
+    # from IPython import embed; embed()
+
     #make subfigure pieces
     plot_traj_likelihoods(*trajectories[0],outdir,traj_likelihoods)
     plot_traj_likelihoods(*trajectories[1],outdir,traj_likelihoods)
