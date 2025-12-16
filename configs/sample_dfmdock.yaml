@@ -12,6 +12,7 @@ sigma_min: 0.1
 sigma_max: 30
 
 #Write pdb references as samples, use as reference for trajectories as offsets
+write_sample_metrics: True
 save_trajectory: True
 save_pdb_references: True 
 pdb_reference_point: 'end'

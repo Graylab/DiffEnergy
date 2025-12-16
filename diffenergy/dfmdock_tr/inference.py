@@ -36,6 +36,7 @@ def get_sample_metrics(gt_pdb:str|Path|AtomArray,sample_pdb:str|Path|AtomArray, 
         sample_rec,_ = get_chain_coords(sample_pdb,rec_chain)
         sample_lig,_ = get_chain_coords(sample_pdb,lig_chain)
     return compute_metrics((torch.as_tensor(sample_rec),torch.as_tensor(sample_lig)),(torch.as_tensor(gt_rec),torch.as_tensor(gt_lig)))
+
 class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config)
