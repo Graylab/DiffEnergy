@@ -13,7 +13,8 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from functools import cached_property
 from io import TextIOWrapper
 from pathlib import Path
-from typing import Callable, Generic, Iterable, Iterator, Literal, Mapping, Optional, Protocol, Sequence, TypeVar, TypeVarTuple, Unpack, overload
+from typing import Callable, Generic, Iterable, Iterator, Literal, Mapping, Optional, Protocol, Sequence, TypeVar, overload
+from typing_extensions import TypeVarTuple, Unpack
 
 import omegaconf
 import torch

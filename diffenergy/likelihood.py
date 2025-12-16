@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import functools
 import itertools
-from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Optional, Sequence, Sized, TypeVar, Union, overload, override
+from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Optional, Sequence, Sized, TypeVar, Union, overload
 from numpy.typing import ArrayLike
 
 import torch
@@ -479,7 +479,6 @@ class PiecewiseDifferentiableSequence(IntegrablePath[X,C]):
 
         
 
-    @override
     def diffintegrate(self, *integrands: LikelihoodIntegrand[X, C], accumulate=True) -> tuple[Sequence[X], Sequence[float], list[list[float | Tensor]]]:
         if self.integral_type == 'original':
             return super().diffintegrate(*integrands)
