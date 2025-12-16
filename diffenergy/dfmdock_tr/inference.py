@@ -268,7 +268,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                       sample_save_type:Literal['pdb','offset']='offset',
                       force_copy_duplicate_sample:bool=False,
                       trajectory_save_type:Literal['pdb','offset']='offset',
-                      )->tuple[Optional[dict[str,Any]],Optional[dict[str,Any]],Optional[dict[str,float]]]:
+                      )->tuple[Optional[dict[str,Any]],Optional[dict[str,Any]],Optional[dict[str,Any]]]:
         """
         Save trajectories/samples (and, optionally, reference pdbs for offsets). 
 
@@ -299,7 +299,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         if not (save_samples or save_trajectories):
             if save_pdb_references:
                 warnings.warn("Skipping sample/trajectory saving, no reference pdb will be written! To silence this, set 'save_reference_pdb' to False")
-            return (None,None)
+            return (None,None,None)
 
         trajectory_dir = Path(trajectory_dir)
         pdb_dir = Path(pdb_dir)
@@ -347,8 +347,10 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 xtraj -= reference_offset
         
         sample_res:Optional[dict[str,Any]] = None
-        metrics_res:Optional[dict[str,float]] = None
+        metrics_res:Optional[dict[str,Any]] = None
         if save_samples:
+            sample_struct = None
+            sample_offset = None
             sample_res = {"index":id}
             if not force_copy_duplicate_sample and sample_save_type == 'pdb' and (sample_save_point == 'reference' or (save_pdb_references and sample_save_point == pdb_reference_point)):
                     #SPECIAL CASE - in other words, the samples would precisely match the reference. This is silly - just have the samples point to the reference!
@@ -363,7 +365,6 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 else:
                     raise ValueError(f"{sample_save_point=}")
                 
-                sample_struct = None
                 if sample_save_type == 'pdb':
                     sample_dir.mkdir(parents=True,exist_ok=True)
                     sample_file = sample_dir/f"{id}.pdb"
@@ -384,14 +385,15 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 else:
                     raise ValueError(f"{sample_save_type=}")
                 
-                if save_sample_metrics:
-                    #we need the pdb structure of the sample - compute if it hasn't been already
-                    if sample_struct is None:
-                        sample_struct = get_offset_pdb(
-                            ref_struct if ref_struct is not None else pdb_reference_file,
-                            *self.split_offset(sample_offset)) #note that if the sample offset is None, it will return the original structure
-                    metrics_res = self.get_sample_metrics(sample_struct,condition) #TODO: Add configuration for ground-truth selection?
-                    #this only really works during sampling tbh where the reference is guaranteed to be the gt pdb
+            if save_sample_metrics:
+                #we need the pdb structure of the sample - compute if it hasn't been already
+                if sample_struct is None:
+                    sample_struct = get_offset_pdb(
+                        ref_struct if ref_struct is not None else pdb_reference_file,
+                        *self.split_offset(sample_offset)) #note that if the sample offset is None, it will return the original structure
+                metrics_res = self.get_sample_metrics(sample_struct,condition) #TODO: Add configuration for ground-truth selection?
+                metrics_res['index'] = id
+                #this only really works during sampling tbh where the reference is guaranteed to be the gt pdb
                 
         trajectory_res:Optional[dict[str,Any]] = None
         if save_trajectories:
@@ -514,7 +516,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
         sample_save_type = self.config.get("sample_save_type","offset")
-        write_metrics = self.config.get("write_sample_metrics",False)
+        write_metrics = self.config.get("write_sample_metrics",False) and write_samples
         
         ## WRITE OUTPUT
         acc_trajnum = 0
@@ -822,7 +824,7 @@ class DFMDockSampler(DFMDockLikelihood):
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
         sample_save_type = self.config.get("sample_save_type","offset")
-        write_metrics = self.config.get("write_sample_metrics",False)
+        write_metrics = self.config.get("write_sample_metrics",False) and write_samples
 
         acc_trajnum = 0
         with (  #open the various global output csv.DictWriters
