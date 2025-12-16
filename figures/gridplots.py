@@ -114,7 +114,7 @@ DFMDOCK_STATS_LOCATIONS = {
     'darren_inference': "../sample_results/darren_inference/csv_files/db5_test_DFMDock_model_0_0.5_120_samples_40_steps_dips_.csv",
     'dfmdock_tr_inference': "../sample_results/dfmdock_inference/csv_files/db5_test_DFMDock_model_0_0.5_120_samples_40_steps_dips_.csv",
 }
-def load_dfmdock_stats(samples_source:Literal['darren_inference', 'dfmdock_tr_inference', 'dfmdock_inference_trtrained_deterministic'],load_rosetta:bool=True):
+def load_dfmdock_stats(samples_source:Literal['darren_inference', 'dfmdock_tr_inference', 'dfmdock_inference_trtrained_deterministic']):
     ## One big dict which will hold all the stats for the *generated samples*. Start by populating the test metrics generated during sampling:
     sample_stats:dict[str,pd.DataFrame] = {}
     
@@ -124,10 +124,10 @@ def load_dfmdock_stats(samples_source:Literal['darren_inference', 'dfmdock_tr_in
     # else:
     #     raise ValueError(samples_source)
 
-    sample_stats = get_dfmdock_sample_stats(dfmdock_stats_csv)
+    sample_stats = get_dfmdock_sample_stats(dfmdock_stats_csv) #TODO: input
     
     # Add rosetta energies
-    try:
+    try: #TODO: input
         if samples_source == 'darren_inference':
             rosetta_csv = "../dfmdock_perturb_tr_likelihood/refined_scores_darrensamples.csv"
         elif samples_source == 'dfmdock_tr_inference':
@@ -159,7 +159,7 @@ def load_dfmdock_stats(samples_source:Literal['darren_inference', 'dfmdock_tr_in
         gt_stats[id] = {'DockQ': 1, 'c_rmsd': 0, 'i_rmsd': 0, 'l_rmsd': 0, 'fnat': 1, 'num_clashes': 0} #some dummy data
     
     # Use original gt_results' rosetta energy since it's independent of samples and method
-    with open('../dfmdock_perturb_tr_likelihood/dfmdock_perturb_tr_likelihood_gt.pkl', 'rb') as f:
+    with open('../dfmdock_perturb_tr_likelihood/dfmdock_perturb_tr_likelihood_gt.pkl', 'rb') as f: #TODO: input
         old_gt_results = pickle.load(f)
     for id in sample_stats:
         gt_stats[id]['rosetta_Isc'] = old_gt_results['rosetta'][id]
@@ -179,11 +179,11 @@ def load_dfmdock_stats(samples_source:Literal['darren_inference', 'dfmdock_tr_in
     limits['diff_trapezoid_nll'] = (-4,8)
     limits['diff_piecewise_ode_nll'] = (-4,8)
     
-    default_integrand = 'TotalIntegrand'
+    default_integrand = 'TotalIntegrand' #TotalIntegrand is always right, no need to mess with total vs flow on different trajectories
     default_prior = 'smax_gaussian'
 
     #add likelihoods from standard sources where available
-    if samples_source == 'darren_inference':
+    if samples_source == 'darren_inference': #TODO: input
         srcfolder = '../likelihood_results/likelihoodv3/dfmdock_tr'
     elif samples_source == 'dfmdock_tr_inference':
         raise ValueError()
@@ -191,14 +191,14 @@ def load_dfmdock_stats(samples_source:Literal['darren_inference', 'dfmdock_tr_in
         srcfolder = '../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/'
     srcfolder = Path(srcfolder)
     sources:dict[str,tuple[str,...]] = { #where to pull from to fill the keys above
-        'flow_nll': ('2SIC/3integrand_flow_40', '1IRA/3integrand_flow_40', '3integrand_flow_40'),
-        'diff_nll': ('2SIC/3integrand_diff', '1IRA/3integrand_diff', '3integrand_diff'),
-        'diff_10interp_nll': ('2SIC/3integrand_diff_10interp', '1IRA/3integrand_diff_10interp', '3integrand_diff_10interp'),
-        'diff_50interp_nll': ('2SIC/3integrand_diff_50interp', '1IRA/3integrand_diff_50interp', '3integrand_diff_50interp'),
-        'forwardsde_nll': ('3integrand_forward_sde',),
-        'diff_trapezoid_nll': ('3integrand_diff_trapezoidint',),
-        'diff_10interp_trapezoid_nll': ('3integrand_diff_10interp_trapezoidint',),
-        'diff_piecewise_ode_nll': ('3integrand_diff_piecewise_ode',),
+        'flow_nll': ('dfmdock_flow',),
+        'diff_nll': ('dfmdock_diff',),
+        # 'diff_10interp_nll': ('2SIC/3integrand_diff_10interp', '1IRA/3integrand_diff_10interp', '3integrand_diff_10interp'),
+        # 'diff_50interp_nll': ('2SIC/3integrand_diff_50interp', '1IRA/3integrand_diff_50interp', '3integrand_diff_50interp'),
+        # 'forwardsde_nll': ('3integrand_forward_sde',),
+        # 'diff_trapezoid_nll': ('3integrand_diff_trapezoidint',),
+        # 'diff_10interp_trapezoid_nll': ('3integrand_diff_10interp_trapezoidint',),
+        # 'diff_piecewise_ode_nll': ('3integrand_diff_piecewise_ode',),
     }
 
     load_newcode_likelihoods(sources,default_integrand,default_prior,sample_stats,srcfolder=srcfolder)
@@ -212,35 +212,6 @@ def load_dfmdock_stats(samples_source:Literal['darren_inference', 'dfmdock_tr_in
     }
 
     load_newcode_likelihoods(gt_sources,default_integrand,default_prior,gt_stats,srcfolder=srcfolder)
-    
-
-    
-    ## Old Code
-    labels.update({"flowtime_nll": "Learned Energy (FlowTime)",
-                 "difftime_nll": "Learned Energy (DiffTime)",
-                 "diffspace_nll": "Learned Energy (DiffSpace)"})
-    
-    old_sources = {'flowtime_nll': "flowtime_dfmdock_perturb_tr.csv",
-               'difftime_nll': "difftime_dfmdock_perturb_tr.csv",
-               'diffspace_nll': "diffspace_dfmdock_perturb_tr.csv"}
-    
-    limits['flowtime_nll'] = (-1,8)
-    
-    if samples_source == 'darren_inference': #TODO: run old code on new samples
-        parent_folder = Path("../dfmdock_perturb_tr_likelihood/likelihood")
-    
-    elif samples_source == 'dfmdock_inference_trtrained_deterministic':
-        parent_folder = Path("../dfmdock_perturb_tr_likelihood/likelihood_deterministic/")
-    else:
-        raise ValueError()
-    
-    for key,loc in old_sources.items():
-        likelihood_df = pd.read_csv(parent_folder/loc)
-        likelihood_df.index = likelihood_df['id'].str.rsplit('/',n=1).str[-1].str.split(".").str[0].str.split("trajectory_").str[-1] #remove the trajectory prefix if present
-        ids = likelihood_df.index.str.split("_").str[0]
-        for id in sample_stats:
-            iddf = likelihood_df[ids == id]
-            sample_stats[id][key] = iddf['nll']
     
     return sample_stats, gt_stats, labels, limits
 
