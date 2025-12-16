@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from csv import DictWriter
 import functools
 from functools import cached_property
@@ -17,15 +18,24 @@ from diffenergy.dfmdock_tr.docked_dataset import DockedDatum, PDBImporter
 from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel
 from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, DFMDockModelEval, split_offset
 from diffenergy.dfmdock_tr.score_model import Score_Model
-from diffenergy.dfmdock_tr.utils.biotite_utils import get_offset_pdb
-from biotite.structure.io import save_structure
+from diffenergy.dfmdock_tr.utils.biotite_utils import get_chain_coords, get_offset_pdb
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords
+from diffenergy.dfmdock_tr.utils.metrics import compute_metrics
 from diffenergy.helper import diffusion_coeff, prior_gaussian_nd
-from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin, MapDataset, SizeWrappedIter, get_integrands, get_paths
-from diffenergy.inference import unzip
+from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin, MapDataset, SizeWrappedIter, get_integrands, get_paths, unzip, SizedIter
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
-from diffenergy.inference import SizedIter
 
+from biotite.structure.io import save_structure
+from biotite.structure import AtomArray
+
+def get_sample_metrics(gt_pdb:str|Path|AtomArray,sample_pdb:str|Path|AtomArray, rec_chain:str="A", lig_chain:str="B"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        gt_rec,_ = get_chain_coords(gt_pdb,rec_chain)
+        gt_lig,_ = get_chain_coords(gt_pdb,lig_chain)
+        sample_rec,_ = get_chain_coords(sample_pdb,rec_chain)
+        sample_lig,_ = get_chain_coords(sample_pdb,lig_chain)
+    return compute_metrics((torch.as_tensor(sample_rec),torch.as_tensor(sample_lig)),(torch.as_tensor(gt_rec),torch.as_tensor(gt_lig)))
 class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config)
@@ -82,6 +92,26 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     @override
     def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[],offset_columns=False):
         return super().sample_index_writer(write_samples,extra_fieldnames=['Filename',*(self.offset_trajectory_columns if offset_columns else []),*extra_fieldnames])
+    
+    def get_sample_metrics(self,sample:LigDict|AtomArray,condition:DFMDict):
+        gt_pdb = condition["orig_pdb"] #so glad I put that in there from the beginning
+        sample_struct = sample if isinstance(sample,AtomArray) else get_offset_pdb(gt_pdb,*self.split_offset(sample['offset']))
+        return get_sample_metrics(gt_pdb,sample_struct)
+
+    @property
+    def metrics_file(self):
+        return self.out_dir/"metrics.csv"
+
+    @contextmanager
+    def metrics_writer(self, write_metrics:bool): #TODO: DFMDock Energy support? "energy" is one of the outputs of model(batch), and it just uses the last one
+        metrics = ['c_rmsd', 'i_rmsd', 'l_rmsd', 'fnat', 'DockQ']
+        if write_metrics:
+            with open(self.metrics_file,'w',newline='') as f:
+                writer = DictWriter(f,fieldnames=['index',*metrics])
+                writer.writeheader()
+                yield writer
+        else:
+            yield None
     
     def load_samples(self, data_file:str|Path, pdb_dir:str|Path, importer:PDBImporter, device:str|torch.device='cuda')->Sequence[tuple[str,LigDict,DFMDict]]|Sequence[tuple[Sequence[str],LigDict,DFMDict]]:
         """Loads pdbs from a CSV file containing filenames. Returns tuples of (id, LigDict, DFMDict),
@@ -218,7 +248,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         
         return priors
 
-    def split_offset(self,offset:torch.Tensor,device:str|torch.device|None='cpu',detach:bool=True):
+    def split_offset(self,offset:torch.Tensor|None,device:str|torch.device|None='cpu',detach:bool=True):
         return split_offset(offset,self.offset_type,device=device,detach=detach)
 
     def write_samples(self,
@@ -230,6 +260,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                       condition:DFMDict,
                       save_samples:bool,
                       save_trajectories:bool,
+                      save_sample_metrics:bool,
                       integrand_results:Optional[Mapping[str,Sequence[float|np.ndarray|torch.Tensor]]]=None,
                       save_pdb_references:bool=False,
                       pdb_reference_point:Literal[None,'start','end']=None,
@@ -237,7 +268,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                       sample_save_type:Literal['pdb','offset']='offset',
                       force_copy_duplicate_sample:bool=False,
                       trajectory_save_type:Literal['pdb','offset']='offset',
-                      )->tuple[Optional[dict[str,Any]],Optional[dict[str,Any]]]:
+                      )->tuple[Optional[dict[str,Any]],Optional[dict[str,Any]],Optional[dict[str,float]]]:
         """
         Save trajectories/samples (and, optionally, reference pdbs for offsets). 
 
@@ -284,6 +315,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
 
         pdb_reference_file = condition["orig_pdb"]
         
+        ref_struct = None
         if save_pdb_references:
             if (((not save_samples) or (sample_save_type == 'pdb' and (sample_save_point != pdb_reference_point and sample_save_point != 'reference'))) and
                     ((not save_trajectories) or (trajectory_save_type == 'pdb'))): 
@@ -315,6 +347,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 xtraj -= reference_offset
         
         sample_res:Optional[dict[str,Any]] = None
+        metrics_res:Optional[dict[str,float]] = None
         if save_samples:
             sample_res = {"index":id}
             if not force_copy_duplicate_sample and sample_save_type == 'pdb' and (sample_save_point == 'reference' or (save_pdb_references and sample_save_point == pdb_reference_point)):
@@ -330,6 +363,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 else:
                     raise ValueError(f"{sample_save_point=}")
                 
+                sample_struct = None
                 if sample_save_type == 'pdb':
                     sample_dir.mkdir(parents=True,exist_ok=True)
                     sample_file = sample_dir/f"{id}.pdb"
@@ -337,7 +371,9 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
 
                     if sample_offset is not None:
                         assert force_copy_duplicate_sample
-                        sample_struct = get_offset_pdb(pdb_reference_file,*self.split_offset(sample_offset))
+                        sample_struct = get_offset_pdb(
+                            ref_struct if ref_struct is not None else pdb_reference_file,
+                            *self.split_offset(sample_offset))
                         save_structure(sample_file,sample_struct)
                     else:
                         shutil.copy(pdb_reference_file,sample_file)
@@ -347,6 +383,15 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                     sample_res.update(zip(self.offset_trajectory_columns,(sample_offset.tolist() if sample_offset is not None else itertools.repeat(0))))
                 else:
                     raise ValueError(f"{sample_save_type=}")
+                
+                if save_sample_metrics:
+                    #we need the pdb structure of the sample - compute if it hasn't been already
+                    if sample_struct is None:
+                        sample_struct = get_offset_pdb(
+                            ref_struct if ref_struct is not None else pdb_reference_file,
+                            *self.split_offset(sample_offset)) #note that if the sample offset is None, it will return the original structure
+                    metrics_res = self.get_sample_metrics(sample_struct,condition) #TODO: Add configuration for ground-truth selection?
+                    #this only really works during sampling tbh where the reference is guaranteed to be the gt pdb
                 
         trajectory_res:Optional[dict[str,Any]] = None
         if save_trajectories:
@@ -369,7 +414,9 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
 
                 filenames = [pdb_trajectory_dir/f'{id}_{i}.pdb' for i in range(len(xtraj))]
                 for name,offset in zip(filenames,xtraj):
-                    offset_pdb = get_offset_pdb(pdb_reference_file,*self.split_offset(offset))
+                    offset_pdb = get_offset_pdb(
+                        ref_struct if ref_struct is not None else pdb_reference_file,
+                        *self.split_offset(offset))
                     save_structure(name,offset_pdb)
                 
                 trajectory_df = pd.DataFrame({"Timestep":ttraj.numpy(force=True),"PDB_File":map(lambda f: str(relative_to(f,pdb_dir)),filenames)})
@@ -383,7 +430,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
             trajectory_df.to_csv(trajectory_csv,index_label="Index")
 
 
-        return (sample_res, trajectory_res)
+        return (sample_res, trajectory_res, metrics_res)
 
 
 
@@ -467,15 +514,18 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
         sample_save_type = self.config.get("sample_save_type","offset")
+        write_metrics = self.config.get("write_sample_metrics",False)
         
         ## WRITE OUTPUT
         acc_trajnum = 0
         with (  #open the various global output csv.DictWriters
                 self.likelihoods_writer(True, 
                     prior_names=[name for (name,_) in priors],
-                    integrand_names=[integrand.name() for integrand in integrands])                 as likelihoods_writer,
-                self.sample_index_writer(write_samples,offset_columns=sample_save_type == 'offset') as samples_writer, 
-                self.trajectory_index_writers(write_trajectory_index)                               as trajectory_indices
+                    integrand_names=[integrand.name() for integrand in integrands])     as likelihoods_writer,
+                self.sample_index_writer(write_samples,
+                                         offset_columns=sample_save_type == 'offset')   as samples_writer, 
+                self.trajectory_index_writers(write_trajectory_index)                   as trajectory_indices,
+                self.metrics_writer(write_metrics)                                      as metrics_writer,
             ):
             for (id,path) in tqdm(paths):
                 if reset_seed_each_path:
@@ -506,7 +556,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                     likelihoods_writer.writerow(row)
                     
                     
-                sample_out, traj_out = self.write_samples(
+                sample_out, traj_out, metrics_out, = self.write_samples(
                     self.out_trajectory_folder,
                     self.out_pdb_folder,
                     id, # pyright: ignore[reportArgumentType]
@@ -515,6 +565,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                     condition,
                     write_samples,
                     save_trajectories,
+                    write_metrics,
                     integrand_results=likelihood_result if self.config.get("save_trajectory_likelihoods") else None,
                     save_pdb_references=self.config.get("save_pdb_references",False),
                     pdb_reference_point=self.config.get("pdb_reference_point",None),
@@ -532,6 +583,9 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                         if cutoff is None or acc_trajnum < cutoff:
                             writer.writerow(traj_out)
                     acc_trajnum += 1
+                    
+                if metrics_out:
+                    metrics_writer.writerow(metrics_out) # pyright: ignore[reportOptionalMemberAccess]
 
 
 class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main class maybe? depends on how hydra cli should work
@@ -624,6 +678,8 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main
                             **dict(zip(poscols,x["offset"].tolist()))
                         }
                         forces_writer.writerow(forcedict)
+
+
 
 class DFMDockSampler(DFMDockLikelihood):
 
@@ -766,17 +822,20 @@ class DFMDockSampler(DFMDockLikelihood):
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
         sample_save_type = self.config.get("sample_save_type","offset")
+        write_metrics = self.config.get("write_sample_metrics",False)
 
         acc_trajnum = 0
         with (  #open the various global output csv.DictWriters
-                self.sample_index_writer(write_samples,offset_columns=sample_save_type == 'offset') as samples_writer, 
-                self.trajectory_index_writers(write_trajectory_index)                               as trajectory_indices
+                self.sample_index_writer(write_samples,
+                                         offset_columns=sample_save_type == 'offset')   as samples_writer, 
+                self.trajectory_index_writers(write_trajectory_index)                   as trajectory_indices,
+                self.metrics_writer(write_metrics)                                      as metrics_writer,
             ):
             for (id,path) in tqdm(paths):
                 trajectory,time = unzip(path)
                 condition = path.condition
 
-                sample_out, traj_out = self.write_samples(
+                sample_out, traj_out, metrics_out = self.write_samples(
                     self.out_trajectory_folder,
                     self.out_pdb_folder,
                     id,
@@ -785,6 +844,7 @@ class DFMDockSampler(DFMDockLikelihood):
                     condition,
                     write_samples,
                     save_trajectories,
+                    write_metrics,
                     integrand_results=None,
                     save_pdb_references=self.config.get("save_pdb_references",False),
                     pdb_reference_point=self.config.get("pdb_reference_point",None),
@@ -802,3 +862,7 @@ class DFMDockSampler(DFMDockLikelihood):
                         if cutoff is None or acc_trajnum < cutoff:
                             writer.writerow(traj_out)
                     acc_trajnum += 1
+                    
+                if metrics_out:
+                    metrics_writer.writerow(metrics_out) # pyright: ignore[reportOptionalMemberAccess]
+                    
