@@ -6,7 +6,7 @@ import itertools
 import math
 from pathlib import Path
 import shutil
-from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence, override
+from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence
 import warnings
 
 import numpy as np
@@ -86,11 +86,9 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
             "position_matrix": datum["position_matrix"].to(device),
         }
 
-    @override
     def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
         return super().trajectory_index_writers(write_indices,extra_fieldnames=['PDB_File','Trajectory_File',*extra_fieldnames])
 
-    @override
     def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[],offset_columns=False):
         return super().sample_index_writer(write_samples,extra_fieldnames=['Filename',*(self.offset_trajectory_columns if offset_columns else []),*extra_fieldnames])
     
