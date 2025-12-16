@@ -24,7 +24,9 @@ def to_array(x:LigDict)->Tensor:
 def from_array(a,device:str|torch.device='cuda')->LigDict:
     return {'offset':torch.as_tensor(a,dtype=torch.float,device=torch.device(device))}
 
-def split_offset(offset:torch.Tensor, offset_type:Literal["Translation","Rotation","Translation+Rotation"],device:str|torch.device|None=None,detach:bool=False):
+def split_offset(offset:torch.Tensor | None, offset_type:Literal["Translation","Rotation","Translation+Rotation"],device:str|torch.device|None=None,detach:bool=False):
+    if offset is None: return (None,None)
+    
     tr_update = offset[:3].to(device=device) if 'Translation' in offset_type else None
     rot_update = offset[-3:].to(device=device) if 'Rotation' in offset_type else None
     if detach and tr_update is not None: tr_update = tr_update.detach()
