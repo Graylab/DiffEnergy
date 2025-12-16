@@ -181,3 +181,5 @@ outputs/
 .vscode/
 logs
 figures/**/*.png
+results
+user_scripts
