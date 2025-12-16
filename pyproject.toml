@@ -24,6 +24,7 @@ dependencies = [
     "biopython",
     "dm-tree",
     "seaborn", #for plotting
+    "natsort", #for sorting
 ]
 
 [tool.setuptools.packages]
