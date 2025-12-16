@@ -1,0 +1,17 @@
+-nstruct        1
+
+-docking_local_refine
+-evaluation:DockMetrics
+-DockMetrics true
+-max_retry_job 1
+-partners A_B
+
+-detect_disulf true
+-rebuild_disulf true
+-detect_disulf_tolerance 2.0
+-ignore_zero_occupancy  false
+-ex1
+-ex2aro
+
+-out:pdb
+-multiple_processes_writing_to_one_directory
