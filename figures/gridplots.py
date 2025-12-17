@@ -316,12 +316,10 @@ def plot_samples(sample_results:Mapping[str,pd.DataFrame], gt_results:Optional[M
                   markersize=30,
                   save=False, out_file:str|Path='dfmdock_sample_plots/gridplot.png'):
     if ax is None: ax = plt.gca()
-    #TODO: WHEN DO WE FILTER MORE / LESS?
     idx_to_keep = (sample_results[id][xtype].notna() & sample_results[id][ytype].notna())
     if 'rosetta_Isc' in sample_results[id].columns:
         idx_to_keep &= (sample_results[id]['rosetta_Isc'] > -10000)# & (_results[_id]['flow_nll' if not old_results else 'flowtime_nll'] < 6.4)
-        
-    # print(xtype,ytype)
+
     if ctype is None:
         colors = ['gray' if dockq < 0.23 
                 else 'tab:blue' if dockq < 0.49
@@ -329,7 +327,7 @@ def plot_samples(sample_results:Mapping[str,pd.DataFrame], gt_results:Optional[M
                 else 'tab:red' for dockq in sample_results[id]['DockQ'][idx_to_keep]]
     else:
         colors = sample_results[id][ctype][idx_to_keep]
-    
+
     if not ztype:
         ax.scatter(sample_results[id][xtype][idx_to_keep], sample_results[id][ytype][idx_to_keep], s=markersize, edgecolors='k', linewidths=1, c=colors)
     else:
@@ -342,7 +340,7 @@ def plot_samples(sample_results:Mapping[str,pd.DataFrame], gt_results:Optional[M
                 ax.scatter(gt_results[id][xtype], gt_results[id][yt], s=100, c='yellow', marker='*', edgecolors='k', linewidths=1) 
             else:
                 ax.scatter(gt_results[id][xtype], gt_results[id][yt], gt_results[id][ztype], s=100, c='yellow', marker='*', edgecolors='k', linewidths=1) 
-        
+
     if axtitle: ax.set_title(axtitle)
 
     ax.set_xlabel(custom_xlabel or xtype)
@@ -352,7 +350,6 @@ def plot_samples(sample_results:Mapping[str,pd.DataFrame], gt_results:Optional[M
     if save:
         plt.savefig(out_file,dpi=300,bbox_inches='tight')
     return ax
-
 
 
 def make_gridplot(sample_results:Mapping[str,pd.DataFrame],gt_results:Optional[Mapping[str,dict[str,float]]],
@@ -366,9 +363,8 @@ def make_gridplot(sample_results:Mapping[str,pd.DataFrame],gt_results:Optional[M
                   plot_gt:bool|Literal['if_present']='if_present',gt_ytype:Optional[str]=None, 
                   skip_plot_if_missing:bool=True, #if true, will simply skip individual plots whose x or y value is not present in the sample_results dict. Otherwise, will error.
                   save=False,out_file:str|Path='gridplots/gridplot.png'):
-
     
-    fig, axes = plt.subplots(5, 5, figsize=(14, 14), sharex=True, sharey=True,subplot_kw={'projection':'3d' if ztype else None})
+    fig, axes = plt.subplots(5, 5, figsize=(14, 14),subplot_kw={'projection':'3d' if ztype else None})
     axdict = {}
     for i, _id in enumerate(sorted(sample_results.keys())):
         if skip_plot_if_missing and (xtype not in sample_results[_id].columns or ytype not in sample_results[_id].columns): print(f"skipping {_id}"); continue
@@ -387,7 +383,6 @@ def make_gridplot(sample_results:Mapping[str,pd.DataFrame],gt_results:Optional[M
         
             
     plt.tight_layout()
-    fig.set_dpi(300)
     if save:
         out_file = Path(out_file)
         out_file.parent.mkdir(exist_ok=True,parents=True)
@@ -429,13 +424,17 @@ def plot_all_grids(sample_stats:Mapping[str,pd.DataFrame],gt_stats:Mapping[str,d
     for x,y in tqdm(pairs):
         if x == y: continue
         print(x,y)
-        f,*_ = make_gridplot(sample_stats,gt_stats,
+        f,axes,axdict = make_gridplot(sample_stats,gt_stats,
                   x,y,
                   custom_xlabel=labels[x],custom_ylabel=labels[y],
                   custom_xlim=limits[x],custom_ylim=limits[y],
                   save=True,out_file=Path(outdir)/f'{y}_vs_{x}.png')
         if close_plots:
             plt.close(f)
+            del axes
+            del axdict
+            import gc
+            gc.collect()
         
 
 if __name__ == "__main__":
