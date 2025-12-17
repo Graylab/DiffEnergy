@@ -53,6 +53,25 @@ def get_likelihoods(likelihood_folder,integrand="TotalIntegrand",prior="smax_gau
 
     return nlls, priors
 
+def get_metrics_csv_sample_stats(metrics_csv):
+    metrics_df = pd.read_csv(metrics_csv)
+    metrics_df.index = metrics_df['index']
+    pdb_ids = metrics_df.index.str.split("_").str[0];
+    sample_index = metrics_df.index.str.split("_").str[1];
+    
+    metrics_df['sample_index'] = sample_index.astype(int)
+    metrics_df['pdb_id'] = pdb_ids
+    metrics_df.sort_values(['pdb_id'])
+    unique_ids = np.unique(pdb_ids)
+    
+    results = {}
+    for id in unique_ids:
+        iddf = metrics_df[metrics_df['pdb_id'] == id].sort_values('sample_index')
+        assert np.all(np.diff(iddf['sample_index']) == 1) #make sure no gaps (paranoia incarnate)
+        results[id] = iddf
+    return results
+    
+    
 
 def get_dfmdock_sample_stats(dfmdock_stats_csv):
     dfmdock_stats_df = pd.read_csv(dfmdock_stats_csv)
@@ -80,6 +99,22 @@ def get_neighborhood_sample_stats(sample_folder):
         results[id] = iddf
     return results
 
+def load_rosetta_isc(rosetta_csv):
+    rosetta_df = pd.read_csv(rosetta_csv)
+    rosetta_df.index = rosetta_df['id']
+    unique_ids = np.unique(rosetta_df['pdb_id'])
+    
+    results = {}
+    for pdb_id in unique_ids:
+        iddf = rosetta_df[rosetta_df['pdb_id'] == pdb_id]
+        
+        #Missing Fnat means scoring failed
+        iddf = iddf[iddf['Fnat'].notna()]
+    
+        #assign values by index. Missing rows will be assigned 'nan', since rosetta doesn't return a value for every structure
+        results[pdb_id] = iddf['I_sc']
+    return results
+
 
 def concat_dfdicts(*dicts:dict[str,pd.DataFrame]):
     ids = set().union(*(d.keys() for d in dicts))
@@ -99,9 +134,10 @@ def insert_dfdict(dest:Mapping[str,pd.DataFrame|MutableMapping[str,Any]],destkey
             d = dest[id]
             if isinstance(d,pd.DataFrame):
                 d.loc[source[id].index,destkey] = source[id]
-
             else:
                 d[destkey] = source[id]
+        else:
+            raise ValueError(id)
 
 T = TypeVar("T")
 def insert_dict(dest:Mapping[str,MutableMapping[str,T]],destkey:str,source:Mapping[str,T]):
@@ -114,65 +150,41 @@ DFMDOCK_STATS_LOCATIONS = {
     'darren_inference': "../sample_results/darren_inference/csv_files/db5_test_DFMDock_model_0_0.5_120_samples_40_steps_dips_.csv",
     'dfmdock_tr_inference': "../sample_results/dfmdock_inference/csv_files/db5_test_DFMDock_model_0_0.5_120_samples_40_steps_dips_.csv",
 }
-def load_dfmdock_stats(samples_source:Literal['darren_inference', 'dfmdock_tr_inference', 'dfmdock_inference_trtrained_deterministic']):
+def load_dfmdock_stats(likelihoods_folder='results/likelihood/', #parent folder for likelihoods
+                       #sample paths
+                       sample_likelihoods_sources:dict[str,str|Path|tuple[str|Path,...]]={
+                           'flow_nll':'dfmdock_flow',
+                           'diff_nll':'dfmdock_diff'},
+                       sample_metrics_csv='results/sample_results/dfmdock/metrics.csv',
+                       sample_rosetta_csv='results/rosetta/dfmdock/refined_score.csv',
+                       #gt paths
+                       gt_likelihoods_sources:dict[str,str|Path|tuple[str|Path,...]]={'flow_nll':'dfmdock_gt_flow'},
+                       #no gt metrics because they're all either 0 or 1
+                       gt_rosetta_csv='results/rosetta/dfmdock_gt/refined_score.csv',
+                    ):
+    
     ## One big dict which will hold all the stats for the *generated samples*. Start by populating the test metrics generated during sampling:
     sample_stats:dict[str,pd.DataFrame] = {}
-    
-    dfmdock_stats_csv = DFMDOCK_STATS_LOCATIONS[samples_source]
-    # if samples_source in ('darren_inference', 'dfmdock_tr_inference', 'dfmdock_inference_trtrained_deterministic'):
-    #     dfmdock_stats_csv = f'../sample_results/{samples_source}/csv_files/db5_test_diffenergy_tr_0_0.5_120_samples_40_steps_dips_.csv'
-    # else:
-    #     raise ValueError(samples_source)
-
-    sample_stats = get_dfmdock_sample_stats(dfmdock_stats_csv) #TODO: input
+    sample_stats = get_metrics_csv_sample_stats(sample_metrics_csv)
     
     # Add rosetta energies
-    try: #TODO: input
-        if samples_source == 'darren_inference':
-            rosetta_csv = "../dfmdock_perturb_tr_likelihood/refined_scores_darrensamples.csv"
-        elif samples_source == 'dfmdock_tr_inference':
-            raise ValueError(samples_source)
-        elif samples_source == 'dfmdock_inference_trtrained_deterministic':
-            rosetta_csv = "../dfmdock_perturb_tr_likelihood/refined_scores_dfmdock_trtrained_deterministic.csv"
-        else:
-            raise ValueError(samples_source)
-        
-        rosetta_df = pd.read_csv(rosetta_csv)
-        for pdb_id in sample_stats:
-            iddf = rosetta_df[rosetta_df['pdb_id'] == pdb_id]
-            
-            #Missing Fnat means scoring failed
-            iddf = iddf[iddf['Fnat'].notna()]
-        
-            #assign values by index. Missing rows will be assigned 'nan', since rosetta doesn't return a value for every structure
-            iddf.index = iddf['id']
-            sample_stats[pdb_id]['rosetta_Isc'] = iddf['I_sc']
-    except FileNotFoundError:
-        print("Unable to load rosetta energies from nonexistent file:",rosetta_csv)
-        pass
+    insert_dfdict(sample_stats,'rosetta_Isc',load_rosetta_isc(sample_rosetta_csv))
     
     
-    
-    ## Same idea as sample_stats, but for the ground truth structures
+    ## Same idea as sample_stats, but for the ground truth structures. just contains dicts of floats, since only one structure per id and thus no dataframe required
     gt_stats:dict[str,dict[str,float]] = {}
     for id in sample_stats:
         gt_stats[id] = {'DockQ': 1, 'c_rmsd': 0, 'i_rmsd': 0, 'l_rmsd': 0, 'fnat': 1, 'num_clashes': 0} #some dummy data
-    
-    # Use original gt_results' rosetta energy since it's independent of samples and method
-    with open('../dfmdock_perturb_tr_likelihood/dfmdock_perturb_tr_likelihood_gt.pkl', 'rb') as f: #TODO: input
-        old_gt_results = pickle.load(f)
-    for id in sample_stats:
-        gt_stats[id]['rosetta_Isc'] = old_gt_results['rosetta'][id]
-    
-    
+        
+    # Add rosetta energies
+    for id,isc in load_rosetta_isc(gt_rosetta_csv).items():
+        gt_stats[id]['rosetta_Isc'] = isc.item() if len(isc) > 0 else np.nan #get the one value for the one-element series
     
     # Dict to hold: 1) the display labels for each inference type, and 2) the axis limits (optional) for each display label
     labels:dict[str,str|None] = DefaultDict(lambda: None, **METRIC_LABELS)
-    limits:dict[str,tuple[float|None,float|None]|None] = DefaultDict(lambda: None, **METRIC_LIMITS)
+    limits:dict[str,tuple[float|None,float|None]|None] = DefaultDict(lambda: None, **METRIC_LIMITS)    
     
     ### Add Calculated Likelihoods
-    
-    ## New Code
     labels.update(NEWCODE_LABELS)
     limits['flow_nll'] = (-1,8)
     limits['diff_10interp_nll'] = (-4,8)
@@ -182,36 +194,13 @@ def load_dfmdock_stats(samples_source:Literal['darren_inference', 'dfmdock_tr_in
     default_integrand = 'TotalIntegrand' #TotalIntegrand is always right, no need to mess with total vs flow on different trajectories
     default_prior = 'smax_gaussian'
 
-    #add likelihoods from standard sources where available
-    if samples_source == 'darren_inference': #TODO: input
-        srcfolder = '../likelihood_results/likelihoodv3/dfmdock_tr'
-    elif samples_source == 'dfmdock_tr_inference':
-        raise ValueError()
-    elif samples_source == 'dfmdock_inference_trtrained_deterministic':
-        srcfolder = '../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/'
-    srcfolder = Path(srcfolder)
-    sources:dict[str,tuple[str,...]] = { #where to pull from to fill the keys above
-        'flow_nll': ('dfmdock_flow',),
-        'diff_nll': ('dfmdock_diff',),
-        # 'diff_10interp_nll': ('2SIC/3integrand_diff_10interp', '1IRA/3integrand_diff_10interp', '3integrand_diff_10interp'),
-        # 'diff_50interp_nll': ('2SIC/3integrand_diff_50interp', '1IRA/3integrand_diff_50interp', '3integrand_diff_50interp'),
-        # 'forwardsde_nll': ('3integrand_forward_sde',),
-        # 'diff_trapezoid_nll': ('3integrand_diff_trapezoidint',),
-        # 'diff_10interp_trapezoid_nll': ('3integrand_diff_10interp_trapezoidint',),
-        # 'diff_piecewise_ode_nll': ('3integrand_diff_piecewise_ode',),
-    }
+    likelihoods_folder = Path(likelihoods_folder)
 
-    load_newcode_likelihoods(sources,default_integrand,default_prior,sample_stats,srcfolder=srcfolder)
+    ## Sample Likelihoods
+    load_newcode_likelihoods(sample_likelihoods_sources,default_integrand,default_prior,sample_stats,srcfolder=likelihoods_folder)
     
-    #add any misc likelihoods here / override additions from above
-
-    # Ground Truth Likelihoods
-    gt_sources:dict[str,tuple[str,...]] = { #where to pull from to fill the gt keys above
-        'flow_nll': ('gtstruct_3integrand_flow_40',),
-        'forwardsde_nll': ('gtstruct_3integrand_forwardsde',),
-    }
-
-    load_newcode_likelihoods(gt_sources,default_integrand,default_prior,gt_stats,srcfolder=srcfolder)
+    ## Ground Truth Likelihoods
+    load_newcode_likelihoods(gt_likelihoods_sources,default_integrand,default_prior,gt_stats,srcfolder=likelihoods_folder)
     
     return sample_stats, gt_stats, labels, limits
 
@@ -301,9 +290,11 @@ def load_neighborhood_stats(samples_source:Literal['centerline_shifts', 'transve
     return sample_stats, gt_stats, labels, limits
 
 
-def load_newcode_likelihoods(sources:Mapping[str,str|tuple[str,...]],integrand:str,prior:str,
+def load_newcode_likelihoods(sources:Mapping[str,str|Path|tuple[str|Path,...]],integrand:str,prior:str,
                              sample_stats:MutableMapping[str,pd.DataFrame]|MutableMapping[str,dict[str,float]],srcfolder:Path=Path(".")):
     for key,srcs in sources.items():
+        if isinstance(srcs,str|Path):
+            srcs = [srcs]
         for src in srcs:
             try:
                 nlls,priors = get_likelihoods(srcfolder/src,integrand=integrand,prior=prior)
@@ -437,6 +428,7 @@ def plot_all_grids(sample_stats:Mapping[str,pd.DataFrame],gt_stats:Mapping[str,d
     
     for x,y in tqdm(pairs):
         if x == y: continue
+        print(x,y)
         f,*_ = make_gridplot(sample_stats,gt_stats,
                   x,y,
                   custom_xlabel=labels[x],custom_ylabel=labels[y],

@@ -5,8 +5,7 @@ from shared import setfont
 if __name__ == "__main__":
     setfont()
     
-    samples_source = 'dfmdock_inference_trtrained_deterministic'
-    sample_stats, gt_stats, labels, limits = load_dfmdock_stats(samples_source)
+    sample_stats, gt_stats, labels, limits = load_dfmdock_stats()
     
     def get_ranking_scores(rank_metric:str,invert=False):
         dockq:dict[str,float] = {} #pdb_id: (sample_id,DockQ,metric_score)
