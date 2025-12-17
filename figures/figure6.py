@@ -26,7 +26,7 @@ if __name__ == "__main__":
         return dockq,metric,idx
 
     min_dockq_flow,_,min_idx_flow = get_ranking_scores('flow_nll')
-    min_dockq_diff,_,min_idx_diff = get_ranking_scores('diff_trapezoid_nll')
+    min_dockq_diff,_,min_idx_diff = get_ranking_scores('diff_nll')
     min_dockq_rosetta,_,min_idx_rosetta = get_ranking_scores('rosetta_Isc')
     max_dockq_oracle,_,max_idx_oracle = get_ranking_scores('DockQ',invert=True)
     
