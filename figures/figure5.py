@@ -11,10 +11,7 @@ if __name__ == "__main__":
     outdir.mkdir(exist_ok=True)
     
     # Figure 5 Subfigures
-    sample_stats, gt_stats, labels, limits = load_dfmdock_stats()
-    
-    from IPython import embed; embed()
-    
+    sample_stats, gt_stats, labels, limits = load_dfmdock_stats()    
 
     y = ['flow_nll','rosetta_Isc']
     x = ['DockQ','i_rmsd']
