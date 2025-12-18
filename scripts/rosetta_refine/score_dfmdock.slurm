@@ -26,11 +26,13 @@ echo Starting MPI job running $EXE
 
 mkdir -p ../../results/rosetta/dfmdock/refined_pdbs
 
+# only one structure per sample since it already takes forever
 date
 time mpirun $EXE \
     -in:file:l dfmdock_sample_index.txt \
     -out:file:scorefile ../../results/rosetta/dfmdock/refined_score.sc \
     -out:path:pdb ../../results/rosetta/dfmdock/refined_pdbs \
+    -nstruct 1 \
     @score_refine_flags
 date
 
