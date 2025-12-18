@@ -164,8 +164,8 @@ if __name__ == "__main__":
     traj_force_dict = read_forces(forces_folder)
     
     ## New Trajectories (generated with deterministic score model)
-    trajectories:list[tuple[str,tuple[str,str]]] = [('2SIC',('2SIC_61','2SIC_119')),
-                                                    ('2A1A',('2A1A_91','2A1A_103'))]
+    trajectories:list[tuple[str,tuple[str,str]]] = [('2SIC',('2SIC_p61','2SIC_p119')),
+                                                    ('2A1A',('2A1A_p91','2A1A_p103'))]
     
     # from IPython import embed; embed()
 
