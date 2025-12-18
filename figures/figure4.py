@@ -167,8 +167,6 @@ if __name__ == "__main__":
     trajectories:list[tuple[str,tuple[str,str]]] = [('2SIC',('2SIC_p61','2SIC_p119')),
                                                     ('2A1A',('2A1A_p91','2A1A_p103'))]
     
-    # from IPython import embed; embed()
-
     #make subfigure pieces
     plot_traj_likelihoods(*trajectories[0],outdir,traj_likelihoods)
     plot_traj_likelihoods(*trajectories[1],outdir,traj_likelihoods)

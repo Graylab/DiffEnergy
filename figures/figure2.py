@@ -78,7 +78,6 @@ if __name__ == "__main__":
     from matplotlib.axes import Axes
     from matplotlib.figure import SubFigure
 
-    #4, 45
     plot_trajs = [0,75,50,100]
     paircolors = [ #diff,flow
         ('black',     'dimgray',       ),
