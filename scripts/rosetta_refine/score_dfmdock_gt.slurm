@@ -24,16 +24,16 @@ COMPILER=mpi.linuxgccrelease
 EXE=$ROSETTABIN/$ROSETTAEXE.$COMPILER
 echo Starting MPI job running $EXE
 
-mkdir -p ../../results/rosetta/dfmdock_gt/refined_pdbs
+mkdir -p results/rosetta/dfmdock_gt/refined_pdbs
 
 # to give rosetta the best chance of finding a good score we make 5 structures each
 date
 time mpirun $EXE \
-    -in:file:l dfmdock_gt_index.txt \
-    -out:file:scorefile ../../results/rosetta/dfmdock_gt/refined_score.sc \
-    -out:path:pdb ../../results/rosetta/dfmdock_gt/refined_pdbs \
+    -in:file:l scripts/rosetta_refine/dfmdock_gt_index.txt \
+    -out:file:scorefile results/rosetta/dfmdock_gt/refined_score.sc \
+    -out:path:pdb results/rosetta/dfmdock_gt/refined_pdbs \
     -nstruct 5 \
     @score_refine_flags
 date
 
-python score_to_csv.py ../../results/rosetta/dfmdock_gt/refined_score.sc ../../results/rosetta/dfmdock_gt/refined_score.csv
+python scripts/rosetta_refine/score_to_csv.py results/rosetta/dfmdock_gt/refined_score.sc results/rosetta/dfmdock_gt/refined_score.csv
