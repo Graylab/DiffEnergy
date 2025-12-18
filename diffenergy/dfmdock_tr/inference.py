@@ -20,7 +20,7 @@ from diffenergy.dfmdock_tr.likelihood_helpers import DFMDict, LigDict, DFMDockMo
 from diffenergy.dfmdock_tr.score_model import Score_Model
 from diffenergy.dfmdock_tr.utils.biotite_utils import get_chain_coords, get_offset_pdb
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords
-from diffenergy.dfmdock_tr.utils.metrics import compute_metrics
+from diffenergy.dfmdock_tr.utils.metrics import METRICS_KEYS, compute_metrics
 from diffenergy.helper import diffusion_coeff, prior_gaussian_nd
 from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin, MapDataset, SizeWrappedIter, get_integrands, get_paths, unzip, SizedIter
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
@@ -41,7 +41,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config)
 
-    @classmethod    
+    @classmethod
     def to_array(cls,x:LigDict)->torch.Tensor:
         return x['offset']
 
@@ -103,10 +103,9 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
 
     @contextmanager
     def metrics_writer(self, write_metrics:bool): #TODO: DFMDock Energy support? "energy" is one of the outputs of model(batch), and it just uses the last one
-        metrics = ['c_rmsd', 'i_rmsd', 'l_rmsd', 'fnat', 'DockQ']
         if write_metrics:
             with open(self.metrics_file,'w',newline='') as f:
-                writer = DictWriter(f,fieldnames=['index',*metrics])
+                writer = DictWriter(f,fieldnames=['index',*METRICS_KEYS])
                 writer.writeheader()
                 yield writer
         else:
