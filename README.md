@@ -1,6 +1,6 @@
 # DiffEnergy
 
-Source code for "**Are Learned Energies from Diffusion Models Capturing Biophysics?**" _S. Sarma, H. Truscott, D. Xu, K. Reid, L. Chu, J. Chen, J. Gray_
+Source code for ["**Can We Extract Physics-like Energies from Generative Protein Diffusion Models?**"](http://www.biorxiv.org/content/10.1101/2025.11.28.690021) _S. Sarma, H. Truscott, D. Xu, K. Reid, L. Chu, J. Chen, J. Gray_
 
 ## Install
 Set up conda enviroment and install as following:
