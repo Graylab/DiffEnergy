@@ -790,7 +790,7 @@ class DFMDockSampler(DFMDockLikelihood):
                 return (id,lig,cond)
 
             samples_each = self.config.samples_per_pdb
-            return SizeWrappedIter((get_noised_sample(f"{id}_{i}",lig,cond) for (id,lig,cond) in dataset for i in range(samples_each)),samples_each*len(dataset))
+            return SizeWrappedIter((get_noised_sample(f"{id}_p{i}",lig,cond) for (id,lig,cond) in dataset for i in range(samples_each)),samples_each*len(dataset))
 
         # Reverse SDE path shouldn't need to load trajectories!
         def err(*args): raise ValueError()
