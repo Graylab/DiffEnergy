@@ -1,5 +1,6 @@
 import torch
 
+METRICS_KEYS = ['c_rmsd','i_rmsd','l_rmsd','fnat','DockQ']
 def compute_metrics(model:tuple[torch.Tensor,torch.Tensor], native:tuple[torch.Tensor,torch.Tensor]):
     # get inputs
     model_rec = model[0].squeeze()
