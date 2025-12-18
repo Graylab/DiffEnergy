@@ -24,12 +24,6 @@ def score_to_csv(score_file,csv_out):
 
 
 if __name__ == "__main__":
-    from argparse import ArgumentParser
-    
-    parser = ArgumentParser()
-    parser.add_argument("score_file")
-    parser.add_argument("csv_out")
-    
     import sys
     score_to_csv(sys.argv[1],sys.argv[2])
 
