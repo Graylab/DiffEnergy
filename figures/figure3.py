@@ -73,7 +73,6 @@ def plot_sample_result(parent_folder:str|Path,
     else:
         fig = None
 
-    #THESE TITLES ARE NOT IN THE PAPER FIGURES
     if fig and fig_title:
         fig_title = fig_title if isinstance(fig_title,str) else str(likelihood_subfolder)
         fig.suptitle(fig_title,fontsize='small')
@@ -82,17 +81,13 @@ def plot_sample_result(parent_folder:str|Path,
         ax.set_title(ax_title,fontsize='small')
 
     # Plot the samples data
-    # path = '/scratch4/jgray21/ssarma4/repos/DiffEnergy/src/exps/laplacian/data/'
-    # filename_1 = path + 'trinormal.csv'
     samples_df = pd.read_csv(samples_file, index_col=0)
     samples_1 = samples_df.values.flatten()
     
     # Load the likelihoods
-    # path = '/scratch4/jgray21/ssarma4/repos/DiffEnergy/src/exps/laplacian/results/'
-    # filename_2 = path + 'difftime_trinormal.csv'
     filename_2 = likelihood_file
     likelihood_df = pd.read_csv(filename_2)
-    samples_1 = samples_df.loc[likelihood_df['id']].values.flatten() #I think this should work
+    samples_1 = samples_df.loc[likelihood_df['id']].values.flatten()
     
     likelihoods = likelihood_df[integrand_column] + likelihood_df[prior_column]
     if likelihood_offset is not None:
@@ -156,8 +151,6 @@ def plot_sample_result(parent_folder:str|Path,
         #     sorted_idx = prior_points.argsort()
         #     ax.plot(prior_points[sorted_idx], np.exp(likelihood_df[prior_column].values.flatten())[sorted_idx],color='purple',linestyle='dotted',alpha=0.8)
         
-
-
     
         # Labels and title
         ax.set_xlabel("Sample $x$")
@@ -205,7 +198,6 @@ def plot_sample_result(parent_folder:str|Path,
         ax.set_ylabel("Energy $E_0(x)$")
         ax.set_xlim(-60,60)
         ax.set_ylim(2.5, 12.5)
-        # plt.grid(False)
         if fig:
             fig.tight_layout()
         ax.set_yticks([2.50, 5.0, 7.5, 10.00, 12.5])
@@ -261,7 +253,6 @@ def plot_correlation(parent_folder:str|Path, likelihood_subfolder:str|Path, inte
     else:
         fig = None
 
-    #THESE TITLES ARE NOT IN THE PAPER FIGURES
     if fig and fig_title:
         fig_title = fig_title if isinstance(fig_title,str) else str(likelihood_subfolder)
         fig.suptitle(fig_title,fontsize='small')
@@ -333,9 +324,6 @@ if __name__ == "__main__":
         #add subfigure label
         fig.text(.01, .99, label, ha='left', va='top', transform=fig.transSubfigure,fontdict={"fontsize":"large"})
 
-
-    #probability size: (3,2); correlation size: (1.5,1.5)
-    # Row size: (5.5,2.5)? extra .5 in width for spacing and .5 in height for titles
     f = plt.figure(figsize=(5,4),layout='constrained')
     subfs:list[SubFigure] = f.subfigures(nrows=2,wspace=0.5,squeeze=True)
     add_comb_row(subfs[0],likelihood_dir,Path('gaussian_1d_diff'),'integrand:TotalIntegrand','prior:smax_gaussian','Diffusion Trajectory','(a)',binline=True)
