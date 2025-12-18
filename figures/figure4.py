@@ -41,18 +41,18 @@ def read_forces(forces_folders):
         forces_folders = (forces_folders,)
     traj_force_dict = {}
     for forces_folder in forces_folders:
+        forces_folder = Path(forces_folder)
         index = pd.read_csv(forces_folder/'force_index.csv')
         
         cols = ["Offset_Tr_X", "Offset_Tr_Y", "Offset_Tr_Z"]
         score_cols = [f"score:{col}" for col in cols]
         pos_cols = [f"pos:{col}" for col in cols]
         
-        
         for row in index.itertuples():
             id = row.id
             file = row.Forces_CSV
             forcedict = traj_force_dict[id] = {}
-            forces = pd.read_csv(file)
+            forces = pd.read_csv(forces_folder/'forces'/file)
             forcedict['id'] = id
             forcedict['time'] = np.array(forces['Timestep'].values[::-1])
             forcedict['score'] = np.array(forces[score_cols].values[::-1])
