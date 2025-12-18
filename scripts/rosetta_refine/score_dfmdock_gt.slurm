@@ -26,11 +26,13 @@ echo Starting MPI job running $EXE
 
 mkdir -p ../../results/rosetta/dfmdock_gt/refined_pdbs
 
+# to give rosetta the best chance of finding a good score we make 5 structures each
 date
 time mpirun $EXE \
     -in:file:l dfmdock_gt_index.txt \
     -out:file:scorefile ../../results/rosetta/dfmdock_gt/refined_score.sc \
     -out:path:pdb ../../results/rosetta/dfmdock_gt/refined_pdbs \
+    -nstruct 5 \
     @score_refine_flags
 date
 

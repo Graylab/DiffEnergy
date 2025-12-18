@@ -8,8 +8,9 @@ def score_to_csv(score_file,csv_out):
     csv_out = Path(csv_out)
     rosetta_df = pd.read_csv(score_file,sep=r'\s+',header=1) #whitespace separated file; first line is a dud
     del rosetta_df['SCORE:'] #each line begins with "SCORE:", so remove
-
-    rosetta_df['id'] = rosetta_df['description'].str.rsplit("_0001",n=1).str[0]
+    
+    rosetta_df['rosetta_index'] = rosetta_df['description'].str.rsplit("_",n=1).str[1]
+    rosetta_df['id'] = rosetta_df['description'].str.rsplit("_",n=1).str[0]
     rosetta_df['pdb_id'] = rosetta_df['id'].str.split("_",n=1).str[0]
     rosetta_df = rosetta_df.sort_values('id',key=natsort_key)
 
@@ -23,6 +24,12 @@ def score_to_csv(score_file,csv_out):
 
 
 if __name__ == "__main__":
+    from argparse import ArgumentParser
+    
+    parser = ArgumentParser()
+    parser.add_argument("score_file")
+    parser.add_argument("csv_out")
+    
     import sys
     score_to_csv(sys.argv[1],sys.argv[2])
 
