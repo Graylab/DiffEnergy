@@ -657,9 +657,9 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood):
                     torch.manual_seed(seed)
 
                 c = P.condition
-                forces_csv_file = self.forces_folder/f'{id}.csv'
+                forces_csv_file = f'{id}.csv'
                 index_writer.writerow({"id":id,"Forces_CSV":forces_csv_file})
-                with open(forces_csv_file,'w',newline='') as f2:
+                with open(self.forces_folder/forces_csv_file,'w',newline='') as f2:
                     forces_writer = DictWriter(f2,fieldnames=['Index','Timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
                     forces_writer.writeheader()
                     for i,(x,t) in enumerate(P):
