@@ -101,6 +101,10 @@ def get_neighborhood_sample_stats(sample_folder):
 
 def load_rosetta_isc(rosetta_csv):
     rosetta_df = pd.read_csv(rosetta_csv)
+    
+    #get only top-scoring structures for each index
+    rosetta_df = rosetta_df.sort_values('I_sc',na_position='last').drop_duplicates('id')
+    
     rosetta_df.index = rosetta_df['id']
     unique_ids = np.unique(rosetta_df['pdb_id'])
     
