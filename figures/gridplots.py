@@ -56,8 +56,8 @@ def get_likelihoods(likelihood_folder,integrand="TotalIntegrand",prior="smax_gau
 def get_metrics_csv_sample_stats(metrics_csv):
     metrics_df = pd.read_csv(metrics_csv)
     metrics_df.index = metrics_df['index']
-    pdb_ids = metrics_df.index.str.split("_").str[0];
-    sample_index = metrics_df.index.str.split("_").str[1];
+    pdb_ids = metrics_df.index.str.split("_p").str[0];
+    sample_index = metrics_df.index.str.split("_p").str[1];
     
     metrics_df['sample_index'] = sample_index.astype(int)
     metrics_df['pdb_id'] = pdb_ids
