@@ -20,9 +20,11 @@ Scripts for model inference, likelihood calculation, and other tools can be foun
 
 ### Likelihood Calculation
 Use `likelihood_gaussian_1d.py` or `likelihood_dfmdock.py` in the `scripts` folder for computing likelihood for the 1D Gaussian case or the translational DFMDock case respectively. These files require you to specify the integration method (ode vs diff, rk4 vs trapezoid) and integration path (flow, diffusion, and others) in a hydra config passed with the --config-name command line option. Configs for flow and diffusion (trapezoid integration) can be found in the `configs` folder. For example, to compute likelihoods of dfmdock samples using flow trajectories, use the following command:
+
 ```python scripts/likelihood_dfmdock.py --config-name=dfmdock_flow```
 
 Settings like input/output directory, whether to save the computed trajectories, checkpoint file, and many others can be overwritten using the command line by way of [hydra overrides](https://hydra.cc/docs/advanced/override_grammar/basic/), like so:
+
 ```python scripts/likelihood_dfmdock.py --config-name=dfmdock_diff_trapezoid out_dir=results_2 checkpoint=checkpoints/alternate_weights.ckpt```
 
 Other likelihood configs include: computing the learned energy at each point along a diffusion trajectory using flow (`dfmdock_traj_flow`) and computing the learned energy of the ground truth structures (`dfmdock_gt_flow`).
