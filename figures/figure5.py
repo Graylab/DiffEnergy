@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     pairs = list(itertools.product(x,y))
 
-    for id in ('2SIC','2AYO'):
+    for id in ('2SIC','2A1A'):
         print(id)
         for x,y in pairs:
             f,ax = plt.subplots(figsize=(2.5,2))
