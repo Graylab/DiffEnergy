@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "diffenergy"
-version = "0.1.0"
+version = "0.2.0"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,12 +17,14 @@ dependencies = [
     "pandas",
     "torchdiffeq",
     "fair-esm",
-    "biotite==0.41.2",
+    "biotite",
     "torch-geometric",
     "pytorch-lightning",
     "einops",
     "biopython",
     "dm-tree",
+    "seaborn", #for plotting
+    "natsort", #for sorting
 ]
 
 [tool.setuptools.packages]

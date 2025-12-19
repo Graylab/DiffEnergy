@@ -28,33 +28,39 @@ def diffusion_coeff(t, sigma_min, sigma_max, clamp = False):
     Returns:
         The vector of diffusion coefficients.
     """
-    t = t.clone().detach()
+    t = torch.as_tensor(t)
+    sigma_min = torch.as_tensor(sigma_min)
+    sigma_max = torch.as_tensor(sigma_max)
     std = sigma_min * (sigma_max / sigma_min) ** t
-    diff_coeff = std * torch.sqrt(torch.tensor(2 * (np.log(sigma_max/sigma_min)), device=t.device))
+    diff_coeff = std * torch.sqrt(torch.as_tensor(2 * (torch.log(sigma_max/sigma_min)), device=t.device))
     if clamp:
         diff_coeff = torch.clamp(diff_coeff, min=1e-5)
     return diff_coeff
 
-def prior_dfmdock_tr(batch, sigma):
-    """The likelihood of a Gaussian distribution with mean zero and 
-            standard deviation sigma."""
-    # shape = z.shape
-    # N = np.prod(shape)
-    # return -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - torch.sum(z**2, dim=(0,1,2)) / (2 * sigma**2)
-    lig_pos = batch['sample']
-    rec_pos = batch['rec_pos']
-    com_diff = lig_pos[...,1,:].mean(dim=0) - rec_pos[...,1,:].mean(dim=0)
-    N = com_diff.numel()
-    prior_logp = -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = lig_pos.device)) - torch.sum(com_diff**2) / (2 * sigma**2)
-    return prior_logp, N
-    
 
-def prior_gaussian_1d(batch, sigma):
-    """The likelihood of a Gaussian distribution with mean zero and 
-            standard deviation sigma."""
-    # shape = z.shape
-    # N = np.prod(shape)
-    z = batch['sample']
-    N = z.numel()
-    prior_logp = -N / 2. * torch.log(torch.tensor(2 * np.pi * sigma ** 2, device = z.device)) - (z**2) / (2 * sigma**2)
-    return prior_logp, N
+def int_diffusion_coeff_sq(t, sigma_min, sigma_max):
+    """
+    Compute the integral of the squared diffusion coefficient of our SDE from t=0 to t.
+    Required to determine the total level of gaussian noise added to our data distribution at time t for ground truth score calculation.
+    RETURNS THE *VARIANCE*, use sqrt to get the standard deviation!
+    
+    Args:
+        t: A vector of time steps
+        sigma_min: the initial sigma of our SDE (at t=0)
+        sigma_max: the noised sigma of our SDE (at t=1)
+        
+    Returns:
+        the vector of integrated squared diffusion coefficients"""
+    
+    t = torch.as_tensor(t)
+    var_min = torch.as_tensor(sigma_min)**2
+    var_max = torch.as_tensor(sigma_max)**2
+    int_diff_coeff = var_min * ((var_max / var_min) ** t - 1)
+    return int_diff_coeff
+
+def prior_gaussian_nd(x, sigma):
+    """The likelihood of a D-dimensional Gaussian distribution with mean zero and 
+            uniform standard deviation sigma. Assumes x is a D-dimensional or (*B)xD-dimensional array"""
+    D = x.shape[-1]
+    prior_logp = -D / 2. * torch.log(torch.as_tensor(2 * np.pi * sigma ** 2, device = x.device)) - (torch.linalg.vecdot(x,x)) / (2 * sigma**2)
+    return prior_logp, D
