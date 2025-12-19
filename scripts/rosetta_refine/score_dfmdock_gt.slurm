@@ -18,7 +18,7 @@
 ml gcc
 
 # job description
-ROSETTABIN=/scratch16/jgray21/aharmal1/Rosetta/main/source/bin  
+ROSETTABIN=[ROSETTA BIN FOLDER]
 ROSETTAEXE=docking_protocol
 COMPILER=mpi.linuxgccrelease
 EXE=$ROSETTABIN/$ROSETTAEXE.$COMPILER
