@@ -1,4 +1,6 @@
 ### inspired from Leeshin Chu's dips_dataset.py
+from typing import TypedDict
+import warnings
 import torch
 import torch.nn.functional as F
 import os.path as path
@@ -6,39 +8,39 @@ from torch.utils import data
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords # Utils file from ESM https://github.com/facebookresearch/esm/blob/main/esm/inverse_folding/util.py
 from diffenergy.dfmdock_tr.utils.pdb import save_PDB, place_fourth_atom
 from diffenergy.dfmdock_tr.utils import residue_constants
+from diffenergy.dfmdock_tr.esm_model import ESMLanguageModel 
+from esm.data import Alphabet
+
+class DockedDatum(TypedDict):
+    id: str
+    pdb_file: str
+    rec_seq: str
+    lig_seq: str
+    rec_x: torch.Tensor
+    lig_x: torch.Tensor
+    rec_pos: torch.Tensor
+    lig_pos: torch.Tensor
+    position_matrix: torch.Tensor
+
 
 #----------------------------------------------------------------------------
-class DockingDataset(data.Dataset):
+class PDBImporter:
     def __init__(
         self, 
-        data_dir: str,
-        data_list: str,
-        out_pdb: bool = False,
-        esm_model = None,
-        esm_alphabet = None,
+        esm_model:ESMLanguageModel,
+        esm_alphabet:Alphabet,
     ):
         # Path to the data directory 
-        self.data_dir = data_dir
-        self.data_list = data_list
-        self.out_pdb = out_pdb
-        with open(self.data_list, 'r') as f:
-            lines = f.readlines()
-        self.file_list = [line.strip() for line in lines] 
         self.esm_model = esm_model
         self.batch_converter = esm_alphabet.get_batch_converter()
 
-        # # Load esm
-        # model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
-        # self.batch_converter = alphabet.get_batch_converter()
-
-    def __getitem__(self, idx: int):
-        # Get info from pdb_files and pt files
-        pdb_file = path.join(self.data_dir, self.file_list[idx])
-        _id = self.file_list[idx]
+    def get_pdb(self,pdb_file:str,id:str,out_pdb: bool = False)->DockedDatum:
 
         # Get sequences and coords from files  
-        rec_pos, rec_seq = load_coords(pdb_file,"A")
-        lig_pos, lig_seq = load_coords(pdb_file,"B")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            rec_pos, rec_seq = load_coords(pdb_file,"A")
+            lig_pos, lig_seq = load_coords(pdb_file,"B")
 
 
         # Convert coords to torch tensor
@@ -51,14 +53,10 @@ class DockingDataset(data.Dataset):
         rec_x = self.get_tokens(rec_seq).unsqueeze(0)
         lig_x = self.get_tokens(lig_seq).unsqueeze(0)
 
-        if self.out_pdb:
+        if out_pdb:
             test_coords = torch.cat([rec_pos, lig_pos], dim=0)
             test_coords = self.get_full_coords(test_coords)
             save_PDB('test.pdb', test_coords, rec_seq+lig_seq, len(rec_seq)-1)
-
-        # New code 
-        
-        # esm_model = ESMLanguageModel()
 
         # get esm embedding
         rec_x = self.esm_model(rec_x).squeeze(0) 
@@ -91,8 +89,9 @@ class DockingDataset(data.Dataset):
         position_matrix = self.relpos(res_id, asym_id)
 
         # Output
-        output = {
-            'id': _id,
+        output:DockedDatum = {
+            'id': id,
+            'pdb_file': pdb_file,
             'rec_seq': rec_seq,
             'lig_seq': lig_seq,
             'rec_x': rec_x,
@@ -102,9 +101,10 @@ class DockingDataset(data.Dataset):
             'position_matrix': position_matrix,
         }
         
-        return {key: value for key, value in output.items()}
+        return output
 
-    def relpos(self, res_id, asym_id, use_chain_relative=True):
+    @classmethod
+    def relpos(cls, res_id, asym_id, use_chain_relative=True):
         max_relative_idx = 32
         pos = res_id
         asym_id_same = (asym_id[..., None] == asym_id[..., None, :])
@@ -126,7 +126,7 @@ class DockingDataset(data.Dataset):
             boundaries = torch.arange(
                 start=0, end=2 * max_relative_idx + 2
             )
-            rel_pos = self.one_hot(
+            rel_pos = cls.one_hot(
                 final_offset,
                 boundaries,
             )
@@ -137,7 +137,7 @@ class DockingDataset(data.Dataset):
             boundaries = torch.arange(
                 start=0, end=2 * max_relative_idx + 1
             )
-            rel_pos = self.one_hot(
+            rel_pos = cls.one_hot(
                 clipped_offset, boundaries,
             )
             rel_feats.append(rel_pos)
@@ -146,15 +146,13 @@ class DockingDataset(data.Dataset):
 
         return rel_feat
 
-    def one_hot(self, x, v_bins):
+    @classmethod
+    def one_hot(cls, x, v_bins):
         reshaped_bins = v_bins.view(((1,) * len(x.shape)) + (len(v_bins),))
         diffs = x[..., None] - reshaped_bins
         am = torch.argmin(torch.abs(diffs), dim=-1)
         
         return F.one_hot(am, num_classes=len(v_bins)).float()
-
-    def __len__(self):
-        return len(self.file_list)
 
     def get_tokens(self, seq_prim):
         
@@ -199,12 +197,41 @@ class DockingDataset(data.Dataset):
             [n_coords, ca_coords, c_coords, o_coords, cb_coords], dim=1)
         
         return full_coords
+    
+class DockingDataset(data.Dataset[DockedDatum]):
+    def __init__(
+        self, 
+        data_dir: str,
+        data_list: str,
+        importer: PDBImporter,
+        out_pdb: bool = False,
+    ):
+        # Path to the data directory 
+        self.data_dir = data_dir
+        self.data_list = data_list
+        self.out_pdb = out_pdb
+        with open(self.data_list, 'r') as f:
+            lines = f.readlines()
+        self.file_list = [line.strip() for line in lines] 
+        self.importer = importer
+
+    def __getitem__(self, idx) -> DockedDatum:
+        pdb_file = path.join(self.data_dir, self.file_list[idx])
+        _id = self.file_list[idx]
+        return self.importer.get_pdb(pdb_file,_id,out_pdb=self.out_pdb)
+
+    def __len__(self):
+        return len(self.file_list)
+
 
 if __name__ == '__main__':
-    data_dir = "/scratch4/jgray21/ssarma4/pdbs"
-    data_list = "/scratch4/jgray21/ssarma4/pdbs/filenames.txt"
+    # data_dir = "/scratch4/jgray21/ssarma4/pdbs"
+    data_dir = "/home/dxu39/scr4_jgray21/dxu39/projects/diffenergy/dfmdock_perturb_tr_likelihood/dfmdock_inference/results/trjs/db5_test_DFMDock_model_0_0.5_120_samples_40_steps_dips/splits"
+    # data_list = "/scratch4/jgray21/ssarma4/pdbs/filenames.txt"
+    data_list = "/home/dxu39/scr4_jgray21/dxu39/projects/diffenergy/dfmdock_perturb_tr_likelihood/dfmdock_inference/results/trjs/dfmdock_perturb_tr_likelihood_db5_test_trj.txt"
     dataset = DockingDataset(
         data_dir=data_dir, 
         data_list=data_list, 
         out_pdb=False,
     )
+    from IPython import embed; embed()

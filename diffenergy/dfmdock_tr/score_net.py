@@ -134,8 +134,8 @@ def get_knn_and_sample(points, knn=20, sample_size=40, epsilon=1e-10):
     
     return knn_indices, sampled_points_indices
 
+# Deterministic nearest-neighbors sampler
 def get_knn(points, knn=60):
-    device = points.device
     n_points = points.size(0)
 
     if n_points < knn:
@@ -171,6 +171,7 @@ def get_knn_and_sample_graph(x, e, knn=20, sample_size=40):
 
     return edge_index, edge_attr
 
+# Deterministic graph constructor
 def get_knn_graph(x, e, knn=60):
     indices = get_knn(x, knn=knn)
     n_points, n_samples = indices.shape
@@ -281,7 +282,7 @@ class Score_Net(nn.Module):
     def __init__(
         self, 
         conf,
-        random_graph=True,
+        random_graph=True
     ):
         super().__init__()
         lm_embed_dim = conf.lm_embed_dim
@@ -382,7 +383,7 @@ class Score_Net(nn.Module):
         t = batch["t"]
         position_matrix = batch["position_matrix"]
 
-        # move to center
+        # move ligand to center
         center = lig_pos[..., 1, :].mean(dim=0)
         rec_pos = rec_pos - center
         lig_pos = lig_pos - center

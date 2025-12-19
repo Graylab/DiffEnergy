@@ -41,10 +41,9 @@ def main(config: DictConfig):
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
     marginal_prob_std_fn = functools.partial(marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
-    # diffusion_coeff_fn = functools.partial(diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max)
 
     # noise
-    sigma_noise = config.sigma_noise
+    sigma_noise = config.get("sigma_noise",0) #added noise to the original training distribution. You probably just want to leave this as zero.
     # number of epochs
     n_epochs = config.n_epochs
     # size of a mini-batch
@@ -70,8 +69,10 @@ def main(config: DictConfig):
         raise NotImplementedError("Laplace dataset is not implemented yet.")
     elif tr_data == 'trimodal_gaussian':
         sampler = TrimodalGaussianSampler(mu1=-30, sigma1=8.0, w1=0.4 , mu2=0, sigma2=5.0, w2=0.3, mu3=40, sigma3=10.0, w3=0.3)
-        dataset = TrimodalGaussianDataset(sampler, noise_std=0.1, num_samples=20000)
+        dataset = TrimodalGaussianDataset(sampler, noise_std=sigma_noise, num_samples=60000)
         train_loader = DataLoader(dataset, batch_size = batch_size, shuffle = True, num_workers = num_workers)
+    else:
+        raise ValueError(tr_data)
 
     tr_type = config.tr_type
 
@@ -88,6 +89,8 @@ def main(config: DictConfig):
         score_model = score_model.to(device)
         optimizer = torch.optim.Adam(score_model.parameters(), lr = 1e-4, weight_decay = 1e-6)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
+    else:
+        raise ValueError(tr_type)
 
     tqdm_epoch = tqdm.trange(n_epochs)
     loss_train_values = []
@@ -98,16 +101,16 @@ def main(config: DictConfig):
         avg_train_loss = 0.
         num_train_items = 0
 
-        for noisy_data, clean_data in train_loader:
-            noisy_data = noisy_data.to(device)
-            loss = loss_fn(score_model, noisy_data, marginal_prob_std_fn)
+        for sample_data, mean in train_loader:
+            sample_data = sample_data.to(device)
+            loss = loss_fn(score_model, sample_data, marginal_prob_std_fn)
             optimizer.zero_grad()
             loss.backward()
             # Add gradient clipping
             torch.nn.utils.clip_grad_norm_(score_model.parameters(), max_norm=1.0)
             optimizer.step()
-            avg_train_loss += loss.item() * noisy_data.shape[0]
-            num_train_items += noisy_data.shape[0]
+            avg_train_loss += loss.item() * sample_data.shape[0]
+            num_train_items += sample_data.shape[0]
 
         avg_train_loss /= num_train_items
         scheduler.step(avg_train_loss)
@@ -122,11 +125,13 @@ def main(config: DictConfig):
     # Plot the loss curve of training and validation
 
     window_size = 10
-    smoothed_loss_train_values = np.convolve(loss_train_values, np.ones(window_size)/window_size, mode='valid')
+    smoothed_loss_train_values = np.convolve(
+        loss_train_values, np.ones(window_size)/window_size, mode='valid')
     
     # Training loss
     plt.figure()
-    plt.plot(range(window_size, n_epochs + 1), smoothed_loss_train_values, label=f'Smoothed Training Loss (window={window_size})', linewidth=2)
+    plt.plot(range(window_size, n_epochs + 1), smoothed_loss_train_values, 
+             label=f'Smoothed Training Loss (window={window_size})', linewidth=2)
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Loss Curve')

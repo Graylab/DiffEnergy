@@ -1,20 +1,13 @@
-# import esm
 import copy
-import hydra
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 import numpy as np
-# import random
-# from torch.utils import data
-# from torch_geometric.loader import DataLoader
-from omegaconf import DictConfig
 from diffenergy.dfmdock_tr.score_net import Score_Net
 from diffenergy.dfmdock_tr.utils.so3_diffuser import SO3Diffuser 
 from diffenergy.dfmdock_tr.utils.r3_diffuser import R3Diffuser 
 from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
-# from datasets.ppi_mlsb_dataset import PPIDataset
 
 #----------------------------------------------------------------------------
 # Main wrapper for training the model
@@ -25,7 +18,7 @@ class Score_Model(pl.LightningModule):
         model,
         diffuser,
         experiment,
-        deterministic,
+        deterministic, #*required* argument that now must be passed during loading from checkpoint. There Shall Be No Ambiguities!
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -60,26 +53,34 @@ class Score_Model(pl.LightningModule):
         self.net = Score_Net(model,random_graph=not deterministic)
     
     def forward(self, batch):
-        
-        # grab some input 
-        rec_pos = batch["rec_pos"]
-        lig_pos = batch["sample"]
+                
+        # Process input batch to get the ligand position
+        if "lig_pos_orig" in batch: # Using offset-based batch, ligand position specified as offset from original position
+            lig_pos_orig = batch["lig_pos_orig"]
+            lig_pos_offset_tr = batch.get("offset_tr",None)
+            lig_pos_offset_rot = batch.get("offset_rot",None)
+            if lig_pos_offset_tr is None and lig_pos_offset_rot is None:
+                raise ValueError("Must specify at least one offset of 'offset_tr' or 'offset_rot'")
 
-        # move the lig center to origin 
-        center = lig_pos[..., 1, :].mean(dim=0)
+            lig_pos_offset_rot = torch.zeros((3,),device=lig_pos_orig.device,dtype=lig_pos_orig.dtype) if lig_pos_offset_rot is None else lig_pos_offset_rot
+            lig_pos_offset_tr = torch.zeros((3,),device=lig_pos_orig.device,dtype=lig_pos_orig.dtype) if lig_pos_offset_tr is None else lig_pos_offset_tr
 
+            lig_pos = self.modify_coords(lig_pos_orig,lig_pos_offset_rot,lig_pos_offset_tr)
+        else: # Using standard batch, ligand position provided
+            lig_pos = batch["lig_pos"]
+
+        # Assemble batch for the score net
         new_batch = {
             "rec_x": batch["rec_x"],
             "lig_x": batch["lig_x"],
-            "rec_pos": rec_pos - center,
-            "lig_pos": lig_pos - center,
+            "rec_pos": batch["rec_pos"],
+            "lig_pos": lig_pos, 
             "position_matrix": batch["position_matrix"],
-            "t": batch["t"],
+            "t": torch.reshape(batch["t"],(1,)), # make sure it's a 1d vector not a 0d scalar (so torch.cat doesn't complain)
         }
 
         # predict
         outputs = self.net(new_batch, predict=True)
-        # outputs = self.net(batch, predict=True)
         return outputs
 
     def loss_fn(self, batch, eps=1e-5):
@@ -210,7 +211,8 @@ class Score_Model(pl.LightningModule):
 
         return losses
 
-    def modify_coords(self, lig_pos, rot_update, tr_update):
+    @classmethod
+    def modify_coords(cls, lig_pos, rot_update, tr_update):
         cen = lig_pos[..., 1, :].mean(dim=0)
         rot = axis_angle_to_matrix(rot_update.squeeze())
         tr = tr_update.squeeze()
@@ -239,12 +241,6 @@ class Score_Model(pl.LightningModule):
         # get losses
         losses = self.loss_fn(batch)
         return losses
-    
-    def get_esm_rep(self, out):
-        with torch.no_grad():
-            results = self.esm_model(out, repr_layers = [33])
-            rep = results["representations"][33]
-        return rep[0, :, :]
 
     def training_step(self, batch, batch_idx):
         losses = self.step(batch, batch_idx)
@@ -298,31 +294,3 @@ class Score_Model(pl.LightningModule):
 def get_rmsd(pred, label):
     rmsd = torch.sqrt(torch.mean(torch.sum((pred - label) ** 2.0, dim=-1)))
     return rmsd
-
-#----------------------------------------------------------------------------
-# Testing run
-
-@hydra.main(version_base=None, config_path="/scratch4/jgray21/lchu11/graylab_repos/DFMDock/configs/model", config_name="score_model_mlsb.yaml")
-def main(conf: DictConfig):
-    # dataset = PPIDataset(
-    #     dataset='dips_train',
-    #     crop_size=500,
-    # )
-
-    # subset_indices = [0]
-    # subset = data.Subset(dataset, subset_indices)
-
-    # #load dataset
-    # dataloader = DataLoader(subset)
-    
-    # model = Score_Model(
-    #     model=conf.model, 
-    #     diffuser=conf.diffuser,
-    #     experiment=conf.experiment
-    # )
-    # trainer = pl.Trainer(accelerator='cpu', devices=1, max_epochs=10, inference_mode=False)
-    # trainer.validate(model, dataloader)
-    pass
-
-if __name__ == '__main__':
-    main()
