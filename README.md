@@ -32,10 +32,10 @@ Other likelihood configs include: computing the learned energy at each point alo
 Config options for alternate paths, integration methods, and other options can be found in the three `inference.py` files.
 
 ### Force Calculation
-Use `scripts/get_gaussian_forces.py` and `scripts/get_dfmdock_forces.py` with configs `gaussian_traj_forces` and `dfmdock_traj_forces` to record the forces (among other metircs) along Gaussian and dfmdock trajectories respectively.
+Use `scripts/get_gaussian_forces.py` and `scripts/get_dfmdock_forces.py` with configs `gaussian_traj_forces` and `dfmdock_traj_forces` to record the forces (among other metrics) along Gaussian and dfmdock trajectories respectively.
 
 ### Sampling
-This code allows for sampling from our trimodel Gaussian model and the modified dfmdock with `python scripts/sample_gaussian_1d.py --config-name=sample_gaussian_1d` and `python scripts/sample_dfmdock.py --config-name=sample_dfmdock` respectively.
+This code allows for sampling from our trimodel Gaussian modal and the modified dfmdock with `python scripts/sample_gaussian_1d.py --config-name=sample_gaussian_1d` and `python scripts/sample_dfmdock.py --config-name=sample_dfmdock` respectively.
 
 ### Figure Generation
 The code for generating the plots in figures 2-6 as well as the supplemental grid figures can be found in the `figures` folder.
