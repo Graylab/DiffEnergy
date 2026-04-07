@@ -55,8 +55,8 @@ class MultimodalGaussianGroundTruthScoreModel(CachedScoreModelEvaluator[Tensor,N
         self.sigma_max = tensor(self.sigma_max)
         self.sigma_min = tensor(self.sigma_min)
 
-    def _intermediates(self, x: Tensor, t: float) -> dict[str,Tensor]:
-        if (cache := self._check_cache(self.intcache,(x,t,None))) is not None: return cache
+    def _intermediates(self, x: Tensor, t: float, conditioning:None ) -> dict[str,Tensor]:
+        if (cache := self._check_cache(self.intcache,(x,t,conditioning))) is not None: return cache
 
         tensor = lambda d: torch.as_tensor(d,device=x.device,dtype=x.dtype)
 
@@ -86,7 +86,7 @@ class MultimodalGaussianGroundTruthScoreModel(CachedScoreModelEvaluator[Tensor,N
                 raise ValueError(currvar.shape) 
 
         intermediates = {"transf_dx":transf_dx,"wprobs":wprobs,"currvar_inv":currvar_inv,"wprobs_sum":torch.sum(wprobs,dim=-1),"prob":prob}
-        self.intcache = ((x,t,None),intermediates)
+        self.intcache = ((x,t,conditioning),intermediates)
         return intermediates
 
     def score(self, x: Tensor, t: float, conditioning:None) -> Tensor:
@@ -104,24 +104,24 @@ class MultimodalGaussianGroundTruthScoreModel(CachedScoreModelEvaluator[Tensor,N
             return self.batch_divergence(x,t,conditioning).squeeze(0)
     
     def batch_pdf(self, x: Tensor, t:float, conditioning:None) -> Tensor:
-        return self._intermediates(x,t)["wprobs_sum"]
+        return self._intermediates(x,t,conditioning)["wprobs_sum"]
 
     def batch_score(self, batch: Tensor, t: float, conditioning:None) -> Tensor:
         if (cache := self._cached_score(batch,t,conditioning)): return cache[1]
         
-        ints = self._intermediates(batch,t)
+        ints = self._intermediates(batch,t,conditioning)
         wprobs = ints["wprobs"]; transf_dx = ints["transf_dx"]; wprobs_sum = ints["wprobs_sum"]
         
         with record_function("scoresum"):
             score = -torch.sum(wprobs[...,None]*transf_dx,dim=-2)/wprobs_sum[...,None]
 
-        self._put_score(batch,t,None,batch,score)
+        self._put_score(batch,t,conditioning,batch,score)
         return score
     
     def batch_divergence(self, batch: Tensor, t: float, conditioning:None) -> Tensor:
         if (cache := self._cached_divergence(batch,t,conditioning)): return cache
         
-        ints = self._intermediates(batch,t)
+        ints = self._intermediates(batch,t,conditioning)
         score = self.batch_score(batch,t,conditioning) 
 
         wprobs = ints["wprobs"]; transf_dx = ints["transf_dx"] 
