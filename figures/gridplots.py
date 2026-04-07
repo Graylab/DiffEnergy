@@ -1,5 +1,5 @@
 import itertools
-import pickle
+import re
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 import numpy as np
@@ -7,7 +7,7 @@ import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
 
-from typing import Any, Literal, DefaultDict, Mapping, MutableMapping, Optional, TypeVar
+from typing import Any, Iterable, Literal, DefaultDict, Mapping, MutableMapping, Optional, TypeVar
 
 
 METRIC_LABELS = {
@@ -24,7 +24,7 @@ METRIC_LIMITS = {
     'dfmdock_energy':None #TODO: set reasonable limit
 }
 
-NEWCODE_LABELS = {"flow_nll": "Learned Energy (Flow)",
+LIKELIHOOD_LABELS = {"flow_nll": "Learned Energy (Flow)",
                  "diff_nll": "Learned Energy (Diffusion) [Euler]",
                  "diff_piecewise_ode_nll": "Learned Energy (Diffusion) [Piecewise ODE]",
                  "diff_trapezoid_nll": "Learned Energy (Diffusion)",
@@ -33,47 +33,108 @@ NEWCODE_LABELS = {"flow_nll": "Learned Energy (Flow)",
                  "diff_50interp_nll": "Learned Energy (Diffusion, Interpolated 50x)"}
 
 
-def get_likelihoods(likelihood_folder,integrand="TotalIntegrand",prior="smax_gaussian")->tuple[dict[str,pd.DataFrame],dict[str,pd.DataFrame]]:
-    lfile = likelihood_folder/"likelihood.csv"
-    ldf = pd.read_csv(lfile)
-    ldf.index = ldf['id'].str.rsplit("/",n=1).str[-1]
-    pdb_ids = ldf.index.str.split("_").str[0];
+def get_likelihoods(likelihood_file:Path|str,
+                    integrand:str="TotalIntegrand",prior:str="smax_gaussian",
+                    index_col:str='id',id_regex:Optional[str|re.Pattern]=None,sequential_sample_index_check=True)->tuple[dict[str,pd.Series],dict[str,pd.Series]]:
+    """
+    Read csv file with data about each sample. Returns a tuple of dicts ({pdb_id:nll_array}, {pdb_id:prior_array}); nll_array
+    and prior_array are both pd.Series containing learned negative log-likelihood and prior negative log-likelihood values respectively,
+    both indexed by the specified by 'index_col'. 
+    
+    To extract the pdb_id of each sample, either the csv must contain
+    a 'pdb_id' column, or the 'id_regex' must be specified: the capturing groups of id_regex will be used to populate
+    the pdb_id column (required) and the sample_index column (optional). If named capturing groups are used, 'pdb_id' and
+    'sample_index' will be assigned correspondingly; otherwise, the pdb_id and sample_index will be assigned 
+    by the first and second groups respectively. The 'sample_index' column represents the sub-index of each sample
+    within a particular pdb_id; it will be sorted alphanumerically before returning, and if sequential_sample_index_check == True,
+    sample_index will be asserted to be integer-valued and checked to ensure there are no gaps in the index.
+    
+    :param likelihood_file: Location of likelihood csv file to read
+    :type likelihood_file: Path | str
+    :param integrand: Name of the integrand to use for delta nll. Will use the f"integrand:{integrand}" column in the csv file.
+    default: "TotalIntegrand"
+    :type integrand: str
+    :param prior: Name of the prior to use. Will use the f"prior:{prior}" column in the csv file.
+    default: "smax_gaussian"
+    :type prior: str
+    :param index_col: Column to use for indexing the csv, default: 'index'
+    :type index_col: str
+    :param id_regex: Regex to parse 'pdb_id' and (optionally) 'sample_index' from the index column. 
+    If not provided, 'pdb_id' MUST be a column of the csv file. default: None
+    :type id_regex: Optional[str|re.Pattern]
+    :param sequential_sample_index_check: Whether to check that the 'sample_index' column A) exists, B) is integer-valued, and C)
+    is sequential (e.g. has no gaps from the smallest to the largest value). default: True
+    :type sequential_sample_index_check: bool
+    """
+    likelihoods_df = load_csv(likelihood_file,index_col=index_col,id_regex=id_regex,sequential_sample_index_check=sequential_sample_index_check)
+    
+    nlls:dict[str,pd.Series] = {}
+    priors:dict[str,pd.Series] = {}
 
-    ldf['pdb_id'] = pdb_ids
-    ldf.sort_values(['pdb_id'])
-
-    nlls = {}
-    priors = {}
-    for id in np.unique(pdb_ids):
-        arr = ldf[ldf['pdb_id'] == id]
-
-        #use the index inherent to the series for ordering!
-        nlls[id] = -((arr[f'integrand:{integrand}'] + arr[f'prior:{prior}']))/3 #negate because the code is expecting negative log-likelihood; divide by 3 because original code divided by N
-        priors[id] = -arr[f'prior:{prior}']/3
-
+    for pdb_id, df in likelihoods_df.items():
+        nlls[pdb_id] = -(df[f'integrand:{integrand}'] + df[f'prior:{prior}'])
+        priors[pdb_id] = -df[f'prior:{prior}']
+    
     return nlls, priors
 
-def get_metrics_csv_sample_stats(metrics_csv):
-    metrics_df = pd.read_csv(metrics_csv)
-    metrics_df.index = metrics_df['index']
-    pdb_ids = metrics_df.index.str.split("_p").str[0];
-    sample_index = metrics_df.index.str.split("_p").str[1];
+def load_csv(samples_csv:str|Path|Iterable[str|Path|pd.DataFrame],index_col:str|list[str]='index',id_regex:Optional[str|re.Pattern]=None,exclude_cols=[],sequential_sample_index_check=True)->dict[str,pd.DataFrame]:
+    """
+    Read csv file(s) with data about each sample. Returns a dict of {pdb_id:DataFrame}, where each dataframe
+    is indexed by the specified by 'index_col'. To extract the pdb_id of each sample, either the csv must contain
+    a 'pdb_id' column, or the 'id_regex' must be specified: the capturing groups of id_regex will be used to populate
+    the pdb_id column (required) and the sample_index column (optional). If named capturing groups are used, 'pdb_id' and
+    'sample_index' will be assigned correspondingly; otherwise, the pdb_id and sample_index will be assigned 
+    by the first and second groups respectively. The 'sample_index' column represents the sub-index of each sample
+    within a particular pdb_id; it will be sorted alphanumerically before returning, and if sequential_sample_index_check == True,
+    sample_index will be asserted to be integer-valued and checked to ensure there are no gaps in the index.
+
+    If multiple csvs provided, all will be read and merged by 'index_col' before any other operations take place
     
-    metrics_df['sample_index'] = sample_index.astype(int)
-    metrics_df['pdb_id'] = pdb_ids
-    metrics_df.sort_values(['pdb_id'])
-    unique_ids = np.unique(pdb_ids)
+    :param samples_csv: Location of csv file to read
+    :type samples_csv: Path|str
+    :param index_col: Column(s) to use for (multi-)indexing the csv, default: 'index'
+    :type index_col: str
+    :param id_regex: Regex to parse 'pdb_id' and (optionally) 'sample_index' from the index column. 
+    If not provided, 'pdb_id' MUST be a column of the csv file. default: None
+    :type id_regex: Optional[str|re.Pattern]
+    :param sequential_sample_index_check: Whether to check that the 'sample_index' column A) exists, B) is integer-valued, and C)
+    is sequential (e.g. has no gaps from the smallest to the largest value). default: True
+    :type sequential_sample_index_check: bool
+    """
     
+    samples_df = pd.concat([csv if isinstance(csv,pd.DataFrame) else pd.read_csv(csv,index_col=index_col) for csv in listify(samples_csv)],axis='columns')
+    samples_df['index'] = samples_df.index
+
+    if id_regex is not None:
+        match_df = samples_df['index'].str.extract(id_regex,expand=True)
+        match_df = match_df.rename(columns={0:'pdb_id',1:'sample_index'})
+
+        print(match_df)
+
+        for key in ['pdb_id','sample_index']:
+            if key not in samples_df and key in match_df:
+                samples_df[key] = match_df[key]
+
+    assert 'pdb_id' in samples_df, f"column 'pdb_id' not in {samples_csv} and provided regex {id_regex} could not parse index column to produce it!"
+    unique_ids = np.unique(samples_df['pdb_id'])
+
+    if sequential_sample_index_check:
+        assert 'sample_index' in samples_df
+        samples_df['sample_index'] = samples_df['sample_index'].astype(int)
+
+    samples_df = samples_df.sort_values(['pdb_id','sample_index'] if 'sample_index' in samples_df else ['pdb_id'])
+
     results = {}
     for id in unique_ids:
-        iddf = metrics_df[metrics_df['pdb_id'] == id].sort_values('sample_index')
-        assert np.all(np.diff(iddf['sample_index']) == 1) #make sure no gaps (paranoia incarnate)
-        results[id] = iddf
+        iddf = samples_df[samples_df['pdb_id'] == id]
+        if sequential_sample_index_check:
+            assert np.all(np.diff(iddf['sample_index']) == 1) #make sure no gaps
+        results[id] = iddf.drop(columns=exclude_cols)
     return results
     
     
 
-def get_dfmdock_sample_stats(dfmdock_stats_csv):
+def get_dfmdock_sample_stats(dfmdock_stats_csv:str|Path)->dict[str,pd.DataFrame]:
     dfmdock_stats_df = pd.read_csv(dfmdock_stats_csv)
     dfmdock_stats_df.rename(columns={'id':'pdb_id','index':'sample_index','energy':'dfmdock_energy'},inplace=True)
     dfmdock_stats_df.index = dfmdock_stats_df['pdb_id'].astype(str) + '_p' + dfmdock_stats_df['sample_index'].astype(str)
@@ -85,7 +146,7 @@ def get_dfmdock_sample_stats(dfmdock_stats_csv):
         results[id] = iddf
     return results
 
-def get_neighborhood_sample_stats(sample_folder):
+def get_neighborhood_sample_stats(sample_folder:str|Path)->dict[str,pd.DataFrame]:
     sample_folder = Path(sample_folder)
     metrics_df = pd.read_csv(sample_folder/"metrics.csv",index_col='index')
     index_df = pd.read_csv(sample_folder/"index.csv",index_col='index')
@@ -99,7 +160,7 @@ def get_neighborhood_sample_stats(sample_folder):
         results[id] = iddf
     return results
 
-def load_rosetta_isc(rosetta_csv):
+def load_rosetta_isc(rosetta_csv:str|Path)->dict[str,pd.Series]:
     rosetta_df = pd.read_csv(rosetta_csv)
     
     #get only top-scoring structures for each index
@@ -108,7 +169,7 @@ def load_rosetta_isc(rosetta_csv):
     rosetta_df.index = rosetta_df['id']
     unique_ids = np.unique(rosetta_df['pdb_id'])
     
-    results = {}
+    results:dict[str,pd.Series] = {}
     for pdb_id in unique_ids:
         iddf = rosetta_df[rosetta_df['pdb_id'] == pdb_id]
         
@@ -120,19 +181,66 @@ def load_rosetta_isc(rosetta_csv):
     return results
 
 
-def concat_dfdicts(*dicts:dict[str,pd.DataFrame]):
+def concat_dfdicts(dicts:Iterable[dict[str,pd.DataFrame]],duplicates_keep:Literal['first','last','all',False]='last'):
+    """
+    Concatenate Dataframes nested in dictionary {str,pd.DataFrame} structure.
+    duplicates_keep specifies priority for duplicate indices; False removes all duplicates,
+    'all' keeps all duplicates, while 'first' and 'last' give earlier and later entries in 
+    'dicts' priority respectively
+    
+    :param dicts: Dictionary-nested Dataframes to concatenate
+    :type dicts: Iterable[dict[str, pd.DataFrame]]
+    :param duplicates_keep: Priority for duplicate indices
+    :type duplicates_keep: Literal['first', 'last', 'all', False]
+    """
+    dicts = list(dicts)
     ids = set().union(*(d.keys() for d in dicts))
     dest:dict[str,pd.DataFrame] = {}
     for id in ids:
-        dest[id] = pd.concat([d[id] for d in dicts if id in d])
+        to_concat = [d[id] for d in dicts if id in d]
+        if len(to_concat) == 0: continue
+        c = pd.concat(to_concat)
+        if duplicates_keep != 'all': c = c.loc[~c.index.duplicated(keep=duplicates_keep)] #see https://stackoverflow.com/questions/13035764/remove-pandas-rows-with-duplicate-indices#34297689 for performance over drop_duplicates
+        dest[id] = c
     return dest
 
-def copy_keys(dest,source,*keys):
-    #convenience function to copy a bunch of key-value pairs from source to dest
-    for key in keys:
-        dest[key] = source[key]
+def concat_seridicts(dicts:Iterable[dict[str,pd.Series]],duplicates_keep:Literal['first','last','all',False]='last'):
+    """
+    Concatenate Series nested in dictionary {str,pd.Series} structure.
+    duplicates_keep specifies priority for duplicate indices; False removes all duplicates,
+    'all' keeps all duplicates, while 'first' and 'last' give earlier and later entries in 
+    'dicts' priority respectively
+    
+    :param dicts: Dictionary-nested Series to concatenate
+    :type dicts: Iterable[dict[str, pd.Series]]
+    :param duplicates_keep: Priority for duplicate indices
+    :type duplicates_keep: Literal['first', 'last', 'all', False]
+    """
+    ids = set().union(*(d.keys() for d in dicts))
+    dest:dict[str,pd.Series] = {}
+    for id in ids:
+        to_concat = [d[id] for d in dicts if id in d]
+        if len(to_concat) == 0: continue
+        c = pd.concat(to_concat)
+        if duplicates_keep != 'all': c = c.loc[~c.index.duplicated(keep=duplicates_keep)] #see https://stackoverflow.com/questions/13035764/remove-pandas-rows-with-duplicate-indices#34297689 for performance over drop_duplicates
+        dest[id] = c
+    return dest
 
-def insert_dfdict(dest:Mapping[str,pd.DataFrame|MutableMapping[str,Any]],destkey:str,source:Mapping[str,pd.DataFrame]):
+
+def insert_seridict(dest:Mapping[str,pd.DataFrame|MutableMapping[str,Any]],destkey:str,source:Mapping[str,pd.Series]):
+    """
+    Assign values of a dictionary to a particular key of a doubly-nested mapping. 
+    Alternatively, assign members of a dictionary-nested Series to a particular column of a dictionary-nested DataFrame,
+    using the indices as a guide.
+    
+    
+    :param dest: Dictionary of mappings into which to assign each corresponding value
+    :type dest: Mapping[str, pd.DataFrame | MutableMapping[str, Any]]
+    :param destkey: Key to which each value will be assigned
+    :type destkey: str
+    :param source: Source dictionary from which to take the values
+    :type source: Mapping[str, pd.Series]
+    """
     for id in source:
         if id in dest:
             d = dest[id]
@@ -141,7 +249,31 @@ def insert_dfdict(dest:Mapping[str,pd.DataFrame|MutableMapping[str,Any]],destkey
             else:
                 d[destkey] = source[id]
         else:
-            raise ValueError(id)
+            raise ValueError(f"key {id} not in dest keys: {dest.keys()}")
+
+def merge_dfdicts(dest:Mapping[str,pd.DataFrame|MutableMapping[str,Any]],keys:Optional[Iterable[str]],source:Mapping[str,pd.DataFrame]):
+    """
+    Like insert_dfdict, but copies specific keys from source to dest
+    
+    :param dest: Dictionary of mappings into which to assign corresponding values
+    :type dest: Mapping[str, pd.DataFrame | MutableMapping[str, Any]]
+    :param keys: Key of which values will be copied
+    :type keys: Iterable[str]
+    :param source: Source dictionary from which to copy the values
+    :type source: Mapping[str, pd.DataFrame]
+    """
+    keys = list(keys) if keys is not None else None
+    for id in source:
+        if id in dest:
+            d = dest[id]
+            ks = keys if keys is not None else source[id].columns
+            if isinstance(d,pd.DataFrame):
+                d.loc[source[id].index,ks] = source[id][ks]
+            else:
+                for k in ks:
+                    d[k] = source[id][k]
+        
+                
 
 T = TypeVar("T")
 def insert_dict(dest:Mapping[str,MutableMapping[str,T]],destkey:str,source:Mapping[str,T]):
@@ -149,47 +281,90 @@ def insert_dict(dest:Mapping[str,MutableMapping[str,T]],destkey:str,source:Mappi
         if id in dest:
             dest[id][destkey] = source[id]
 
-DFMDOCK_STATS_LOCATIONS = {
-    'dfmdock_inference_trtrained_deterministic': "../sample_results/dfmdock_inference_trtrained_deterministic/csv_files/db5_test_diffenergy_tr_0_0.5_120_samples_40_steps_dips_.csv",
-    'darren_inference': "../sample_results/darren_inference/csv_files/db5_test_DFMDock_model_0_0.5_120_samples_40_steps_dips_.csv",
-    'dfmdock_tr_inference': "../sample_results/dfmdock_inference/csv_files/db5_test_DFMDock_model_0_0.5_120_samples_40_steps_dips_.csv",
-}
-def load_dfmdock_stats(likelihoods_folder='results/likelihood/', #parent folder for likelihoods
+def listify(s:str|Path|Iterable[str|Path|T]):
+    return [s] if isinstance(s,str|Path) else s
+
+
+def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/likelihood/', #parent folder(s) for likelihoods
                        #sample paths
-                       sample_likelihoods_sources:dict[str,str|Path|tuple[str|Path,...]]={
+                       sample_likelihoods_sources:Mapping[str,str|Path|Iterable[str|Path]]={
                            'flow_nll':'dfmdock_flow',
                            'diff_nll':'dfmdock_diff'},
-                       sample_metrics_csv='results/sample_results/dfmdock/metrics.csv',
-                       sample_rosetta_csv='results/rosetta/dfmdock/refined_score.csv',
+                       sample_metrics_csv:str|Path|Iterable[str|Path]='results/sample_results/dfmdock/metrics.csv',
+                       sample_rosetta_csv:Optional[str|Path|Iterable[str|Path]]='results/rosetta/dfmdock/refined_score.csv',
                        #gt paths
-                       gt_likelihoods_sources:dict[str,str|Path|tuple[str|Path,...]]={'flow_nll':'dfmdock_gt_flow'},
-                       #no gt metrics because they're all either 0 or 1
-                       gt_rosetta_csv='results/rosetta/dfmdock_gt/refined_score.csv',
+                       gt_likelihoods_sources:Optional[Mapping[str,str|Path|Iterable[str|Path]]]={'flow_nll':'dfmdock_gt_flow'},
+                       gt_metrics_csv:Optional[str|Path|Iterable[str|Path]]=None,
+                       gt_rosetta_csv:Optional[str|Path|Iterable[str|Path]]='results/rosetta/dfmdock_gt/refined_score.csv',
                     ):
-    
+    """
+    Load likelihoods, rosetta energies, and any other provided metrics csv files (containing e.g. DockQ, interface RMSD, etc) into a combined DataFrame
+    and group by original pdb id, with different csv files associated with each other via the 'index' column corresponding to the id of the relevant sample.
+    Also optionally return a similarly grouped dictionary likelihoods, metrics, and rosetta energies for "ground truth" structures; interprets 'index' column 
+    of ground truth csv files as corresponding to the pdb id of samples. Finally, return dictionary of axis labels and limits for use in plotting. 
+    Returns a tuple of ``(sample_stats, ground_truth_stats, axis_labels, axis_limits)``.
+
+    :param likelihoods_folder: Parent folder for likelihoods in ``sample_likelihood_sources`` and ``gt_likelihoods_sources``; allows likelihood paths to be specified
+        as a relative path instead of absolute.
+    :type likelihoods_folder: str|Path|Iterable[str|Path]
+    :param sample_likelihoods_sources: A dictionary of {likelihood_key: likelihood_folder(s)} pointing to where likelihoods should be read.
+        Computes negative log likelihood [energy] as the negative sum of the ``integrand:TotalIntegrand`` and ``prior:smax_gaussian`` columns of the likelihood csv, 
+        and stores the nll in the resulting sample_stats DataFrame with column label ``likelihood_key``.
+    :type sample_likelihoods_sources: Mapping[str,str|Path|Iterable[str|Path]]
+    :param sample_metrics_csv: Path(s) to additional csv files with stats about the samples to be added to the sample_stats dataframes. Rows will be aligned
+        with likelihoods using the ``index`` column, then copied into the sample_stats dataframes. Will preserve original column names from the metrics csv files,
+        meaning if there are duplicate column names among csv files, only the *last* (following the order given in ``sample_metrics_csv``) will be kept!
+    :type sample_metrics_csv: str|Path|Iterable[str|Path]
+    :param sample_rosetta_csv: [Optional] Path(s) to csv files containing rosetta scoring outputs, as generated by ``scripts/rosetta_refine/*``.
+        Copies the ``I_sc`` [interface score] column from the rosetta csv into the ``rosetta_Isc`` column of sample_stats dataframes.
+    :type sample_rosetta_csv: Optional[str|Path|Iterable[str|Path]], default: None
+    :param gt_likelihoods_sources: [Optional] A dictionary of ``{likelihood_key: gt_likelihood_folder(s)}`` pointing to likelihoods of ground truth structures. 
+    Use the same ``likelihood_key`` as in sample_likelihoods_sources to label that they were computed with the same method.
+    :type gt_likelihoods_sources: Optional[Mapping[str,str|Path|Iterable[str|Path]]], default: None
+    :param gt_metrics_csv: [Optional] Path(s) to additional csv files with stats about ground truth structures. Note that unless overwritten by other files 
+        (or if none specified), the following stats will be assumed for ground truth structures: ``DockQ = 1``, ``c_rmsd = 0``, ``i_rmsd = 0``, ``l_rmsd = 0``, 
+        ``fnat = 1``, and ``num_clashess = 0``.
+    :type gt_metrics_csv: Optional[str|Path|Iterable[str|Path]], default: None
+    :param gt_rosetta_csv: [Optional] Path(s) to csv files containing rosetta scoring outputs for ground truth structures.
+    :type gt_rosetta_csv: Optional[str|Path|Iterable[str|Path]], default: None
+    """
+    ### Assemble non-likelihood stats
+
     ## One big dict which will hold all the stats for the *generated samples*. Start by populating the test metrics generated during sampling:
     sample_stats:dict[str,pd.DataFrame] = {}
-    sample_stats = get_metrics_csv_sample_stats(sample_metrics_csv)
+    sample_stats = concat_dfdicts(load_csv(csv) for csv in listify(sample_metrics_csv))
+
+    ## Add sample rosetta energies
+    if sample_rosetta_csv:
+        sample_rosetta_isc = concat_seridicts(load_rosetta_isc(csv) for csv in listify(sample_rosetta_csv) if Path(csv).exists())
+        insert_seridict(sample_stats,'rosetta_Isc',sample_rosetta_isc)
     
-    # Add rosetta energies
-    insert_dfdict(sample_stats,'rosetta_Isc',load_rosetta_isc(sample_rosetta_csv))
-    
-    
+
     ## Same idea as sample_stats, but for the ground truth structures. just contains dicts of floats, since only one structure per id and thus no dataframe required
     gt_stats:dict[str,dict[str,float]] = {}
     for id in sample_stats:
         gt_stats[id] = {'DockQ': 1, 'c_rmsd': 0, 'i_rmsd': 0, 'l_rmsd': 0, 'fnat': 1, 'num_clashes': 0} #some dummy data
-        
-    # Add rosetta energies
-    for id,isc in load_rosetta_isc(gt_rosetta_csv).items():
-        gt_stats[id]['rosetta_Isc'] = isc.item() if len(isc) > 0 else np.nan #get the one value for the one-element series
     
-    # Dict to hold: 1) the display labels for each inference type, and 2) the axis limits (optional) for each display label
+    ## Add actual GT metrics, if specified
+    if gt_metrics_csv:
+        gt_stats_dicts = concat_dfdicts(load_csv(csv) for csv in listify(gt_metrics_csv))
+        for id, df in gt_stats_dicts:
+            #store one-row dataframe into dict of scalars
+            for column in df.columns:
+                gt_stats[id][column] = df[column].item()
+
+    ## Add GT rosetta energies
+    if gt_rosetta_csv:
+        gt_rosetta_isc = concat_seridicts(load_rosetta_isc(csv) for csv in listify(gt_rosetta_csv) if Path(csv).exists())
+        for id,isc in gt_rosetta_isc.items():
+            gt_stats[id]['rosetta_Isc'] = isc.item() if len(isc) > 0 else np.nan #get the one value for the one-element series
+    
+    ## Dict to hold: 1) the display labels for each inference type, and 2) the axis limits (optional) for each display label
     labels:dict[str,str|None] = DefaultDict(lambda: None, **METRIC_LABELS)
-    limits:dict[str,tuple[float|None,float|None]|None] = DefaultDict(lambda: None, **METRIC_LIMITS)    
+    limits:dict[str,tuple[float|None,float|None]|None] = DefaultDict(lambda: None, **METRIC_LIMITS)
     
     ### Add Calculated Likelihoods
-    labels.update(NEWCODE_LABELS)
+    labels.update(LIKELIHOOD_LABELS)
     limits['flow_nll'] = (-1,8)
     limits['diff_10interp_nll'] = (-4,8)
     limits['diff_trapezoid_nll'] = (-4,8)
@@ -198,114 +373,106 @@ def load_dfmdock_stats(likelihoods_folder='results/likelihood/', #parent folder 
     default_integrand = 'TotalIntegrand' #TotalIntegrand is always right, no need to mess with total vs flow on different trajectories
     default_prior = 'smax_gaussian'
 
-    likelihoods_folder = Path(likelihoods_folder)
+    likelihood_id_regex = r'.*?(\w+)_p?(\d+)'
 
     ## Sample Likelihoods
-    load_newcode_likelihoods(sample_likelihoods_sources,default_integrand,default_prior,sample_stats,srcfolder=likelihoods_folder)
-    
+    sample_nlls = get_newcode_likelihoods(sample_likelihoods_sources,default_integrand,default_prior,srcfolder=likelihoods_folder,id_regex=likelihood_id_regex)[0]
+    for key,nlls in sample_nlls.items():
+        insert_seridict(sample_stats,key,nlls)
+
     ## Ground Truth Likelihoods
-    load_newcode_likelihoods(gt_likelihoods_sources,default_integrand,default_prior,gt_stats,srcfolder=likelihoods_folder)
+    if gt_likelihoods_sources is not None:
+        gt_nlls = get_newcode_likelihoods(gt_likelihoods_sources,default_integrand,default_prior,srcfolder=likelihoods_folder,id_regex=r'(.*)',sequential_sample_index_check=False)[0]
+        for key,nlls in gt_nlls.items():
+            insert_seridict(gt_stats,key,nlls)
     
     return sample_stats, gt_stats, labels, limits
 
-def load_neighborhood_stats(samples_source:Literal['centerline_shifts', 'transverse_plane']):
-    
+
+def load_neighborhood_stats(
+                        likelihoods_folder:str|Path|Iterable[str|Path]='../likelihood_results/dfmdock_neighborhood/', #parent folder(s) for likelihoods
+                        #sample paths
+                        sample_likelihoods_sources:Mapping[str,str|Path|Iterable[str|Path]]={},
+                        samples_folder:str|Path|Iterable[str|Path]=[], #index and metrics assumed to be 'samples_folder/index.csv' and 'samples_folder/metrics.csv' respectively
+                        sample_rosetta_csv:Optional[str|Path|Iterable[str|Path]]=None,
+
+                        #gt paths
+                        gt_likelihoods_sources:Optional[Mapping[str,str|Path|Iterable[str|Path]]]=None,
+                        #no gt metrics because they're all either 0 or 1
+                        gt_rosetta_csv:Optional[str|Path|Iterable[str|Path]]=None,
+
+                        sample_index_regex:Optional[str|re.Pattern]=r'.*?(\w+?)_plane_.*',
+                        gt_index_regex:Optional[str|re.Pattern]=r'.*?([a-zA-Z0-9]+)',
+                        ):
+
     ## One big dict which will hold all the stats for the *generated samples*. Start by populating the test metrics generated during sampling:
-    sample_stats:dict[str,pd.DataFrame] = {}
-    
-    if samples_source == 'centerline_shifts':
-        sample_stats = concat_dfdicts(
-            get_neighborhood_sample_stats("../neighborhood_sampling/centerline_shifts/"),
-            get_neighborhood_sample_stats("../neighborhood_sampling/dense/centerline_shifts/"),
-            get_neighborhood_sample_stats("../neighborhood_sampling/centered/centerline_shifts/")
-        )
-    elif samples_source == 'transverse_plane':
-        sample_stats = concat_dfdicts(
-            get_neighborhood_sample_stats("../neighborhood_sampling/transverse_plane/"),
-            get_neighborhood_sample_stats("../neighborhood_sampling/dense/transverse_plane/"),
-            get_neighborhood_sample_stats("../neighborhood_sampling/centered/transverse_plane/")
-        )
-    else:
-        raise ValueError()
-    
-    # Add rosetta energies
-    try:
-        if samples_source == 'centerline_shifts':
-            rosetta_csv = "../dfmdock_perturb_tr_likelihood/refined_scores_centerline.csv"
-        elif samples_source == 'transverse_plane':
-            rosetta_csv = "../dfmdock_perturb_tr_likelihood/refined_scores_transplane.csv"
-        else:
-            raise ValueError()
-        
-        rosetta_df = pd.read_csv(rosetta_csv)
-        for pdb_id in sample_stats:
-            iddf = rosetta_df[rosetta_df['pdb_id'] == pdb_id]
-            
-            #Missing Fnat means scoring failed
-            iddf = iddf[iddf['Fnat'].notna()]
-        
-            #assign values by index. Missing rows will be assigned 'nan', since rosetta doesn't return a value for every structure
-            iddf.index = iddf['id']
-            sample_stats[pdb_id]['rosetta_Isc'] = iddf['I_sc']
-    except FileNotFoundError:
-        print("Unable to load rosetta energies from nonexistent file:",rosetta_csv)
-        pass
-    
+    sample_stats = concat_dfdicts(load_csv((Path(folder)/'index.csv',Path(folder)/'metrics.csv'),id_regex=sample_index_regex,sequential_sample_index_check=False) for folder in listify(samples_folder)) #load index and metrics together so metrics has 'pdb_id' column
+
+    print(sample_stats.keys())
+
+    ## Add sample rosetta energies
+    if sample_rosetta_csv is not None:
+        sample_rosetta_isc = concat_seridicts(load_rosetta_isc(csv) for csv in listify(sample_rosetta_csv) if Path(csv).exists()) 
+        insert_seridict(sample_stats,'rosetta_Isc',sample_rosetta_isc)
     
     ## Same idea as sample_stats, but for the ground truth structures
     gt_stats:dict[str,dict[str,float]] = {}
     for id in sample_stats:
         gt_stats[id] = {'DockQ': 1, 'c_rmsd': 0, 'i_rmsd': 0, 'l_rmsd': 0, 'fnat': 1, 'num_clashes': 0} #some dummy data
     
-    # Use original gt_results' rosetta energy since it's independent of samples and method
-    with open('../dfmdock_perturb_tr_likelihood/dfmdock_perturb_tr_likelihood_gt.pkl', 'rb') as f:
-        old_gt_results = pickle.load(f)
-    for id in sample_stats:
-        gt_stats[id]['rosetta_Isc'] = old_gt_results['rosetta'][id]
+    ## Add GT rosetta energies
+    if gt_rosetta_csv is not None:
+        gt_rosetta_isc = concat_seridicts(load_rosetta_isc(csv) for csv in listify(gt_rosetta_csv) if Path(csv).exists())
+        for id,isc in gt_rosetta_isc.items():
+            gt_stats[id]['rosetta_Isc'] = isc.item() if len(isc) > 0 else np.nan #get the one value for the one-element series
     
-    
-    # Dict to hold: 1) the display labels for each inference type, and 2) the axis limits (optional) for each display label
+    ## Dict to hold: 1) the display labels for each inference type, and 2) the axis limits (optional) for each display label
     labels:dict[str,str|None] = DefaultDict(lambda: None, **METRIC_LABELS)
     limits:dict[str,tuple[float|None,float|None]|None] = DefaultDict(lambda: None, **METRIC_LIMITS)
     
-    
     ### Add Calculated Likelihoods
-
-    ## New Code
-    labels.update(NEWCODE_LABELS)
-    limits['flow_nll'] = (1,6)
+    labels.update(LIKELIHOOD_LABELS)
+    limits['flow_nll'] = (-1,8)
+    limits['diff_10interp_nll'] = (-4,8)
+    limits['diff_trapezoid_nll'] = (-4,8)
+    limits['diff_piecewise_ode_nll'] = (-4,8)
     
-    default_integrand = 'TotalIntegrand'
+    default_integrand = 'TotalIntegrand' #TotalIntegrand is always right, no need to mess with total vs flow on different trajectories
     default_prior = 'smax_gaussian'
-    
-    #add likelihoods from standard sources where available
-    srcfolder = Path("../likelihood_results/likelihoodv3/dfmdock_trtrained_deterministic/neighborhood/")
-    if samples_source == 'centerline_shifts':
-        sources = {'flow_nll': ('centerline_flow_40',), 'forwardsde_nll': ('centerline_forward_sde',)}
-    elif samples_source == 'transverse_plane':
-        sources = {'flow_nll': ('transverse_plane_flow_40','transverse_plane_centered_flow_40','transverse_plane_dense_flow_40'), 'forwardsde_nll': ('transverse_plane_forward_sde',)}
-    else:
-        raise ValueError()
-    
-    load_newcode_likelihoods(sources,default_integrand,default_prior,sample_stats,srcfolder=srcfolder)
 
-    #add any misc likelihoods here / override additions from above
+    ## Sample Likelihoods
+    sample_nlls = get_newcode_likelihoods(sample_likelihoods_sources,default_integrand,default_prior,srcfolder=likelihoods_folder,id_regex=sample_index_regex,sequential_sample_index_check=False)[0]
+    for key,nlls in sample_nlls.items():
+        insert_seridict(sample_stats,key,nlls)
 
+    ## Ground Truth Likelihoods
+    if gt_likelihoods_sources is not None:
+        gt_nlls = get_newcode_likelihoods(gt_likelihoods_sources,default_integrand,default_prior,srcfolder=likelihoods_folder,id_regex=gt_index_regex,sequential_sample_index_check=False)[0]
+        for key,nlls in gt_nlls.items():
+            insert_seridict(gt_stats,key,nlls)
+    
     return sample_stats, gt_stats, labels, limits
 
 
-def load_newcode_likelihoods(sources:Mapping[str,str|Path|tuple[str|Path,...]],integrand:str,prior:str,
-                             sample_stats:MutableMapping[str,pd.DataFrame]|MutableMapping[str,dict[str,float]],srcfolder:Path=Path(".")):
+
+def get_newcode_likelihoods(sources:Mapping[str,str|Path|Iterable[str|Path]],integrand:str,prior:str,id_regex:Optional[str|re.Pattern]=None,srcfolder:str|Path|Iterable[str|Path]=Path("."),**load_csv_kwargs):
+    newcode_nlls:dict[str,dict[str,pd.Series]] = {}
+    newcode_priors:dict[str,dict[str,pd.Series]] = {}
     for key,srcs in sources.items():
-        if isinstance(srcs,str|Path):
-            srcs = [srcs]
-        for src in srcs:
-            try:
-                nlls,priors = get_likelihoods(srcfolder/src,integrand=integrand,prior=prior)
-                insert_dfdict(sample_stats,key,nlls)
-            except (FileNotFoundError, pd.errors.EmptyDataError):
-                print(f"missed source: {src}")
-                pass
+        nlls = []
+        priors = []
+        for srcf in listify(srcfolder):
+            for src in listify(srcs):
+                try:
+                    n,p = get_likelihoods(Path(srcf)/src/'likelihood.csv',integrand=integrand,prior=prior,id_regex=id_regex,**load_csv_kwargs)
+                    nlls.append(n)
+                    priors.append(p)
+                except (FileNotFoundError, pd.errors.EmptyDataError):
+                    print(f"missed source: {src}")
+                    pass
+        newcode_nlls[key] = concat_seridicts(nlls)
+        newcode_priors[key] = concat_seridicts(priors)
+    return newcode_nlls,newcode_priors
 
 def plot_samples(sample_results:Mapping[str,pd.DataFrame], gt_results:Optional[Mapping[str,dict[str,float]]],
                   id:str, xtype:str, ytype:str,
