@@ -14,7 +14,7 @@ def get_traj_likelihoods(folder:Path):
     times = expanded_id[1].astype(float)
     ids = expanded_id[0]
     single_traj_likelihoods['id'] = ids
-    single_traj_likelihoods['Timestep'] = times
+    single_traj_likelihoods['timestep'] = times
     single_traj_likelihoods['nll'] = -(single_traj_likelihoods['prior:smax_gaussian'] + single_traj_likelihoods['integrand:TotalIntegrand'])/3
     
     single_traj_likelihoods = single_traj_likelihoods.iloc[::-1,:]
@@ -37,7 +37,7 @@ def get_forces(forces_folder:Path):
         forcedict = traj_force_dict[id] = {}
         forces = pd.read_csv(file)
         forcedict['id'] = id
-        forcedict['time'] = forces['Timestep'].values
+        forcedict['time'] = forces['timestep'].values
         forcedict['score'] = forces[['score']].values
         forcedict['divergence'] = forces['Divergence']
         forcedict['diff_coeff'] = forces['Diffusion_Coeff']
@@ -57,7 +57,7 @@ class TrajectoryIndex:
     def get(self,id:int):
         fname = self.files[id + self.offset]['filename'] #because of annoying df.to_dict ugh
         traj_df = pd.read_csv(self.traj_folder/fname)
-        t = np.array(traj_df['Timestep']); x = np.array(traj_df['Sample'])
+        t = np.array(traj_df['timestep']); x = np.array(traj_df['sample'])
         return t,x
 
     def __getitem__(self,id:int):

@@ -87,10 +87,10 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         }
 
     def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
-        return super().trajectory_index_writers(write_indices,extra_fieldnames=['PDB_File','Trajectory_File',*extra_fieldnames])
+        return super().trajectory_index_writers(write_indices,extra_fieldnames=['pdb_file','trajectory_file',*extra_fieldnames])
 
     def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[],offset_columns=False):
-        return super().sample_index_writer(write_samples,extra_fieldnames=['Filename',*(self.offset_trajectory_columns if offset_columns else []),*extra_fieldnames])
+        return super().sample_index_writer(write_samples,extra_fieldnames=['filename',*(self.offset_trajectory_columns if offset_columns else []),*extra_fieldnames])
     
     def get_sample_metrics(self,sample:LigDict|AtomArray,condition:DFMDict):
         gt_pdb = condition["orig_pdb"] #so glad I put that in there from the beginning
@@ -120,7 +120,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         
         df = pd.read_csv(data_file, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
         ids = df.loc[:, "index"].values  # Extract the first column as ids
-        paths = df.loc[:, "Filename"].values  # Extract the second column as filenames
+        paths = df.loc[:, "filename"].values  # Extract the second column as filenames
         offset_columns = self.offset_trajectory_columns
         if any([col.startswith("Offset") for col in df.columns]):
             offsets = df.loc[:,offset_columns]
@@ -156,7 +156,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
             (id, 
              trajectory_dir/trajectory_filename, 
              cls.dockeddatum_to_condition(pdb_importer.get_pdb(str(pdb_dir/pdb_filename),id), device=device))
-                for id,pdb_filename,trajectory_filename in zip(df["index"],df["PDB_File"],df["Trajectory_File"]))
+                for id,pdb_filename,trajectory_filename in zip(df["index"],df["pdb_file"],df["trajectory_file"]))
         #add length hint for progress bar
         return SizeWrappedIter(res,len(df['index']))
     
@@ -184,10 +184,10 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
             df = df.iloc[::-1].copy()
 
 
-            if "Timestep" in df.columns:
-                times = torch.as_tensor(df.loc[:, "Timestep"].values,dtype=torch.float32) #Extract Timestep column as times.
+            if "timestep" in df.columns:
+                times = torch.as_tensor(df.loc[:, "timestep"].values,dtype=torch.float32) #Extract timestep column as times.
             else:
-                steps = torch.as_tensor(df.loc[:,"Index"].values,dtype=torch.float32) # Extract the Index column, convert to timesteps
+                steps = torch.as_tensor(df.loc[:,"index"].values,dtype=torch.float32) # Extract the index column, convert to timesteps
                 times = 1 - steps/steps.max() #steps go from 0 to N, so divide by N and subtract from 1 to get time from 1 to 0
 
             if alltimes is not None:
@@ -197,9 +197,9 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
 
             if all(coli in df.columns for coli in columns):
                 data = torch.as_tensor(df[columns].values,dtype=torch.float32,device=device) #this just works yesssss
-            elif not any(coli in df.columns for coli in columns) and "PDB_File" in df.columns: #we're reading a PDB trajectory, turn into offset
+            elif not any(coli in df.columns for coli in columns) and "pdb_file" in df.columns: #we're reading a PDB trajectory, turn into offset
                 data = torch.empty((len(df),3),dtype=torch.float32,device=device)
-                for i,file in enumerate(df['PDB_File']):
+                for i,file in enumerate(df['pdb_file']):
                     pdb_file = Path(pdb_dir)/file
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
@@ -277,17 +277,17 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         If save_pdb_references is True, reference pdbs will be saved to out_dir/'pdb'/'reference', and all offsets in samples/trajectories will point to
         these reference pdbs as the 0 point. Otherwise, the original pdb from the DFMDict condition will be used as the reference.
 
-        Samples will be written to a top-level out_dir/'sample.csv' file, with sample id in the 'index' column and reference pdb indicated by the 'Filename'
+        Samples will be written to a top-level out_dir/'sample.csv' file, with sample id in the 'index' column and reference pdb indicated by the 'filename'
         column. If `sample_save_type` == 'pdb', this pdb file will contain the sample and be written* to out_dir/'pdb'/'samples'. If
         `sample_save_type` == 'offset', the pdb file will instead be a reference pdb (existing or newly saved), and the file will additionally have columns
         ["Offset_Tr_X", "Offset_Tr_Y", "Offset_Tr_Z"] and/or ["Offset_Rot_X", "Offset_Rot_Y", "Offset_Rot_Z"] which store the translational/rotational
         components of the offset vector between the reference and the sampled point.
 
         Individual trajectory csvs will be written to out_dir/'trajectories'/trajectory_{id}.csv, with an index/indices maintained in top-level trajectory_index.csv
-        and trajectory_index_{num}.csv files. Each trajectory file will have columns 'Index', with an integer index from 0 to N-1 of each step of the trajectory,
-        'Timestep', with the time t of each point, and then columns depending on `trajectory_save_type`. If `trajectory_save_type` == 'offset', there will be
-        additional offset columns as described above for samples, relative to the 'PDB_File' column in the trajectory index. If `trajectory_save_type` == 'pdb',
-        there will instead be a 'PDB_File' column in the trajectory csv itself, pointing to the pdb file corresponding to each step in the trajectory.
+        and trajectory_index_{num}.csv files. Each trajectory file will have columns 'index', with an integer index from 0 to N-1 of each step of the trajectory,
+        'timestep', with the time t of each point, and then columns depending on `trajectory_save_type`. If `trajectory_save_type` == 'offset', there will be
+        additional offset columns as described above for samples, relative to the 'pdb_file' column in the trajectory index. If `trajectory_save_type` == 'pdb',
+        there will instead be a 'pdb_file' column in the trajectory csv itself, pointing to the pdb file corresponding to each step in the trajectory.
 
         *SPECIAL CASE: if the sample would be saved in pdb format, but it would match an existing pdb file - e.g. if `sample_save_point` == 'reference'
         OR `save_pdb_reference` == True and `sample_save_point` = `pdb_reference_point` - rather than writing a new pdb file, the samples.csv file will simply
@@ -352,7 +352,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
             sample_res = {"index":id}
             if not force_copy_duplicate_sample and sample_save_type == 'pdb' and (sample_save_point == 'reference' or (save_pdb_references and sample_save_point == pdb_reference_point)):
                     #SPECIAL CASE - in other words, the samples would precisely match the reference. This is silly - just have the samples point to the reference!
-                    sample_res["Filename"] = relative_to(pdb_reference_file,pdb_dir)
+                    sample_res["filename"] = relative_to(pdb_reference_file,pdb_dir)
             else:
                 if sample_save_point == 'reference':
                     sample_offset = None
@@ -366,7 +366,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 if sample_save_type == 'pdb':
                     sample_dir.mkdir(parents=True,exist_ok=True)
                     sample_file = sample_dir/f"{id}.pdb"
-                    sample_res["Filename"] = relative_to(sample_file,pdb_dir)
+                    sample_res["filename"] = relative_to(sample_file,pdb_dir)
 
                     if sample_offset is not None:
                         assert force_copy_duplicate_sample
@@ -377,7 +377,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                     else:
                         shutil.copy(pdb_reference_file,sample_file)
                 elif sample_save_type == 'offset':
-                    sample_res["Filename"] = relative_to(pdb_reference_file,pdb_dir)
+                    sample_res["filename"] = relative_to(pdb_reference_file,pdb_dir)
 
                     sample_res.update(zip(self.offset_trajectory_columns,(sample_offset.tolist() if sample_offset is not None else itertools.repeat(0))))
                 else:
@@ -398,16 +398,16 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
             trajectory_dir.mkdir(parents=True,exist_ok=True)
             trajectory_csv = trajectory_dir/f'trajectory_{id}.csv'
 
-            trajectory_res = {"index":id, "Trajectory_File":relative_to(trajectory_csv,trajectory_dir)}#,"PDB_File":pdb_path}
+            trajectory_res = {"index":id, "trajectory_file":relative_to(trajectory_csv,trajectory_dir)}#,"pdb_file":pdb_path}
 
             if trajectory_save_type == 'offset':
                 assert xtraj.ndim == 2
                 assert xtraj.shape[1] == (6 if self.offset_type == "Translation+Rotation" else 3)
                 
-                columns = ["Timestep"] + self.offset_trajectory_columns
+                columns = ["timestep"] + self.offset_trajectory_columns
                 data = torch.cat([ttraj[...,None],xtraj],dim=1)                    
                 trajectory_df = pd.DataFrame(columns=columns,data=data.numpy(force=True))
-                trajectory_res["PDB_File"] = relative_to(pdb_reference_file,pdb_dir)
+                trajectory_res["pdb_file"] = relative_to(pdb_reference_file,pdb_dir)
 
             elif trajectory_save_type == 'pdb':
                 pdb_trajectory_dir.mkdir(parents=True,exist_ok=True)
@@ -419,7 +419,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                         *self.split_offset(offset))
                     save_structure(name,offset_pdb)
                 
-                trajectory_df = pd.DataFrame({"Timestep":ttraj.numpy(force=True),"PDB_File":map(lambda f: str(relative_to(f,pdb_dir)),filenames)})
+                trajectory_df = pd.DataFrame({"timestep":ttraj.numpy(force=True),"pdb_file":map(lambda f: str(relative_to(f,pdb_dir)),filenames)})
             else:
                 raise ValueError(f"{trajectory_save_type=}")
 
@@ -427,7 +427,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 for name,result in integrand_results.items():
                     trajectory_df[f"accumulated_integrand:{name}"] = result
 
-            trajectory_df.to_csv(trajectory_csv,index_label="Index")
+            trajectory_df.to_csv(trajectory_csv,index_label="index")
 
 
         return (sample_res, trajectory_res, metrics_res)
@@ -660,15 +660,15 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood):
                 forces_csv_file = f'{id}.csv'
                 index_writer.writerow({"id":id,"Forces_CSV":forces_csv_file})
                 with open(self.forces_folder/forces_csv_file,'w',newline='') as f2:
-                    forces_writer = DictWriter(f2,fieldnames=['Index','Timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
+                    forces_writer = DictWriter(f2,fieldnames=['index','timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
                     forces_writer.writeheader()
                     for i,(x,t) in enumerate(P):
                         force = scorefn(x,t,c)
                         div = divergencefn(x,t,c)
 
                         forcedict = {
-                            "Index":i,
-                            "Timestep":torch.as_tensor(t).item(),
+                            "index":i,
+                            "timestep":torch.as_tensor(t).item(),
                             'Diffusion_Coeff':diffusion_coeff_fn(t).item(),
                             'Divergence':div.item(),
                             **dict(zip(scorecols,force.tolist())),

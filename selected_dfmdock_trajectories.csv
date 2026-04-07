@@ -1,4 +1,4 @@
-index,PDB_File,Trajectory_File
+index,pdb_file,trajectory_file
 2SIC_p61,reference/2SIC_p61.pdb,trajectory_2SIC_p61.csv
 2SIC_p119,reference/2SIC_p119.pdb,trajectory_2SIC_p119.csv
 2A1A_p91,reference/2A1A_p91.pdb,trajectory_2A1A_p91.csv

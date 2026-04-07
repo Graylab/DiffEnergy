@@ -89,7 +89,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
         """Loads dataset from a CSV file and returns an iterable of tuples ('id',x). Each x will be a tensor with shape (1,)."""
         df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
         ids = df.loc[:, "index"].values  # Extract the first column as ids
-        samples = df.loc[:, "Samples"].values  # Extract the second column as samples
+        samples = df.loc[:, "samples"].values  # Extract the second column as samples
 
         # Convert to tensors
         ids = torch.tensor(ids, dtype=torch.int64)  # ids as integers
@@ -102,7 +102,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
         """Loads dataset from a CSV file and returns an iterable of tuples (['id1','id2',...],XB), where XB is a tensor with shape (batch_size,1)."""
         df = pd.read_csv(data_path, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
         ids = df.loc[:, "index"].values  # Extract the first column as ids
-        samples = df.loc[:, "Samples"].values  # Extract the second column as samples
+        samples = df.loc[:, "samples"].values  # Extract the second column as samples
 
         # Convert to tensors
         ids = torch.tensor(ids, dtype=torch.int64)  # ids as integers
@@ -125,7 +125,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
         return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch),None) for batch in itertools.batched(cls.load_trajectories(index_file),batch_size)]
     
     def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[]):
-        return super().sample_index_writer(write_samples,extra_fieldnames=['Samples',*extra_fieldnames])
+        return super().sample_index_writer(write_samples,extra_fieldnames=['samples',*extra_fieldnames])
     
     def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
         return super().trajectory_index_writers(write_indices,extra_fieldnames=['filename',*extra_fieldnames])
@@ -143,10 +143,10 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
             # have to do this and numpy AND make a copy, cause tensors don't support negative stride -_-
             df = df.iloc[::-1].copy()
 
-            if "Timestep" in df.columns:
-                times = torch.as_tensor(df.loc[:, "Timestep"].values,dtype=torch.float32) #Extract Timestep column as times.
+            if "timestep" in df.columns:
+                times = torch.as_tensor(df.loc[:, "timestep"].values,dtype=torch.float32) #Extract timestep column as times.
             else:
-                steps = torch.as_tensor(df.loc[:,"Index"].values,dtype=torch.float32) # Extract the Index column, convert to timesteps
+                steps = torch.as_tensor(df.loc[:,"index"].values,dtype=torch.float32) # Extract the index column, convert to timesteps
                 times = 1 - steps/steps.max() #steps go from 0 to N, so divide by N and subtract from 1 to get time from 1 to 0
 
             if alltimes is not None:
@@ -154,7 +154,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
             else:
                 alltimes = times
 
-            sampleslist.append(torch.as_tensor(df.loc[:, "Sample"].values,dtype=torch.float32,device=device))  # Extract the Sample column
+            sampleslist.append(torch.as_tensor(df.loc[:, "sample"].values,dtype=torch.float32,device=device))  # Extract the sample column
         assert alltimes is not None
         samples = torch.stack(sampleslist,dim=1) if batched else sampleslist[0] #needs to be NxB 
         return samples[...,None],alltimes  #add dimension to samples so iteration of 1d vectors
@@ -359,7 +359,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
 
                     if samples_writer:
                         #TODO: CONFIGURATION FOR WHICH POINT TO SAVE
-                        sample = {"index":id,"Samples":trajectory[-1].item()}
+                        sample = {"index":id,"samples":trajectory[-1].item()}
                         samples_writer.writerow(sample)
 
                     if save_trajectories: #save trajectory to folder
@@ -370,7 +370,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
                         assert xtraj.shape[1] == 1
                         xtraj = xtraj[:,0] #1d position into scalar
                         ttraj = torch.as_tensor(time).numpy(force=True)
-                        trajectory_df = pd.DataFrame({"Timestep":ttraj,"Sample":xtraj})
+                        trajectory_df = pd.DataFrame({"timestep":ttraj,"sample":xtraj})
                         trajectory_df.to_csv(trajectory_file,index_label="index")
 
 
@@ -448,15 +448,15 @@ class GaussianForces(ForcesMixin, GaussianLikelihood):
                 forces_csv_file = self.forces_folder/f'{id}.csv'
                 index_writer.writerow({"id":id,"Forces_CSV":forces_csv_file})
                 with open(forces_csv_file,'w',newline='') as f2:
-                    forces_writer = DictWriter(f2,fieldnames=['Index','Timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
+                    forces_writer = DictWriter(f2,fieldnames=['index','timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
                     forces_writer.writeheader()
                     for i,(x,t) in enumerate(P):
                         force = scorefn(x,t,c)
                         div = divergencefn(x,t,c)
 
                         forcedict = {
-                            "Index":i,
-                            "Timestep":torch.as_tensor(t).item(),
+                            "index":i,
+                            "timestep":torch.as_tensor(t).item(),
                             'Diffusion_Coeff':diffusion_coeff_fn(t).item(),
                             'Divergence':torch.as_tensor(div).item(),
                             **dict(zip(scorecols,[force.item()])),
@@ -595,7 +595,7 @@ class GaussianSampler(GaussianLikelihood):
                 for id, trajectory, time in zip(ids, trajectories, times):
                     if samples_writer:
                         #TODO: CONFIGURATION FOR WHICH POINT TO SAVE
-                        sample = {"index":id,"Samples":trajectory[-1].item()}
+                        sample = {"index":id,"samples":trajectory[-1].item()}
                         samples_writer.writerow(sample)
 
                     if save_trajectories: #save trajectory to folder
@@ -606,7 +606,7 @@ class GaussianSampler(GaussianLikelihood):
                         assert xtraj.shape[1] == 1
                         xtraj = xtraj[:,0] #1d position into scalar
                         ttraj = torch.as_tensor(time).numpy(force=True)
-                        trajectory_df = pd.DataFrame({"Timestep":ttraj,"Sample":xtraj})
+                        trajectory_df = pd.DataFrame({"timestep":ttraj,"sample":xtraj})
                         trajectory_df.to_csv(trajectory_file,index_label="index")
 
                         for cutoff,writer in trajectory_indices.items():

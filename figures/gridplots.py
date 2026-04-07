@@ -405,7 +405,7 @@ def plot_all_grids(sample_stats:Mapping[str,pd.DataFrame],gt_stats:Mapping[str,d
 
     if y_stats == 'auto' or x_stats == 'auto':
         allstats = list(np.unique([k for ks in sample_stats.values() for k in ks.columns]))
-        exclude = ('pdb_id','Filename','index','sample_index','Basis File','Plane Offset','X','Y')
+        exclude = ('pdb_id','filename','index','sample_index','Basis File','Plane Offset','X','Y')
         allstats = [a for a in allstats if a not in exclude]
 
         ys = [f for f in allstats if f.endswith('nll')]
