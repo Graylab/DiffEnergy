@@ -1,6 +1,12 @@
 from pathlib import Path
-from gridplots import load_dfmdock_stats, plot_all_grids
-from shared import setfont
+#run from either parent directory or figures directory
+try:
+    from shared import setfont
+    from gridplots import load_dfmdock_stats, plot_all_grids
+except ImportError:
+    from figures.shared import setfont
+    from figures.gridplots import load_dfmdock_stats, plot_all_grids
+
 
 
 if __name__ == "__main__":

@@ -1,10 +1,14 @@
 from pathlib import Path
 from typing import Any, Iterable
-
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
-from shared import setfont
+
+#run from either parent directory or figures directory
+try:
+    from shared import setfont
+except ImportError:
+    from figures.shared import setfont
 
 oranges = (0.99,0.68,0.42,1.0), (0.99,0.55,0.24,1.0), (0.85,0.41,0.07,1.0)
 pinks = (0.73,0.54,1.0,1.0), (0.63,0.65,1.0,1.0), (0.80,0.7,0.95,1.0)
