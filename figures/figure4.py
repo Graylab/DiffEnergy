@@ -24,7 +24,7 @@ def get_traj_likelihoods(folders):
         times = expanded_id[1].astype(float)
         ids = expanded_id[0]
         single_traj_likelihoods['id'] = ids
-        single_traj_likelihoods['Timestep'] = times
+        single_traj_likelihoods['timestep'] = times
         single_traj_likelihoods['nll'] = -(single_traj_likelihoods['prior:smax_gaussian'] + single_traj_likelihoods['integrand:TotalIntegrand'])/3
         
         single_traj_likelihoods = single_traj_likelihoods.iloc[::-1,:]
@@ -54,7 +54,7 @@ def read_forces(forces_folders):
             forcedict = traj_force_dict[id] = {}
             forces = pd.read_csv(forces_folder/'forces'/file)
             forcedict['id'] = id
-            forcedict['time'] = np.array(forces['Timestep'].values[::-1])
+            forcedict['time'] = np.array(forces['timestep'].values[::-1])
             forcedict['score'] = np.array(forces[score_cols].values[::-1])
             forcedict['divergence'] = np.array(forces['Divergence'][::-1])
             forcedict['diff_coeff'] = np.array(forces['Diffusion_Coeff'][::-1])
@@ -62,7 +62,7 @@ def read_forces(forces_folders):
     return traj_force_dict
 
 def plot_likelihood(likelihood_df:pd.DataFrame,color,name=None):
-    plt.plot(likelihood_df.Timestep,likelihood_df.nll, marker='o', linestyle='-', markersize=1.5, alpha=0.8, linewidth=0.7, c=color, label=name)
+    plt.plot(likelihood_df.timestep,likelihood_df.nll, marker='o', linestyle='-', markersize=1.5, alpha=0.8, linewidth=0.7, c=color, label=name)
 
 def plot_forces_xyz(id_dict:dict[str,Any],colors,scaled=False,name=None):
     scale = -1/2*np.squeeze(id_dict['diff_coeff'])**2 if scaled else 1
