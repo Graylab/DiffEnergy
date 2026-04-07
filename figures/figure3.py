@@ -8,7 +8,7 @@ import seaborn as sns
 from pathlib import Path
 from typing import Callable, Literal
 from scipy.stats import norm, laplace
-from scipy.stats import spearmanr, pearsonr
+from scipy.stats import pearsonr
 from matplotlib.ticker import FuncFormatter
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import binned_statistic, gaussian_kde, kstest
@@ -19,7 +19,11 @@ from pathlib import Path
 from typing import Optional
 from matplotlib.axes import Axes
 
-from shared import get_gaussian, get_gt_gaussian, marginal_prob_std, setfont
+#run from either parent directory or figures directory
+try:
+    from shared import get_gt_gaussian, marginal_prob_std, setfont
+except ImportError:
+    from figures.shared import get_gt_gaussian, marginal_prob_std, setfont
 
 def get_binline(nbins,x,y):
     prob_mean, bin_edges, binnumber = binned_statistic(x, y, statistic='mean', bins=nbins)

@@ -3,7 +3,12 @@ import numpy as np
 from pathlib import Path
 
 from matplotlib import pyplot as plt
-from shared import get_gt_gaussian, get_prior_gaussian, setfont
+
+#run from either parent directory or figures directory
+try:
+    from shared import get_gt_gaussian, get_prior_gaussian, setfont
+except ImportError:
+    from figures.sharedshared import get_gt_gaussian, get_prior_gaussian, setfont
 
 
 def get_traj_likelihoods(folder:Path):
