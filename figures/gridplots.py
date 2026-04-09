@@ -72,8 +72,9 @@ def get_likelihoods(likelihood_file:Path|str,
     priors:dict[str,pd.Series] = {}
 
     for pdb_id, df in likelihoods_df.items():
-        nlls[pdb_id] = -(df[f'integrand:{integrand}'] + df[f'prior:{prior}'])
-        priors[pdb_id] = -df[f'prior:{prior}']
+        ## NOTE: / 3 is purely a remnant!!
+        nlls[pdb_id] = -(df[f'integrand:{integrand}'] + df[f'prior:{prior}'])/3 
+        priors[pdb_id] = -df[f'prior:{prior}']/3
     
     return nlls, priors
 
