@@ -77,7 +77,7 @@ def get_likelihoods(likelihood_file:Path|str,
     
     return nlls, priors
 
-def load_csv(samples_csv:str|Path|Iterable[str|Path|pd.DataFrame],index_col:str|list[str]='index',id_regex:Optional[str|re.Pattern]=None,exclude_cols=[],sequential_sample_index_check=True)->dict[str,pd.DataFrame]:
+def load_csv(samples_csv:str|Path|Iterable[str|Path|pd.DataFrame],index_col:str|list[str]='index',id_regex:Optional[str|re.Pattern]=r'([A-Z0-9]+)_p(\d+)',exclude_cols=[],sequential_sample_index_check=True)->dict[str,pd.DataFrame]:
     """
     Read csv file(s) with data about each sample. Returns a dict of {pdb_id:DataFrame}, where each dataframe
     is indexed by the specified by 'index_col'. To extract the pdb_id of each sample, either the csv must contain
@@ -108,8 +108,6 @@ def load_csv(samples_csv:str|Path|Iterable[str|Path|pd.DataFrame],index_col:str|
     if id_regex is not None:
         match_df = samples_df['index'].str.extract(id_regex,expand=True)
         match_df = match_df.rename(columns={0:'pdb_id',1:'sample_index'})
-
-        print(match_df)
 
         for key in ['pdb_id','sample_index']:
             if key not in samples_df and key in match_df:
@@ -181,7 +179,7 @@ def load_rosetta_isc(rosetta_csv:str|Path)->dict[str,pd.Series]:
     return results
 
 
-def concat_dfdicts(dicts:Iterable[dict[str,pd.DataFrame]],duplicates_keep:Literal['first','last','all',False]='last'):
+def concat_dfdicts(dicts:Iterable[Mapping[str,pd.DataFrame]],duplicates_keep:Literal['first','last','all',False]='last'):
     """
     Concatenate Dataframes nested in dictionary {str,pd.DataFrame} structure.
     duplicates_keep specifies priority for duplicate indices; False removes all duplicates,
@@ -204,7 +202,7 @@ def concat_dfdicts(dicts:Iterable[dict[str,pd.DataFrame]],duplicates_keep:Litera
         dest[id] = c
     return dest
 
-def concat_seridicts(dicts:Iterable[dict[str,pd.Series]],duplicates_keep:Literal['first','last','all',False]='last'):
+def concat_seridicts(dicts:Iterable[Mapping[str,pd.Series]],duplicates_keep:Literal['first','last','all',False]='last'):
     """
     Concatenate Series nested in dictionary {str,pd.Series} structure.
     duplicates_keep specifies priority for duplicate indices; False removes all duplicates,
@@ -216,6 +214,7 @@ def concat_seridicts(dicts:Iterable[dict[str,pd.Series]],duplicates_keep:Literal
     :param duplicates_keep: Priority for duplicate indices
     :type duplicates_keep: Literal['first', 'last', 'all', False]
     """
+    dicts = list(dicts)
     ids = set().union(*(d.keys() for d in dicts))
     dest:dict[str,pd.Series] = {}
     for id in ids:
