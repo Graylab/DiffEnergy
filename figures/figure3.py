@@ -83,12 +83,11 @@ def plot_sample_result(parent_folder:str|Path,
         ax_title = ax_title if isinstance(ax_title,str) else f"{integrand_column} w/ {prior_column}"
         ax.set_title(ax_title,fontsize='small')
 
-    # Plot the samples data
+    # Load samples
     samples_df = pd.read_csv(samples_file, index_col=0)
-    samples = samples_df.values.flatten()
     
-    # Load the likelihoods
-    likelihood_df = pd.read_csv(likelihood_file).loc[samples_df.index]
+    # Load likelihoods
+    likelihood_df = pd.read_csv(likelihood_file)
     
     likelihoods = likelihood_df[integrand_column] + likelihood_df[prior_column]
     if likelihood_offset is not None:
@@ -97,7 +96,11 @@ def plot_sample_result(parent_folder:str|Path,
         if isinstance(likelihood_offset,Callable):
             likelihood_offset = likelihood_offset(likelihood_df,integrand_column,prior_column)
         likelihoods += likelihood_offset.loc[likelihood_df['id']]
-    likelihoods = likelihoods.values.flatten()
+    
+    #only use ids in both likelihoods and samples
+    index = samples_df.index.intersection(likelihood_df.index)
+    samples = samples_df.loc[index].values.flatten()
+    likelihoods = likelihoods.loc[index].values.flatten()
 
     sigma_min, sigma_max = 0.1, 70.0  # Define sigma limits
     gaussian_pdf = get_gt_gaussian(x)
