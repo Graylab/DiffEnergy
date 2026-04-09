@@ -241,6 +241,12 @@ class Score_Model(pl.LightningModule):
         # get losses
         losses = self.loss_fn(batch)
         return losses
+    
+    # def get_esm_rep(self, out):
+    #     with torch.no_grad():
+    #         results = self.esm_model(out, repr_layers = [33])
+    #         rep = results["representations"][33]
+    #     return rep[0, :, :]
 
     def training_step(self, batch, batch_idx):
         losses = self.step(batch, batch_idx)

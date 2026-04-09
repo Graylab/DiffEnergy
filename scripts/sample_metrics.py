@@ -15,7 +15,7 @@ def write_sample_metrics(ground_truth,samples_folder,metrics_csv_out):
     samples_folder = Path(samples_folder)
     metrics_csv_out = Path(metrics_csv_out)
     
-    with open(metrics_csv_out,'w',newline='') as metrics_handle:
+    with open(metrics_csv_out,'w',newline='',buffering=1) as metrics_handle:
         writer = csv.DictWriter(metrics_handle,fieldnames=['index',*METRICS_KEYS])
         writer.writeheader()
         for gt in tqdm(list(ground_truth.glob("*.pdb"))):

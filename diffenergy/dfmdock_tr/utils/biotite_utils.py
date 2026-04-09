@@ -9,6 +9,7 @@ except ImportError:
 import torch
 from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
 from diffenergy.dfmdock_tr.utils.esm_utils import extract_coords_from_structure
+from diffenergy.torch_decorator import torch_fn
 
 def modify_aa_coords(x, rot, tr):
     center = x.mean(axis=0)
@@ -37,7 +38,7 @@ def get_chain_structure(orig:str|Path|AtomArray,chain:str,backbone_only:bool=Fal
 
     #we can extract just the ligands, modify the structure, then assign it back using this boolean mask
     lig_filter = orig_structure.chain_id == chain #get boolean mask
-    lig_structure = orig_structure[lig_filter]
+    lig_structure:AtomArray = orig_structure[lig_filter]
     
     return lig_structure
 
@@ -47,6 +48,7 @@ def get_chain_coords(orig:str|Path|AtomArray,chain:str,backbone_only:bool=True):
 
 
 # load pdb with **all** atoms, not just backbone atoms, and offset specified chain. Defaults to B cause that's the default ligand chain
+@torch_fn
 def get_offset_pdb(
         orig:str|Path|AtomArray,
         offset_tr:None|torch.Tensor,
