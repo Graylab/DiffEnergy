@@ -1,6 +1,7 @@
 from __future__ import annotations
 import abc
 import csv
+from enum import Enum, StrEnum
 import functools
 from contextlib import contextmanager
 from csv import DictWriter
@@ -13,15 +14,54 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from functools import cached_property
 from io import TextIOWrapper
 from pathlib import Path
-from typing import Callable, Generic, Iterable, Iterator, Literal, Mapping, Optional, Protocol, Sequence, TypeVar, overload
-from typing_extensions import TypeVarTuple, Unpack
+from typing import Callable, Generic, Iterable, Literal, Mapping, Optional, Sequence, TypeVar
 
 import omegaconf
-import torch
-from torch.utils.data import Dataset
 
+import torch
 from torch import Tensor
-from diffenergy.likelihood import ArrayLike, EnsembledIntegrablePath, FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiableSequence, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, FlowIntegrand, TotalIntegrand
+
+from diffenergy.helper import MapDataset, SizeWrappedIter, SizedIter
+from diffenergy.likelihood import ArrayLike, EnsembledIntegrablePath, FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiablePath, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, FlowIntegrand, TotalIntegrand
+
+def handle_overwrite_dir(out_dir:Path,overwrite_output:bool,mention_resume:bool=True):
+    if not overwrite_output:
+        message = "Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output."
+        if mention_resume:
+            message += "\nAlternatively, if resuming an existing task, pass ++resume_existing=True or set resume_existing=True in the config to append to existing output files."
+        raise FileExistsError(out_dir,message)
+    else:
+        backup_out = out_dir.with_stem(out_dir.stem + "_backup")
+        warnings.warn(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
+        if backup_out.exists():
+            shutil.rmtree(backup_out)
+        os.rename(out_dir,backup_out)
+
+
+def strip_keys(conf:DictConfig,keys:list[str]):
+    ###WARNING: MODIFIES IN PLACE
+    with open_dict(conf):
+        for k in keys:
+            if k in conf: del conf[k]
+
+def write_config(config:DictConfig,file:str|Path,strip_overwrite:bool=True,require_compatible_if_existing:bool=True):
+    if os.path.exists(file) and require_compatible_if_existing:
+        ## here we just say that compatible == must be identical with the exception of the overwriting parameters:
+        existing = OmegaConf.load(file)
+        new = config.copy()
+
+        strip_keys(existing,["overwrite_output","resume_existing"])
+        strip_keys(new,["overwrite_output","resume_existing"])
+        
+        if not existing == new:
+            raise ValueError(f"Incompatible existing config found at {file}; if resuming existing task, please ensure configs are the same!")
+
+    if strip_overwrite:
+        config = config.copy()
+        strip_keys(config,["overwrite_output"]) #make sure overwrite_output doesn't get propagated to future accesses
+
+    with open(file,"w") as f:
+        f.write(OmegaConf.to_yaml(config))
 
 
 X = TypeVar("X") #data type of point
@@ -31,11 +71,6 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
     def __init__(self,config:DictConfig) -> None:
         self.config = config
         self._out_dir = None
-
-        # Path where config, likelihoods, trajectories, samples, etc will be saved. 
-        # By default, instantiating this class will require the out_dir to be empty; 
-
-
 
     def initialize_out_dir(self,allow_existing=False):
         """Initialize output directory, where config, likelihoods, trajectories, samples, etc will be saved.
@@ -48,14 +83,7 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
 
         out_dir = Path(self.config.out_dir)
         if out_dir.exists() and not allow_existing:
-            if not self.config.get("overwrite_output",False):
-                raise FileExistsError(out_dir,"""Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output.""")
-            else:
-                backup_out = out_dir.with_stem(out_dir.stem + "_backup")
-                warnings.warn(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
-                if backup_out.exists():
-                    shutil.rmtree(backup_out)
-                os.rename(out_dir,backup_out)
+            handle_overwrite_dir(out_dir,self.config.get("overwrite_output",False))
         out_dir.mkdir(parents=True,exist_ok=True)
         self._out_dir = out_dir
 
@@ -69,14 +97,8 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
     def out_config_file(self):
         return self.out_dir/"config.yaml"
 
-    def write_config(self,file:str|Path,strip_overwrite:bool=True):
-        config = self.config.copy()
-        if strip_overwrite:
-            with open_dict(config):
-                if "overwrite_output" in config: #make sure overwrite_output doesn't get propagated
-                    del config.overwrite_output
-        with open(file,"w") as f:
-            f.write(OmegaConf.to_yaml(config))
+    def write_config(self,file:str|Path,strip_overwrite:bool=True,require_compatible_if_existing:bool=True):
+        write_config(self.config,file,strip_overwrite=strip_overwrite,require_compatible_if_existing=require_compatible_if_existing)
 
     @property
     def out_likelihoods_file(self):
@@ -88,11 +110,21 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
         likelihoods_handle: Optional[TextIOWrapper] = None
         likelihoods_writer = None
         if write_likelihoods:
-            with open(self.out_likelihoods_file,"w") as likelihoods_handle:
-                fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name in prior_names] + [f"integrand:{name}" for name in integrand_names]
-                fieldnames.extend(extra_fieldnames)
+            fieldnames = ['id',"prior_position","prior_time"] + [f"prior:{name}" for name in prior_names] + [f"integrand:{name}" for name in integrand_names]
+            fieldnames.extend(extra_fieldnames)
+            file = self.out_likelihoods_file
+
+            existing = file.exists()
+            if existing:
+                try:
+                    with open(file,"r",newline='') as f: fieldnames, newnames = next(csv.reader(f)), fieldnames
+                    assert set(fieldnames) == set(newnames)
+                except StopIteration: #file is empty! need to write the header anyway
+                    existing = False
+            
+            with open(file,"a",buffering=1) as likelihoods_handle:
                 likelihoods_writer = csv.DictWriter(likelihoods_handle,fieldnames=fieldnames)
-                likelihoods_writer.writeheader()
+                if not existing: likelihoods_writer.writeheader()
                 yield likelihoods_writer
         else:
             yield None
@@ -108,11 +140,21 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
         samples_writer: Optional[csv.DictWriter] = None
 
         if write_samples:
-            with open(self.out_samples_file,"w") as samples_handle:
-                fieldnames = ["index"] #TODO: regularize capitalization aaaa
-                fieldnames.extend(extra_fieldnames)
+            fieldnames = ["index"]
+            fieldnames.extend(extra_fieldnames)
+            file = self.out_samples_file
+
+            existing = file.exists()
+            if existing:
+                try:
+                    with open(file,"r",newline='') as f: fieldnames, newnames = next(csv.reader(f)), fieldnames
+                    assert set(fieldnames) == set(newnames)
+                except StopIteration: #file is empty! need to write the header anyway
+                    existing = False
+
+            with open(file,"a",buffering=1) as samples_handle:
                 samples_writer = csv.DictWriter(samples_handle,fieldnames=fieldnames)
-                samples_writer.writeheader()
+                if not existing: samples_writer.writeheader()
                 yield samples_writer
         else:
             yield None
@@ -138,11 +180,26 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
     @contextmanager
     def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
         if write_indices:
-            index_handles: dict[int|None,TextIOWrapper] = {ind:open(file,"w",newline='') for ind,file in self.out_trajectory_indices.items()}
+            fieldnames = ["index"]
+            fieldnames.extend(extra_fieldnames)
+            
+            index_handles: dict[int|None,TextIOWrapper] = {}
+            trajectory_indices: dict[int|None,csv.DictWriter] = {}
+            for ind,file in self.out_trajectory_indices.items():
+                names = fieldnames
+                
+                existing = file.exists()
+                if existing:
+                    try:
+                        with open(file,"r",newline='') as f: names = next(csv.reader(f))
+                        assert set(fieldnames) == set(names)
+                    except StopIteration: #file is empty! need to write the header anyway
+                        existing = False
 
-            extras = list(extra_fieldnames)
-            trajectory_indices = {ind:csv.DictWriter(f,fieldnames=["index"] + extras) for (ind,f) in index_handles.items()}
-            [writer.writeheader() for writer in trajectory_indices.values()]
+                handle = index_handles[ind] = open(file,"a",newline='',buffering=1)
+                writer = trajectory_indices[ind] = csv.DictWriter(handle,fieldnames=names)
+                if not existing: 
+                    writer.writeheader()
 
             try:
                 yield trajectory_indices
@@ -168,9 +225,21 @@ class ForcesMixin(DiffEnergyLikelihood):
 
     @contextmanager
     def forces_index_writer(self):
-        with open(self.forces_index_file,'w',newline='') as f:
-            index_writer = DictWriter(f,fieldnames=['id','Forces_CSV'])
-            index_writer.writeheader()
+        fieldnames = ['id','Forces_CSV'] #TODO: lowercase
+
+        file = self.forces_index_file
+        
+        existing = file.exists()
+        if existing:
+            try:
+                with open(file,"r",newline='') as f: fieldnames, newnames = next(csv.reader(f)), fieldnames
+                assert set(fieldnames) == set(newnames)
+            except StopIteration: #file is empty! need to write the header anyway
+                existing = False
+
+        with open(file,'a',newline='',buffering=1) as f:
+            index_writer = DictWriter(f,fieldnames=fieldnames)
+            if not existing: index_writer.writeheader()
             yield index_writer
 
 
@@ -180,8 +249,6 @@ def unzip(it:Iterable[tuple[X,Y]])->tuple[list[X],list[Y]]:
     return list(x),list(y)
 
 
-P = TypeVarTuple("P")
-B = TypeVarTuple("B")
 T = TypeVar("T")
 I = TypeVar("I")  # noqa: E741
 
@@ -229,56 +296,24 @@ def get_integrands(
 
     return integrands
 
+class SamplesPaths(StrEnum):
+    FLOW_ODE = "flow_ode"
+    STILL = "still"
+    LINEARIZED_FLOW = "linearized_flow"
+    REVERSE_SDE = "reverse_sde"
+    FORWARD_SDE = "forward_sde"
+    ENSEMBLED_FORWARD_SDE = "ensembled_forward_sde" 
 
-class SizedIter(Protocol,Generic[X]):
-    def __len__(self)->int:
-        ...
-    def __iter__(self)->Iterator[X]:
-        ...
+class TrajectoriesPaths(StrEnum):
+    SDE_TRAJECTORIES = "sde_trajectories"
+    SDE_TRAJECTORIES_UNREVERSED = "sde_trajectories_unreversed"
+    PIECEWISE_TRAJECTORIES = "piecewise_trajectories" 
+    LINEAR_TRAJECTORIES = "linear_trajectories" #endpoints only
+    
+    DATA_TRANSLATION = "data_translation" #endpoints only
+    DIFF_DATA_TRANSLATION = "diff_data_translation"
 
-
-class MapDataset(Generic[X,Unpack[P]], Dataset[X], SizedIter[X], Sequence[X]):
-    source:Sequence[tuple[Unpack[P]]]
-    map:Callable[[Unpack[P]],X]
-
-    @classmethod
-    def chain(cls:type[MapDataset[X,Unpack[P]]],source:MapDataset[tuple[Unpack[B]],Unpack[P]],map:Callable[[Unpack[B]],X])->MapDataset[X,Unpack[P]]:
-        map2 = source.map
-        def map_composed(*args:Unpack[P]):
-            return map(*map2(*args))
-        return cls(source.source,map_composed)
-
-    def __init__(self,source:Sequence[tuple[Unpack[P]]], map:Callable[[Unpack[P]],X]):
-        self.source = source
-        self.map = map
-
-    def __len__(self):
-        return len(self.source)
-
-    @overload
-    def __getitem__(self,index:int) -> X: ...
-    @overload
-    def __getitem__(self,index:slice) -> MapDataset[X,Unpack[P]]: ...
-    def __getitem__(self, index:int|slice) -> X|MapDataset[X,Unpack[P]]:
-        if isinstance(index,slice):
-            return MapDataset(self.source[index],self.map)
-        else:
-            return self.map(*self.source[index])
-
-    def __iter__(self) -> Iterator[X]:
-        yield from (self[i] for i in range(len(self)))
-
-
-class SizeWrappedIter(SizedIter[X]):
-    def __init__(self,iter:Iterable[X],length:int):
-        self.iter = iter
-        self.length = length
-
-    def __len__(self) -> int:
-        return self.length
-
-    def __iter__(self):
-        return iter(self.iter)
+    FLOW_ALONG_TRAJECTORY = "flow_along_trajectory"
 
 
 def get_paths(
@@ -348,24 +383,38 @@ def get_paths(
 
     int_args = config.get("integration",DictConfig({}))
 
+    ### Conversion examples between old integration format and new, for integral_type='ode':
+    #===OLD===
+    # odeint_rtol: 1e-5
+    # odeint_atol: 1e-5
+    # odeint_method: rk4
+    #
+    #===NEW===
+    # integration:
+    #   method: rk4
+    #   rtol: 1e-5
+    #   atol: 1e-5
+
     #integration parameter aliases for backwards compatibility
-    for argname,topname in [("method","integration_method"),("atol","odeint_atol"),("rtol","odeint_rtol"),("method","odeint_method")]:
-        if (newarg := config.get(topname)):
-            if (arg := int_args.get(argname,None)) and newarg != arg:
-                raise ValueError(f"Mismatch between top-level {topname} ({newarg}) and integration parameter {argname} ({arg})")
-            int_args[argname] = newarg
+    with open_dict(int_args):
+        for argname,topname in [("method","integration_method"),("atol","odeint_atol"),("rtol","odeint_rtol"),("method","odeint_method")]:
+            if (newarg := config.get(topname)):
+                if (arg := int_args.get(argname,None)) and newarg != arg:
+                    raise ValueError(f"Mismatch between top-level {topname} ({newarg}) and integration parameter {argname} ({arg})")
+                int_args[argname] = newarg
 
     if "method" not in int_args and config.get("integral_type",None) == "diff":
         #for backwards compatibility, default method for "diff" integral type is "euler"
         int_args["method"] = "euler"
+
 
     int_args = dict(int_args)
     int_method = int_args.pop("method",None)
 
     # load path and associated dataset
     paths:SizedIter[tuple[I,IntegrablePath[X,C]]]
-    match config.path_type:
-        case "flow_ode":
+    match config.path_type: #does string comparison since StrEnum allows direct comparison
+        case SamplesPaths.FLOW_ODE: 
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
             samples = load_samples()
 
@@ -384,7 +433,7 @@ def get_paths(
                 )
             paths = SizeWrappedIter(pathgen,len(samples))
 
-        case "sde_trajectories":
+        case TrajectoriesPaths.SDE_TRAJECTORIES:
             #sde: get paths from diffusion tajectories
             trajectories = load_trajectories()
 
@@ -403,7 +452,7 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case "sde_trajectories_unreversed":
+        case TrajectoriesPaths.SDE_TRAJECTORIES_UNREVERSED:
             #sde: get paths from diffusion tajectories, going from *1 to 0* 
             trajectories = load_trajectories()
 
@@ -422,12 +471,12 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case "piecewise_trajectories":
+        case TrajectoriesPaths.PIECEWISE_TRAJECTORIES: #TODO: remove? since we already have the PiecewiseDifferentiablePath option? Maybe just make this path syntactic sugar for activating the wrapper
             #piecewise sde: linear paths between points on diffusion trajectory
             trajectories = load_trajectories()
 
             pathgen = (
-                (id,PiecewiseDifferentiableSequence(
+                (id,PiecewiseDifferentiablePath(
                     get_trajectory(path,condition),
                     config.num_interpolants,
                     to_array,
@@ -439,7 +488,25 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case "linear_trajectories":
+        case SamplesPaths.STILL: #same x from time 0 to 1
+            samples = load_samples()
+
+            pathgen = ( #maybe this should be a dataloader or something idk
+                (id,LinearPath[X,C](
+                    (sampx,0),
+                    (sampx,1),
+                    ode_times,
+                    to_array,
+                    from_array,
+                    condition,
+                    int_method,
+                    int_args))
+                    for (id,sampx,condition) in (samples)
+                )
+            
+            paths = SizeWrappedIter(pathgen,len(samples))
+
+        case TrajectoriesPaths.LINEAR_TRAJECTORIES:
             #linear: take sampled paths, and just make a straight line from start to end
             trajectories = load_trajectories()
 
@@ -457,7 +524,7 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case "linearized_flow":
+        case SamplesPaths.LINEARIZED_FLOW:
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
             samples = load_samples()
 
@@ -476,7 +543,7 @@ def get_paths(
                 )
             paths = SizeWrappedIter(pathgen,len(samples))
 
-        case "diff_data_translation":
+        case TrajectoriesPaths.DIFF_DATA_TRANSLATION:
             # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
             # Requires a prior function compatible with t0 sampling [e.g. ground truth]
 
@@ -498,8 +565,8 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case "data_translation":
-            # Linear translation in data space: like linear_trajectories, but always at time=0. 
+        case TrajectoriesPaths.DATA_TRANSLATION:
+            # *Linear* translation in data space: like linear_trajectories, but always at time=0. 
             # Requires a prior function compatible with t0 sampling [e.g. ground truth]
 
             # take sampled paths, and just make a straight line from start to end
@@ -519,25 +586,25 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case "reverse_sde":
+        case SamplesPaths.REVERSE_SDE:
             samples = load_samples()
 
             pathgen = (
                 (id,ReverseSDEPath(
                     scorefn,
                     diffusion_coeff_fn,
-                    config.get("noise_scale",1),
                     sde_times,
                     initial,
                     to_array,
                     from_array,
                     condition,
                     int_method,
-                    int_args))
+                    int_args,
+                    config.get("noise_scale",1),))
                 for (id,initial,condition) in  (samples))
             paths = SizeWrappedIter(pathgen,len(samples))
 
-        case "forward_sde":
+        case SamplesPaths.FORWARD_SDE:
             samples = load_samples()
 
             pathgen = (
@@ -554,7 +621,7 @@ def get_paths(
                 for (id,initial,condition) in  (samples))
             paths = SizeWrappedIter(pathgen,len(samples))
 
-        case "ensembled_forward_sde":
+        case SamplesPaths.ENSEMBLED_FORWARD_SDE: #TODO: broken?
             samples = load_samples()
             n_paths = config.ensemble_num_paths
             noise_scale = config.get("noise_scale",1)
@@ -582,7 +649,7 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(samples))
 
-        case "flow_along_trajectory": #that is, calculate the flowtime integral from t=0 to t=1 for each point in each diffusion trajectory
+        case TrajectoriesPaths.FLOW_ALONG_TRAJECTORY: #that is, calculate the flowtime integral from t=0 to t=1 for each point in each diffusion trajectory
             trajectories = load_trajectories() #each trajectory of N timesteps will produce N flow results
 
             #note we replace each id with a tuple (id,t)
@@ -614,5 +681,26 @@ def get_paths(
         sigma:float = config.perturbation_sigma
         schedule:Literal['uniform','data'] = config.get("perturbation_schedule","data")
         paths = SizeWrappedIter(((id,PerturbedPath[X,C](path,schedule,sigma,path.condition,int_method,int_args)) for id,path in paths),len(paths)) #god I love generators
+
+    ## Wrap path in PiecewiseDifferentiablePath, allowing for
+    # 1) linear interpolation (by setting piecewise_interpolants > 1) and
+    # 2) piecewise ODE or diff integration (by specifying piecewise_ode and piecewise_diff respectively)
+    int_type = config.integral_type
+    piecewise_int = None
+    if int_type.startswith("piecewise_"): 
+        piecewise_int = int_type.split("piecewise_")[1]
+        with open_dict(config):
+            config.integral_type = "diff"
+        piecewise_args = int_args.copy()
+        piecewise_args["integral_type"] = piecewise_int
+        paths = SizeWrappedIter(
+            ((id,PiecewiseDifferentiablePath[X,C](path,
+                                                  config.get("piecewise_interpolants",1),
+                                                  to_array,
+                                                  from_array,
+                                                  path.condition,
+                                                  int_method,
+                                                  piecewise_args)) for id,path in paths),len(paths)
+        )
 
     return paths

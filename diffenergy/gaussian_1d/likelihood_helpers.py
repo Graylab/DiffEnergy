@@ -41,7 +41,7 @@ class ModelEval(CachedScoreModelEvaluator[Tensor,None]):
             x.requires_grad_(False)
 
         with grad_ctx(): #not sure if this actually is that important, might be enough to just set requires grad to true/false. don't think it can hurt, though
-            score:Tensor = self.score_model(x, torch.as_tensor([t],device=x.device,dtype=x.dtype).expand((x.shape[0],)))
+            score:Tensor = self.score_model(x, torch.as_tensor(t,device=x.device,dtype=x.dtype)[None].expand((x.shape[0],)))
         
         self._put_score(batch,t,conditioning,x,score)
         return score if return_grad else score.detach()
@@ -65,11 +65,22 @@ class ModelEval(CachedScoreModelEvaluator[Tensor,None]):
         grad_scores = torch.empty(x.shape,dtype=x.dtype,device=x.device)
         for b in range(x.shape[0]):
             for i in range(x.shape[1]):
-                grad_scores[b,i] = torch.autograd.grad(score[b,i], x, retain_graph=True, create_graph=False)[0][b,i]
+                grad_scores[b,i] = torch.autograd.grad(score[b,i], x, retain_graph=True, create_graph=return_grad)[0][b,i] #get i'th element for trace
         trace = torch.sum(grad_scores, dim=1)
 
         self._put_divergence(batch,t,conditioning,trace)
         return trace if return_grad else trace.detach()
+    
+    def batchjacobian(self, batch: Tensor, t: float, conditioning: None, return_grad: bool=False) -> Tensor: #TODO: if used frequently, cache and use for batchdivergence
+        self.batchscore(batch,t,conditioning,grad=True) 
+        assert self.scorecache is not None
+        x,score = self.scorecache[1] #make sure we use the corresponding input tensor with the grad enabled
+
+        jacobian = torch.empty(x.shape + x.shape[-1:],dtype=x.dtype,device=x.device)
+        for b in range(x.shape[0]):
+            for i in range(x.shape[1]):
+                jacobian[b,i] = torch.autograd.grad(score[b,i], x, retain_graph=True, create_graph=return_grad)[0][b] #save whole gradient to jacobian
+        return jacobian if return_grad else jacobian.detach()
     
     def divergence(self,x:Tensor,t:float,conditioning:None,return_grad:bool=False) -> Tensor:
         div = self.batchdivergence(x, t, conditioning, return_grad=return_grad)
@@ -80,10 +91,3 @@ class ModelEval(CachedScoreModelEvaluator[Tensor,None]):
             return div[0]
         else:
             raise ValueError("x must have size 1 in dimension 1 to use unbatched divergence! To use batched data, please initialize the model with batched=True.")
-
-    
-
-
-
-        
-

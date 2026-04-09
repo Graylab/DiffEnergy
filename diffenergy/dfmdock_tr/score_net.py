@@ -282,7 +282,7 @@ class Score_Net(nn.Module):
     def __init__(
         self, 
         conf,
-        random_graph=True
+        random_graph=True,
     ):
         super().__init__()
         lm_embed_dim = conf.lm_embed_dim

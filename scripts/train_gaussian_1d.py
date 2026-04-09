@@ -16,6 +16,7 @@ from diffenergy.gaussian_1d.dataset import TrimodalGaussianSampler, TrimodalGaus
 from diffenergy.gaussian_1d.loss import loss_fn
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
 from diffenergy.helper import marginal_prob_std
+from diffenergy.inference import handle_overwrite_dir, write_config
 
 
 # --------------------------------------------------------------------------------
@@ -35,8 +36,9 @@ def main(config: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # set seed
-    np.random.seed(1)
-    torch.manual_seed(1)
+    seed = config.get("manual_seed",1)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
@@ -57,8 +59,16 @@ def main(config: DictConfig):
     tr_data = config.tr_data
 
     outpath = Path(config.out_dir)
-    if not outpath.exists():
-        outpath.mkdir()
+    if outpath.exists():
+        #TODO: allow resuming? simply continue training epochs until reach max. IDK how to track how many epochs we've done though.
+        #I suppose "resume" in this case could simply be "train for n_epochs more epochs," 
+        #but I feel like ++resume_existing being idempotent; that is, it should have no action on a completed run.
+        handle_overwrite_dir(outpath,config.get("overwrite_output",False),mention_resume=False)
+    outpath.mkdir(parents=True,exist_ok=False)
+
+    wt_file = outpath / "weights.ckpt"
+    config_out = outpath / "config.yaml"
+    write_config(config,config_out)
 
     # import dataset and split into train and validation sets
     if tr_data == 'laplace':
@@ -118,8 +128,8 @@ def main(config: DictConfig):
 
         # Print the averaged training loss so far.
         tqdm_epoch.set_description(f'Epoch {epoch+1}/{n_epochs}, Train Loss: {avg_train_loss:.6f}')
+        
         # Update the checkpoint after each epoch of training.
-        wt_file = outpath / config.wt_file
         torch.save(score_model.state_dict(), wt_file)
 
     # Plot the loss curve of training and validation

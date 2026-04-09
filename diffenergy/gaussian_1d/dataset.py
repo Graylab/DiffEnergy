@@ -1,6 +1,8 @@
 import torch
 from torch.utils.data import Dataset
 
+from diffenergy.gaussian_helper import mixture_sample
+
 def sample_trimodal_gaussian(n, mu1, sigma1, w1, mu2, sigma2, w2, mu3, sigma3, w3):
     """
     Inputs:
@@ -12,18 +14,7 @@ def sample_trimodal_gaussian(n, mu1, sigma1, w1, mu2, sigma2, w2, mu3, sigma3, w
     Outputs:
         x: A vector of n points, torch.tensor
     """
-    w1, w2, w3 = 0.4, 0.3, 0.3
-
-    # Sample mixture component indices based on weights
-    choices = torch.multinomial(torch.tensor([w1, w2, w3]), num_samples=n, replacement=True)
-
-    # Sample from each Gaussian
-    x = torch.zeros(n)
-    x[choices == 0] = torch.normal(mu1, sigma1, (torch.sum(choices == 0),))
-    x[choices == 1] = torch.normal(mu2, sigma2, (torch.sum(choices == 1),))
-    x[choices == 2] = torch.normal(mu3, sigma3, (torch.sum(choices == 2),))
-
-    return x
+    return mixture_sample(n,[w1,w2,w3],[[mu1],[mu2],[mu3]],[sigma1,sigma2,sigma3])
 
 # Add noise to the data
 def add_noise(x, sigma=0.1):
