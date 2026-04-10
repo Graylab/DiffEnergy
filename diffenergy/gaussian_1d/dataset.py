@@ -41,7 +41,7 @@ class TrimodalGaussianSampler(object):
         self.w3 = w3
 
     def __call__(self, n):
-        return sample_trimodal_gaussian(n, self.mu1, self.sigma1, self.w1, self.mu2, self.sigma2, self.w2, self.mu3, self.sigma3, self.w3)
+        return torch.tensor(sample_trimodal_gaussian(n, self.mu1, self.sigma1, self.w1, self.mu2, self.sigma2, self.w2, self.mu3, self.sigma3, self.w3))
 
 class TrimodalGaussianDataset(Dataset):
     def __init__(self, sampler, noise_std, num_samples=1000):
@@ -55,7 +55,7 @@ class TrimodalGaussianDataset(Dataset):
         self.noise_std = noise_std
         self.num_samples = num_samples
 
-        self.data = self.sampler(num_samples).unsqueeze(1)
+        self.data = self.sampler(num_samples)
         self.noisy_data = add_noise(self.data, self.noise_std)
 
     def __len__(self):
