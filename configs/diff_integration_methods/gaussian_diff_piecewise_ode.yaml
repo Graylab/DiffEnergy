@@ -1,0 +1,30 @@
+# @package _global_
+checkpoint: checkpoints/1d_trinormal_smax70_unnoised/weights.ckpt
+out_dir: results/likelihood/diff_integration_methods/gaussian_1d_diff_piecewise_ode
+sigma_min: 0.1
+sigma_max: 70
+clamp_diffusion_coefficient: False
+data_samples: results/sample_results/gaussian_1d/samples.csv
+trajectory_index_file: results/sample_results/gaussian_1d/trajectories/trajectory_index.csv
+
+tr_type: non_conservative
+
+integrand_types:
+  TotalIntegrand:
+  FlowIntegrand:
+prior_fns:
+  smax_gaussian
+  convolved_data
+path_type: sde_trajectories
+
+
+integral_type: piecewise_ode #divide the SDE path into a set of linear segments, each fully differentiable along their length enabling ODE integration
+integration: #each piecewise path is integrated via ode solver using these parameters
+  method: rk4
+  rtol: 1e-5
+  atol: 1e-5
+
+save_trajectories: False
+
+batched: True
+batch_size: 64
