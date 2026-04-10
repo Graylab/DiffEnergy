@@ -51,10 +51,8 @@ def main(config: DictConfig):
     # size of a mini-batch
     batch_size = config.batch_size
     num_workers = config.num_workers
-    # # percentage of data to use as the test set
-    # test_size = config.test_size
-    # # percentage of data to use as the validation set
-    # val_size = config.val_size
+    #how many points to sample from the distribution
+    num_samples = config.num_samples
     # type of training data
     tr_data = config.tr_data
 
@@ -79,7 +77,7 @@ def main(config: DictConfig):
         raise NotImplementedError("Laplace dataset is not implemented yet.")
     elif tr_data == 'trimodal_gaussian':
         sampler = TrimodalGaussianSampler(mu1=-30, sigma1=8.0, w1=0.4 , mu2=0, sigma2=5.0, w2=0.3, mu3=40, sigma3=10.0, w3=0.3)
-        dataset = TrimodalGaussianDataset(sampler, noise_std=sigma_noise, num_samples=60000)
+        dataset = TrimodalGaussianDataset(sampler, noise_std=sigma_noise, num_samples=num_samples)
         train_loader = DataLoader(dataset, batch_size = batch_size, shuffle = True, num_workers = num_workers)
     else:
         raise ValueError(tr_data)
