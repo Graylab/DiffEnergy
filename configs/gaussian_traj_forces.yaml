@@ -1,5 +1,5 @@
 # @package _global_
-checkpoint: checkpoints/1d_trinormal_smax70_unnoised.ckpt
+checkpoint: checkpoints/1d_trinormal_smax70_unnoised/weights.ckpt
 out_dir: results/forces/gaussian_1000
 sigma_min: 0.1
 sigma_max: 70
