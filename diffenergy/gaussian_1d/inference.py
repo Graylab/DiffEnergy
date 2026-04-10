@@ -22,12 +22,13 @@ import functools
 import itertools
 import math
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Optional, ParamSpec, Sequence, TypeVarTuple, override
+from typing import Callable, Iterable, Mapping, Optional, ParamSpec, Sequence
+from typing_extensions import TypeVarTuple, override, Unpack
 
 #horrible hack
 A = ParamSpec("A")
 T = TypeVarTuple("T")
-def replicate_fn(f:Callable[A,list[tuple[str,*T]]]|Callable[A,list[tuple[list[str],*T]]],num_replicates:int)->Callable[A,list[tuple[str,*T]]]|Callable[A,list[tuple[list[str],*T]]]:
+def replicate_fn(f:Callable[A,list[tuple[str,Unpack[T]]]]|Callable[A,list[tuple[list[str],Unpack[T]]]],num_replicates:int)->Callable[A,list[tuple[str,Unpack[T]]]]|Callable[A,list[tuple[list[str],Unpack[T]]]]:
     @functools.wraps(f)
     def replicated(*args,**kwargs): 
         res = []
