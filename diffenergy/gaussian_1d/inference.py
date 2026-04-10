@@ -10,13 +10,11 @@ from diffenergy.helper import MapDataset, SizedIter, diffusion_coeff, int_diffus
 from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
 
-
 import numpy as np
 import pandas as pd
 import torch
 from omegaconf import DictConfig, OmegaConf, open_dict
 from tqdm import tqdm
-
 
 import functools
 import itertools
@@ -24,6 +22,16 @@ import math
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Optional, ParamSpec, Sequence
 from typing_extensions import TypeVarTuple, override, Unpack
+
+def batched(iterable, n, *, strict=False):
+    # batched('ABCDEFG', 3) → ABC DEF G
+    if n < 1:
+        raise ValueError('n must be at least one')
+    iterator = iter(iterable)
+    while batch := tuple(itertools.islice(iterator, n)):
+        if strict and len(batch) != n:
+            raise ValueError('batched(): incomplete batch')
+        yield batch
 
 #horrible hack
 A = ParamSpec("A")
@@ -145,7 +153,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
 
     @classmethod
     def load_trajectories_batched(cls,index_file:str|Path,batch_size:int):
-        return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch),None) for batch in itertools.batched(cls.load_trajectories(index_file),batch_size)]
+        return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch),None) for batch in batched(cls.load_trajectories(index_file),batch_size)]
     
     @classmethod
     def load_trajectory(cls,data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda')->tuple[torch.Tensor,torch.Tensor]:

@@ -30,6 +30,16 @@ from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
 from biotite.structure.io import save_structure
 from biotite.structure import AtomArray
 
+def batched(iterable, n, *, strict=False):
+    # batched('ABCDEFG', 3) → ABC DEF G
+    if n < 1:
+        raise ValueError('n must be at least one')
+    iterator = iter(iterable)
+    while batch := tuple(itertools.islice(iterator, n)):
+        if strict and len(batch) != n:
+            raise ValueError('batched(): incomplete batch')
+        yield batch
+
 def get_sample_metrics(gt_pdb:str|Path|AtomArray,sample_pdb:str|Path|AtomArray, rec_chain:str="A", lig_chain:str="B"):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -180,7 +190,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         unbatched = cls.load_trajectories(trajectory_index_file,pdb_dir,trajectory_dir,pdb_importer,device=device)
         num_batches = math.ceil(len(unbatched)//batch_size)
         #add length hint for progress bar
-        return SizeWrappedIter(((tuple(b[0] for b in batch),tuple(b[1] for b in batch), tuple(b[2] for b in batch)) for batch in itertools.batched(unbatched,batch_size)),num_batches)
+        return SizeWrappedIter(((tuple(b[0] for b in batch),tuple(b[1] for b in batch), tuple(b[2] for b in batch)) for batch in batched(unbatched,batch_size)),num_batches)
 
 
     def load_trajectory(self,data_path:str|Path|tuple[str|Path,...], pdb_dir:str|Path, reference:DFMDict, device:str|torch.device='cuda')->Sequence[tuple[LigDict|tuple[LigDict,...],torch.Tensor]]:
