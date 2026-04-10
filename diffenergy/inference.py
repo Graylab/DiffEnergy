@@ -1,7 +1,13 @@
 from __future__ import annotations
 import abc
 import csv
-from enum import Enum, StrEnum
+try:
+    from enum import StrEnum
+except ImportError:
+    from enum import Enum # pre python 3.11 compatibility
+    class StrEnum(str, Enum):
+        pass
+
 import functools
 from contextlib import contextmanager
 from csv import DictWriter
@@ -29,7 +35,8 @@ def handle_overwrite_dir(out_dir:Path,overwrite_output:bool,mention_resume:bool=
         message = "Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output."
         if mention_resume:
             message += "\nAlternatively, if resuming an existing task, pass ++resume_existing=True or set resume_existing=True in the config to append to existing output files."
-        raise FileExistsError(out_dir,message)
+        arg = str(out_dir) + ": " + message
+        raise FileExistsError(arg)
     else:
         backup_out = out_dir.with_stem(out_dir.stem + "_backup")
         warnings.warn(f"Moving dir {out_dir} to backup directory {backup_out}. Subsequent calls will DELETE THIS BACKUP, so be careful!!")
