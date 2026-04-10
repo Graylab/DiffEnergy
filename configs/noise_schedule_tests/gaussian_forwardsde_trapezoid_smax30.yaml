@@ -16,7 +16,7 @@ prior_fns:
   smax_gaussian
   convolved_data
 path_type: forward_sde
-
+sde_steps: 100
 integral_type: 'diff'
 
 integration:
