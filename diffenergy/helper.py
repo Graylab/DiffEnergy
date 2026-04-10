@@ -1,6 +1,6 @@
 from __future__ import annotations
-from typing import Callable, Generic, Iterable, Iterator, Protocol, Sequence, TypeVar, TypeVarTuple, Unpack, overload
-from typing_extensions import ParamSpec
+from typing import Callable, Generic, Iterable, Iterator, Protocol, Sequence, TypeVar, overload
+from typing_extensions import TypeVarTuple, Unpack
 
 import torch
 from torch.utils.data import Dataset

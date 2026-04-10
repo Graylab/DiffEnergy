@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 import functools
 import itertools
-from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Optional, Sequence, Sized, TypeVar, Union, overload, override
+from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Optional, Sequence, Sized, TypeVar, overload
 from numpy.typing import ArrayLike
+from typing_extensions import override
 
 import torch
 from torch import Tensor
