@@ -552,6 +552,11 @@ class PiecewiseDifferentiablePath(IntegrablePath[X,C]):
         # Note that while each path contains the entire n_interp - 1 points for integration purposes, iterating over this path will skip the first point of each path except the initial one so no points are repeated
         assert n_interp >= 1
         self.n_interp = n_interp
+
+        if 'rtol' not in self.methodargs:
+            self.methodargs['rtol'] = 1e-5
+        if 'atol' not in self.methodargs:
+            self.methodargs['atol'] = 1e-5
         
         self.pathclass = LinearPath #for forward compatibility
 
