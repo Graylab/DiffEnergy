@@ -36,6 +36,32 @@ def get_binline(nbins,x,y):
     return bin_centers, prob_mean
     
 
+def load_sample_likelihoods(likelihood_folder:str|Path,samples_file:Optional[str|Path]=None,integrand_column:str='integrand:TotalIntegrand',prior_column:str='prior:smax_gaussian')->tuple[pd.Series,pd.Series]:
+    likelihood_folder = Path(likelihood_folder)
+    likelihood_file = likelihood_folder/"likelihood.csv"
+    likelihood_config = likelihood_folder/"config.yaml"
+    with open(likelihood_config,"r") as f:
+        config = load(f.read(), Loader)
+    if samples_file is None:
+        samples_file = config["data_samples"]
+        assert samples_file is not None
+
+    # Load samples
+    samples_df = pd.read_csv(samples_file, index_col=0)
+    
+    # Load likelihoods
+    likelihood_df = pd.read_csv(likelihood_file)
+    likelihoods = likelihood_df[integrand_column] + likelihood_df[prior_column]
+    
+    #only use ids in both likelihoods and samples
+    index = samples_df.index.intersection(likelihood_df.index)
+    samples = samples_df.loc[index]
+    likelihoods = likelihoods.loc[index]
+
+    return samples, likelihoods
+
+
+
 def plot_sample_result(parent_folder:str|Path, 
                        likelihood_subfolder:str|Path, 
                        integrand_column:str='integrand:TotalIntegrand', 
@@ -49,7 +75,6 @@ def plot_sample_result(parent_folder:str|Path,
                        fig_title:str|bool=True, 
                        ax:Optional[Axes]=None, 
                        save:bool=False, 
-                       likelihood_offset=None,
                        plot_samples:bool=True,
                        compute_kde:bool=True,
                        plot_kde:bool=True,
@@ -62,7 +87,6 @@ def plot_sample_result(parent_folder:str|Path,
     parent_folder = Path(parent_folder)
     out_subfolder = out_subfolder or likelihood_subfolder
     likelihood_folder = parent_folder/likelihood_subfolder
-    likelihood_file = likelihood_folder/"likelihood.csv"
     likelihood_config = likelihood_folder/"config.yaml"
     with open(likelihood_config,"r") as f:
         config = load(f.read(), Loader)
@@ -83,24 +107,9 @@ def plot_sample_result(parent_folder:str|Path,
         ax_title = ax_title if isinstance(ax_title,str) else f"{integrand_column} w/ {prior_column}"
         ax.set_title(ax_title,fontsize='small')
 
-    # Load samples
-    samples_df = pd.read_csv(samples_file, index_col=0)
-    
-    # Load likelihoods
-    likelihood_df = pd.read_csv(likelihood_file)
-    
-    likelihoods = likelihood_df[integrand_column] + likelihood_df[prior_column]
-    if likelihood_offset is not None:
-        if isinstance(likelihood_offset,str):
-            likelihood_offset = likelihood_df.loc[:,likelihood_offset]
-        if isinstance(likelihood_offset,Callable):
-            likelihood_offset = likelihood_offset(likelihood_df,integrand_column,prior_column)
-        likelihoods += likelihood_offset.loc[likelihood_df['id']]
-    
-    #only use ids in both likelihoods and samples
-    index = samples_df.index.intersection(likelihood_df.index)
-    samples = samples_df.loc[index].values.flatten()
-    likelihoods = likelihoods.loc[index].values.flatten()
+    samples,likelihoods = load_sample_likelihoods(likelihood_folder,samples_file=samples_file,integrand_column=integrand_column,prior_column=prior_column)
+    samples = samples.to_numpy().flatten()
+    likelihoods = likelihoods.to_numpy().flatten()
 
     x = np.linspace(-60, 60, 500)
     gaussian_pdf = get_gt_gaussian(x)
