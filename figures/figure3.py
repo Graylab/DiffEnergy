@@ -51,6 +51,7 @@ def plot_sample_result(parent_folder:str|Path,
                        save:bool=False, 
                        likelihood_offset=None,
                        plot_samples:bool=True,
+                       compute_kde:bool=True,
                        plot_kde:bool=True,
                        plot_p0_gt:bool=True,
                        plot_p1_gt:bool=True,
@@ -117,6 +118,14 @@ def plot_sample_result(parent_folder:str|Path,
             ax.plot(x, gaussian, color='gray', linestyle='dashed', alpha=0.8, label="Prior $p_1(x_1)$", zorder = 2)
             #plt.fill_between(x, gaussian, color='green', alpha=0.2)
 
+        if compute_kde:
+            mu1, mu2, mu3 = -30, 0, 40
+            b1, b2, b3 = 8.0, 5.0, 10.0
+            w1, w2, w3 = 0.4, 0.3, 0.3
+            gaussian_cdf = lambda x: (w1 * norm.cdf(x, loc=mu1, scale=b1) + w2 * norm.cdf(x, loc=mu2, scale=b2) + w3 * norm.cdf(x, loc=mu3, scale=b3))
+            res = kstest(samples, gaussian_cdf)
+            print("kde match:", res)
+
         if plot_kde:
             sns.kdeplot(samples, color='steelblue', alpha=0.8, label="Sample KDE", zorder = 1, ax=ax, bw_adjust=0.3)
 
@@ -130,12 +139,7 @@ def plot_sample_result(parent_folder:str|Path,
                 bin_centers,prob_mean = get_binline(nbins,samples[clamp_index],probability[clamp_index])
                 ax.plot(bin_centers, prob_mean, color=binline_color, zorder = 3, alpha=0.5)
 
-        mu1, mu2, mu3 = -30, 0, 40
-        b1, b2, b3 = 8.0, 5.0, 10.0
-        w1, w2, w3 = 0.4, 0.3, 0.3
-        gaussian_cdf =lambda x: (w1 * norm.cdf(x, loc=mu1, scale=b1) + w2 * norm.cdf(x, loc=mu2, scale=b2) + w3 * norm.cdf(x, loc=mu3, scale=b3))
-        res = kstest(samples, gaussian_cdf)
-        print("kde match:", res)
+
 
         
         # # Plot sampled prior at t=1. If 'prior_position' not provided in the dataframe, only works for paths with diffusion start points
