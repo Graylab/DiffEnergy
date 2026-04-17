@@ -68,7 +68,7 @@ def main(config: DictConfig):
     config_out = outpath / "config.yaml"
     write_config(config,config_out)
 
-    # import dataset and split into train and validation sets
+    # import dataset
     if tr_data == 'laplace':
         # # Trimodal laplace sampler
         # sampler = TrimodalLaplaceSampler(mu1=-30, mu2=0, mu3=40, b1=8.0, b2=3.0, b3=10.0, w1=0.4, w2=0.3, w3=0.3)
