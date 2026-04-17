@@ -70,7 +70,6 @@ def plot_sample_result(parent_folder:str|Path,
         samples_file = config["data_samples"]
 
     
-    x = np.linspace(-60, 60, 500)
     if not ax:
         fig = plt.figure(figsize=(3, 2))
         ax = fig.add_subplot()
@@ -103,7 +102,7 @@ def plot_sample_result(parent_folder:str|Path,
     samples = samples_df.loc[index].values.flatten()
     likelihoods = likelihoods.loc[index].values.flatten()
 
-    sigma_min, sigma_max = 0.1, 70.0  # Define sigma limits
+    x = np.linspace(-60, 60, 500)
     gaussian_pdf = get_gt_gaussian(x)
 
     if plot_value == "probability":
@@ -113,6 +112,8 @@ def plot_sample_result(parent_folder:str|Path,
 
         if plot_p1_gt:
             from diffenergy.helper import int_diffusion_coeff_sq
+            sigma_min = config["sigma_min"]
+            sigma_max = config["sigma_max"]
             sigma = np.sqrt(int_diffusion_coeff_sq(1, sigma_min, sigma_max))
             gaussian = norm.pdf(x, 0, sigma)  # Zero mean, std = sigma_t1
             ax.plot(x, gaussian, color='gray', linestyle='dashed', alpha=0.8, label="Prior $p_1(x_1)$", zorder = 2)
@@ -181,6 +182,8 @@ def plot_sample_result(parent_folder:str|Path,
 
         # Plot Gaussian noise (prior) at t=1
         if plot_p1_gt:
+            sigma_min = config["sigma_min"]
+            sigma_max = config["sigma_max"]
             sigma = marginal_prob_std(1, sigma_min, sigma_max)
             loggaussian = norm.logpdf(x, 0, sigma)  # Zero mean, std = sigma_t1
             ax.plot(x, -loggaussian, color='gray', linestyle='dashed', alpha=0.8, label="Prior $p_1(x_1)$", zorder = 2)
