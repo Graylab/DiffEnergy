@@ -568,7 +568,7 @@ class PiecewiseDifferentiablePath(IntegrablePath[X,C]):
         if self.integral_type == 'original':
             return super().diffintegrate(*integrands)
         elif self.integral_type == 'diff' or self.integral_type == 'ode':
-            likelihoods = []
+            likelihoods = [0]*len(integrands)
 
             accx = []
             acct = []
