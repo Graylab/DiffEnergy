@@ -1,6 +1,6 @@
 # @package _global_
 wt_file: checkpoints/1d_trinormal_smax30_unnoised/weights.ckpt
-out_dir: results/sample_results/gaussian_1d_smax30
+out_dir: results/sample_results/gaussian_1d_smax30_estimated_prior
 sample_num: 10000
 tr_type: non_conservative
 num_steps: 1000
@@ -10,3 +10,5 @@ save_trajectory: True
 batched: True
 trajectory_extra_indices: [1000,25]
 batch_size: 1000
+
+data_variance: 898.532

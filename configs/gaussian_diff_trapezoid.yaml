@@ -13,8 +13,11 @@ integrand_types:
   TotalIntegrand:
   FlowIntegrand:
 prior_fns:
-  smax_gaussian
-  convolved_data
+  smax_gaussian:
+  convolved_data:
+  estimated_data:
+    data_variance: 898.532
+
 path_type: sde_trajectories
 
 integral_type: 'diff'
