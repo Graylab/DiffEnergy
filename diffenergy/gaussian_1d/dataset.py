@@ -14,7 +14,7 @@ def sample_trimodal_gaussian(n, mu1, sigma1, w1, mu2, sigma2, w2, mu3, sigma3, w
     Outputs:
         x: A vector of n points, torch.tensor
     """
-    return mixture_sample(n,[w1,w2,w3],[[mu1],[mu2],[mu3]],[sigma1,sigma2,sigma3])
+    return mixture_sample(n,[w1,w2,w3],[[mu1],[mu2],[mu3]],stds=[sigma1,sigma2,sigma3])
 
 # Add noise to the data
 def add_noise(x, sigma=0.1):
