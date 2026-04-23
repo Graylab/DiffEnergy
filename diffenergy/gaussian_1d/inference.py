@@ -201,6 +201,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
             functions = DictConfig({f:{} for f in functions}) #ensure types is a DictConfig of Dicts
 
         for prior_fn,params in functions.items():
+            if params is None: params = DictConfig({})
             match prior_fn:
                 case "convolved_data":
                     means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float, device=device)
@@ -234,12 +235,26 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
 
 
                 case "smax_gaussian":
+                    # Gaussian with std = sigma_max
+                    # Accurate if data variance = sigma_min^2, since *added* noise is sigma_max^2 - sigma_min^2
                     def prior_likelihood_fn(x:torch.Tensor,t:float,condition:None):
-                        tt = torch.as_tensor(t)
+                        tt = torch.as_tensor(t,device=x.device)
                         assert torch.allclose(tt, torch.ones_like(tt)), t #diffeq errors might mean it's not *quite* 1 but that's fine
                         res = (prior_log_gaussian_nd_batched(x,sigma_max))
                         return res.numpy(force=True) if batched else res.item()
                     priors.append((prior_fn,prior_likelihood_fn))
+                
+                case "estimated_data":
+                    # Use provided data variance estimate instead of sigma_min
+                    data_var = params.get("data_variance")
+                    def estimated_prior_likelihood_fn(x:torch.Tensor,t:float,condition:None):
+                        tt = torch.as_tensor(t,device=x.device)
+                        assert torch.allclose(tt, torch.ones_like(tt)), t #diffeq errors might mean it's not *quite* 1 but that's fine
+                        prior_var = data_var + int_diffusion_coeff_sq(tt,sigma_min=sigma_min,sigma_max=sigma_max)
+                        res = (prior_log_gaussian_nd_batched(x,sigma=torch.sqrt(prior_var)))
+                        return res.numpy(force=True) if batched else res.item()
+                    priors.append((prior_fn,estimated_prior_likelihood_fn))
+
 
         return priors
 
@@ -576,6 +591,12 @@ class GaussianSampler(GaussianLikelihood):
             diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = self.config.get("clamp_diffusion_coefficient",False))
 
 
+        prior_var = int_diffusion_coeff_sq(1,sigma_min,sigma_max)
+        if (data_var := self.config.get("data_variance",None)) is not None: #incorporate data variance if provided
+            prior_var += data_var
+        prior_std = torch.sqrt(prior_var)
+
+
         ## SAMPLE DIFFUSION TRAJECTORIES
         def load_noised_samples()->SizedIter[tuple[str|Sequence[str],torch.Tensor,None]]:
             bsize = batch_size or 1
@@ -583,7 +604,7 @@ class GaussianSampler(GaussianLikelihood):
             def getchunk(i:int):
                 ids = [str(id) for id in range(self.config.sample_num)[i*bsize:(i+1)*bsize]]
                 chunksize = len(ids)
-                x = torch.randn(chunksize,1,device=device)*sigma_max
+                x = torch.randn(chunksize,1,device=device)*prior_std
                 if not batched:
                     ids = ids[0]
                 return (ids,x,None)
