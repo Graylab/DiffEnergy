@@ -8,3 +8,4 @@ num_workers: 4
 sigma_noise: 0
 tr_data: trimodal_gaussian
 tr_type: non_conservative
+save_training_samples: True
