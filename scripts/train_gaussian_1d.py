@@ -78,6 +78,10 @@ def main(config: DictConfig):
     elif tr_data == 'trimodal_gaussian':
         sampler = TrimodalGaussianSampler(mu1=-30, sigma1=8.0, w1=0.4 , mu2=0, sigma2=5.0, w2=0.3, mu3=40, sigma3=10.0, w3=0.3)
         dataset = TrimodalGaussianDataset(sampler, noise_std=sigma_noise, num_samples=num_samples)
+        if config.get("save_training_samples",False):
+            import pandas as pd
+            d = pd.DataFrame(dataset.noisy_data,columns=['samples'])
+            d.to_csv(outpath/'training_samples.csv',index_label='index')
         train_loader = DataLoader(dataset, batch_size = batch_size, shuffle = True, num_workers = num_workers)
     else:
         raise ValueError(tr_data)
