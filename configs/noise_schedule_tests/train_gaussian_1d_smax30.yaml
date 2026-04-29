@@ -1,5 +1,5 @@
 # @package _global_
-out_dir: checkpoints/1d_trinormal_smax30_unnoised
+out_dir: checkpoints/1d_trinormal_smax30
 sigma_min: 0.1
 sigma_max: 30
 n_epochs: 100

@@ -8,12 +8,12 @@ from diffenergy.gaussian_helper import batched_pdf
 from diffenergy.scoremodels import CachedScoreModelEvaluator
 
 class MultimodalGaussianGroundTruthScoreModel(CachedScoreModelEvaluator[Tensor,None]):
-    def __init__(self,weights,means,variances,int_diff_coeff_sq:Callable[[Tensor],float],batched:bool=False) -> None:
+    def __init__(self,weights,means,variances,marginal_kernel_var:Callable[[Tensor],float],batched:bool=False) -> None:
         super().__init__()
         self.weights = weights
         self.means = means
         self.variances = variances
-        self.int_diff_coeff_sq = int_diff_coeff_sq
+        self.marginal_kernel_var = marginal_kernel_var
         self.batched = batched
 
         self.intcache: Optional[tuple[tuple[Tensor,float,None],dict[str,Tensor]]] = None
@@ -30,7 +30,7 @@ class MultimodalGaussianGroundTruthScoreModel(CachedScoreModelEvaluator[Tensor,N
         tensor = lambda d: torch.as_tensor(d,device=x.device,dtype=x.dtype)
 
         with record_function("diffusion_coeff"):
-            gsq = tensor(self.int_diff_coeff_sq(tensor(t))) #Scalar
+            gsq = tensor(self.marginal_kernel_var(tensor(t))) #Scalar
 
         if self.variances.ndim == 3: #matrix, need to embed the diffusion coefficient into a diagonal matrix
             gsq = gsq[...,None].expand(*gsq.shape,self.variances.shape[-1]).diag_embed()

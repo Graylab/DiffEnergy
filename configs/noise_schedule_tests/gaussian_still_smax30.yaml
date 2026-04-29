@@ -1,10 +1,10 @@
 # @package _global_
-checkpoint: checkpoints/1d_trinormal_smax30_unnoised/weights.ckpt
+checkpoint: checkpoints/1d_trinormal_smax30/weights.ckpt
 out_dir: results/likelihood/noise_schedule_tests/gaussian_1d_still_smax30
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
-data_samples: results/sample_results/gaussian_1d/samples.csv
+data_samples: results/sample_results/gaussian_1d_smax30/samples.csv
 
 tr_type: non_conservative
 
