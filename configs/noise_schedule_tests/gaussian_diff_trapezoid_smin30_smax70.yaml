@@ -1,0 +1,31 @@
+# @package _global_
+checkpoint: checkpoints/1d_trinormal_smin30_smax70/weights.ckpt
+out_dir: results/likelihood/noise_schedule_tests/gaussian_1d_diff_smin30_smax70
+sigma_min: 30
+sigma_max: 70
+clamp_diffusion_coefficient: False
+data_samples: results/sample_results/gaussian_1d_smin30_smax70/samples.csv
+trajectory_index_file: results/sample_results/gaussian_1d_smin30_smax70/trajectories/trajectory_index.csv
+
+tr_type: non_conservative
+
+integrand_types:
+  TotalIntegrand:
+  FlowIntegrand:
+prior_fns:
+  smax_gaussian:
+  convolved_data:
+  estimated_data:
+    data_variance: 898.532
+
+path_type: sde_trajectories
+
+integral_type: 'diff'
+
+integration:
+  method: trapezoid
+
+save_trajectories: False
+
+batched: True
+batch_size: 64

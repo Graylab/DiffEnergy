@@ -1,0 +1,12 @@
+# @package _global_
+wt_file: checkpoints/1d_trinormal_smin30_smax70/weights.ckpt
+out_dir: results/sample_results/gaussian_1d_smin30_smax70
+sample_num: 10000
+tr_type: non_conservative
+num_steps: 1000
+sigma_min: 30
+sigma_max: 70
+save_trajectory: True
+batched: True
+trajectory_extra_indices: [1000,25]
+batch_size: 1000
