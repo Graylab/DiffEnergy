@@ -8,7 +8,8 @@ import math
 import os
 from pathlib import Path
 import shutil
-from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence, override
+from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence
+from typing_extensions import override
 import warnings
 
 import numpy as np
