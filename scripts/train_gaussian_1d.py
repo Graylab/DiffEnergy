@@ -15,7 +15,7 @@ import hydra
 from diffenergy.gaussian_1d.dataset import TrimodalGaussianSampler, TrimodalGaussianDataset
 from diffenergy.gaussian_1d.loss import loss_fn
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.helper import marginal_prob_std
+from diffenergy.helper import marginal_kernel_std, marginal_prob_std
 from diffenergy.inference import handle_overwrite_dir, write_config
 
 
@@ -42,7 +42,10 @@ def main(config: DictConfig):
 
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
+    #the total noise at time t including the data variance
     marginal_prob_std_fn = functools.partial(marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
+    #the noise added from time 0 to time t, excluding the data variance
+    marginal_kernel_std_fn = functools.partial(marginal_kernel_std, sigma_min = sigma_min, sigma_max = sigma_max) 
 
     # noise
     sigma_noise = config.get("sigma_noise",0) #added noise to the original training distribution. You probably just want to leave this as zero.
@@ -115,7 +118,7 @@ def main(config: DictConfig):
 
         for sample_data, mean in train_loader:
             sample_data = sample_data.to(device)
-            loss = loss_fn(score_model, sample_data, marginal_prob_std_fn)
+            loss = loss_fn(score_model, sample_data, marginal_kernel_std_fn)
             optimizer.zero_grad()
             loss.backward()
             # Add gradient clipping
