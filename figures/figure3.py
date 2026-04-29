@@ -237,6 +237,54 @@ def plot_sample_result(parent_folder:str|Path,
     return fig, ax
 
 
+def plot_comparison(samples_1, samples_2, ax=None):
+    if not ax:
+        fig = plt.figure(figsize=(1.5, 1.5))
+        ax = fig.add_subplot()
+    else:
+        fig = None
+
+
+
+    ax.scatter(samples_1, samples_2, color='salmon', edgecolors=(0.1, 0.1, 0.1), linewidth=0.2, s=2, label="Scatter", alpha=0.8, zorder=1)
+
+    # Draw y = x line
+    ax.plot([0, 1], [0, 1], color='gray', linestyle='--', linewidth=2, label='y = x', zorder=0)
+
+    def line_through_origin(x, a):
+        return a * x
+
+    # Fit the model
+    params, pcov, infodict, mesg, ier  = curve_fit(line_through_origin, samples_1, samples_2, full_output=True)
+    a = params[0]
+
+    drange = (0,0.03)
+
+    # Draw y = ax line
+    min_val = drange[0]#min(gaussian_pdf.min(), probability.min())
+    max_val = drange[1]#max(gaussian_pdf.max(), probability.max())
+    
+    #shorter dashes. default '--' dash pattern is (3.7,1.6) according to rcParams
+    ax.plot([min_val, max_val], [a*min_val, a*max_val], color='k', linestyle='--', dashes=(2,1), label=f'y = {a:.2f}x')
+
+
+    # Example
+    corr, p_value = pearsonr(samples_1, samples_2)
+    print(f"Pearson Correlation: {corr:.4f}")
+    print(f"P-value: {p_value:.4e}")
+
+    ax.set_xlim(drange)
+    ax.set_ylim(drange)
+    ax.set_yticks([0, 0.01, 0.02, 0.03])
+    ax.set_xticks([0, 0.01, 0.02, 0.03])
+    ax.set_xlabel("Ground Truth $p_0(x)$")
+    ax.set_ylabel("Recovered $p_0(x)$")
+
+    ax.set_aspect(1.0)
+
+    return (corr,p_value)
+
+
 def plot_correlation(parent_folder:str|Path, likelihood_subfolder:str|Path, integrand_column:str, prior_column:str, out_subfolder:str|Path|None=None, out_filename:str|None=None, samples_file:Optional[str|Path]=None, ax_title:str|bool=True, fig_title:str|bool=True, ax:Optional[Axes]=None, save:bool=False, likelihood_offset=None):
     parent_folder = Path(parent_folder)
     out_subfolder = out_subfolder or likelihood_subfolder
@@ -281,42 +329,8 @@ def plot_correlation(parent_folder:str|Path, likelihood_subfolder:str|Path, inte
         ax_title = ax_title if isinstance(ax_title,str) else f"{integrand_column} w/ {prior_column}"
         ax.set_title(ax_title,fontsize='small')
 
+    corr, p_value = plot_comparison(gaussian_pdf[:5000], probability[:5000],ax=ax)
 
-    ax.scatter(gaussian_pdf[:5000], probability[:5000], color='salmon', edgecolors=(0.1, 0.1, 0.1), linewidth=0.2, s=2, label="Scatter", alpha=0.8, zorder=1)
-
-    # Draw y = x line
-    ax.plot([0, 1], [0, 1], color='gray', linestyle='--', linewidth=2, label='y = x', zorder=0)
-
-    def line_through_origin(x, a):
-        return a * x
-
-    # Fit the model
-    params, pcov, infodict, mesg, ier  = curve_fit(line_through_origin, gaussian_pdf, probability, full_output=True)
-    a = params[0]
-
-    drange = (0,0.03)
-
-    # Draw y = ax line
-    min_val = drange[0]#min(gaussian_pdf.min(), probability.min())
-    max_val = drange[1]#max(gaussian_pdf.max(), probability.max())
-    
-    #shorter dashes. default '--' dash pattern is (3.7,1.6) according to rcParams
-    ax.plot([min_val, max_val], [a*min_val, a*max_val], color='k', linestyle='--', dashes=(2,1), label=f'y = {a:.2f}x')
-
-
-    # Example
-    corr, p_value = pearsonr(gaussian_pdf, probability)
-    print(f"Pearson Correlation: {corr:.4f}")
-    print(f"P-value: {p_value:.4e}")
-
-    ax.set_xlim(drange)
-    ax.set_ylim(drange)
-    ax.set_yticks([0, 0.01, 0.02, 0.03])
-    ax.set_xticks([0, 0.01, 0.02, 0.03])
-    ax.set_xlabel("Ground Truth $p_0(x)$")
-    ax.set_ylabel("Recovered $p_0(x)$")
-
-    ax.set_aspect(1.0)
 
     if save:
         outfolder = Path(".")/out_subfolder
