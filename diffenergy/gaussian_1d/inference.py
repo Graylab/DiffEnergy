@@ -261,6 +261,8 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
     def compute_likelihoods(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         # set device
         device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
@@ -322,9 +324,6 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
                         device)
 
         ### RUN LIKELIHOOD COMPUTATION
-
-        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
-        self.write_config(self.out_config_file)
 
         int_type = self.config.integral_type
 
@@ -432,6 +431,8 @@ class GaussianForces(ForcesMixin, GaussianLikelihood):
     def get_forces(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         # set device
         device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
@@ -482,9 +483,6 @@ class GaussianForces(ForcesMixin, GaussianLikelihood):
 
         ### RUN FORCES
 
-        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
-        self.write_config(self.out_config_file)
-
         scorecols = ['score']
         poscols = ['pos']
 
@@ -530,6 +528,8 @@ class GaussianSampler(GaussianLikelihood):
     def sample(self):
         # Print the entire self.configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         with open_dict(self.config):
             ## Set various sampling/trajectory output self.config parameters based on sampling parameters:
@@ -628,9 +628,6 @@ class GaussianSampler(GaussianLikelihood):
 
 
         ### RUN SAMPLING
-
-        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
-        self.write_config(self.out_config_file)
 
         write_samples = self.config.get("write_samples",True)
         save_trajectories = self.config.get("save_trajectories",False)
