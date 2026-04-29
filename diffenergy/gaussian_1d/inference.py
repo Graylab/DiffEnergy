@@ -6,7 +6,7 @@ from diffenergy.inference import get_integrands, get_paths, unzip
 from diffenergy.gaussian_1d.likelihood_helpers import ModelEval
 from diffenergy.gaussian_1d.network import NegativeGradientMLP, ScoreNetMLP
 from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel
-from diffenergy.helper import MapDataset, SizedIter, diffusion_coeff, int_diffusion_coeff_sq, marginal_prob_std, prior_log_gaussian_nd_batched
+from diffenergy.helper import MapDataset, SizedIter, diffusion_coeff, marginal_kernel_var, marginal_prob_std, prior_log_gaussian_nd_batched
 from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
 
@@ -107,8 +107,8 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
             variances = torch.tensor([8.0,5.0,10.0])**2
             weights = torch.tensor([0.4,0.3,0.3])
 
-            difffn = functools.partial(int_diffusion_coeff_sq,sigma_min=sigma_min,sigma_max=sigma_max)
-            model_eval = MultimodalGaussianGroundTruthScoreModel(weights,means,variances,int_diff_coeff_sq=difffn,batched=batched)
+            difffn = functools.partial(marginal_kernel_var,sigma_min=sigma_min,sigma_max=sigma_max)
+            model_eval = MultimodalGaussianGroundTruthScoreModel(weights,means,variances,marginal_kernel_var=difffn,batched=batched)
             model_eval.to(device)
         else:
             raise ValueError(tr_type)
@@ -220,7 +220,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
                     def gt_prior_fn(x:torch.Tensor,t:float,condition:None):
                         tt = torch.as_tensor(t)
                         if gt_time is not None: assert torch.allclose(tt, gt_time), t  # pyright: ignore[reportArgumentType] # noqa: E701
-                        currvar = variances + int_diffusion_coeff_sq(tt,sigma_min=sigma_min,sigma_max=sigma_max)
+                        currvar = variances + marginal_kernel_var(tt,sigma_min=sigma_min,sigma_max=sigma_max)
 
                         assert x.ndim == 2,x.shape #BxD
                         assert means.ndim == 2,x.shape #NxD
@@ -250,7 +250,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
                     def estimated_prior_likelihood_fn(x:torch.Tensor,t:float,condition:None):
                         tt = torch.as_tensor(t,device=x.device)
                         assert torch.allclose(tt, torch.ones_like(tt)), t #diffeq errors might mean it's not *quite* 1 but that's fine
-                        prior_var = data_var + int_diffusion_coeff_sq(tt,sigma_min=sigma_min,sigma_max=sigma_max)
+                        prior_var = data_var + marginal_kernel_var(tt,sigma_min=sigma_min,sigma_max=sigma_max)
                         res = (prior_log_gaussian_nd_batched(x,sigma=torch.sqrt(prior_var)))
                         return res.numpy(force=True) if batched else res.item()
                     priors.append((prior_fn,estimated_prior_likelihood_fn))
@@ -591,7 +591,7 @@ class GaussianSampler(GaussianLikelihood):
             diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = self.config.get("clamp_diffusion_coefficient",False))
 
 
-        prior_var = int_diffusion_coeff_sq(1,sigma_min,sigma_max)
+        prior_var = marginal_kernel_var(1,sigma_min,sigma_max)
         if (data_var := self.config.get("data_variance",None)) is not None: #incorporate data variance if provided
             prior_var += data_var
         prior_std = torch.sqrt(prior_var)

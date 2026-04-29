@@ -1,5 +1,5 @@
 # @package _global_
-checkpoint: checkpoints/1d_trinormal_smax30_unnoised/weights.ckpt
+checkpoint: checkpoints/1d_trinormal_smax30/weights.ckpt
 out_dir: results/likelihood/noise_schedule_tests/gaussian_1d_diff_smax30
 sigma_min: 0.1
 sigma_max: 30

@@ -10,19 +10,6 @@ from diffenergy.gaussian_helper import gaussian_logpdf
 #--------------------------------------------------------------------------
 # Helper functions: marginal probability, diffusion coefficients, prior likelihood
 
-def marginal_prob_std(t, sigma_min, sigma_max):
-    r"""
-    Compute the mean and standard deviation of $p_{0t}(x(t) | x(0))$.
-
-    Args:    
-        t: A vector of time steps.
-        sigma: The $\sigma$ in our SDE.  
-        
-    Returns:
-        The standard deviation.
-    """    
-    return sigma_min * (sigma_max / sigma_min) ** t
-
 def diffusion_coeff(t, sigma_min, sigma_max, clamp = False):
     r"""
     Compute the diffusion coefficient of our SDE.
@@ -44,26 +31,59 @@ def diffusion_coeff(t, sigma_min, sigma_max, clamp = False):
     return diff_coeff
 
 
-## this is sigma(t)^2 in the EDM formulation
-def int_diffusion_coeff_sq(t, sigma_min, sigma_max):
+def marginal_kernel_var(t, sigma_min, sigma_max):
     """
-    Compute the integral of the squared diffusion coefficient of our SDE from t=0 to t.
-    Required to determine the total level of gaussian noise added to our data distribution at time t for ground truth score calculation.
-    RETURNS THE *VARIANCE*, use sqrt to get the standard deviation!
+    Returns the variance of the perturbation kernel from time 0 to t, e.g.,
+    the integral of the squared diffusion coefficient of the SDE from t=0 to t.
     
     Args:
         t: A vector of time steps
-        sigma_min: the initial sigma of our SDE (at t=0)
-        sigma_max: the noised sigma of our SDE (at t=1)
+        sigma_min: the initial sigma of the SDE (at t=0)
+        sigma_max: the noised sigma of the SDE (at t=1)
         
     Returns:
-        the vector of integrated squared diffusion coefficients"""
+        a vector of variances"""
     
     t = torch.as_tensor(t)
     var_min = torch.as_tensor(sigma_min)**2
     var_max = torch.as_tensor(sigma_max)**2
-    int_diff_coeff = var_min * ((var_max / var_min) ** t - 1)
+    int_diff_coeff = var_min * (var_max / var_min) ** t - var_min
     return int_diff_coeff
+
+def marginal_kernel_std(t, sigma_min, sigma_max):
+    """
+    Returns the std of the perturbation kernel from time 0 to t, e.g.,
+    the square root of the integral of the squared diffusion coefficient of the SDE from t=0 to t.
+    
+    Args:
+        t: A vector of time steps
+        sigma_min: the initial sigma of the SDE (at t=0)
+        sigma_max: the noised sigma of the SDE (at t=1)
+        
+    Returns:
+        A vector of standard deviations"""
+    return torch.sqrt(marginal_kernel_var(t,sigma_min,sigma_max))
+
+
+def marginal_prob_std(t, sigma_min, sigma_max):
+    r"""
+    Returns the standard deviation of the marginal $p(x_t,t)$.
+    This assumes the standard deviation of the data is sigma_min.
+
+    Args:    
+        t: A vector of time steps.
+        sigma_min: the initial sigma of the SDE (at t=0, should match data distribution)
+        sigma_max: the noised sigma of the SDE (at t=1, determines prior std)
+        
+    Returns:
+        A vector standard deviations
+    """    
+    #if sigma_min = data std, then the total variance at time t is sigma_min^2 [the data variance] 
+    # + (sigma_min^2)*(sigma_max^2/sigma_min^2)^t - sigma_min^2 [the perturbation kernel variance]
+    # = (sigma_min^2)*(sigma_max^2/sigma_min^2)^t
+    # and thus the std is as below
+    return sigma_min * (sigma_max / sigma_min) ** t
+
 
 @torch_fn
 def prior_log_gaussian_1d(x, sigma):

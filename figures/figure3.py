@@ -17,11 +17,13 @@ from pathlib import Path
 from typing import Optional
 from matplotlib.axes import Axes
 
+from diffenergy.helper import marginal_prob_std, marginal_kernel_std
+
 #run from either parent directory or figures directory
 try:
-    from shared import get_gt_gaussian, marginal_prob_std, setfont
+    from shared import get_gt_gaussian, setfont
 except ImportError:
-    from figures.shared import get_gt_gaussian, marginal_prob_std, setfont
+    from figures.shared import get_gt_gaussian, setfont
 
 def get_binline(nbins,x,y):
     prob_mean, bin_edges, binnumber = binned_statistic(x, y, statistic='mean', bins=nbins)
@@ -120,10 +122,9 @@ def plot_sample_result(parent_folder:str|Path,
             #plt.fill_between(x, gaussian_pdf, color='pink', alpha=0.6)
 
         if plot_p1_gt:
-            from diffenergy.helper import int_diffusion_coeff_sq
             sigma_min = config["sigma_min"]
             sigma_max = config["sigma_max"]
-            sigma = np.sqrt(int_diffusion_coeff_sq(1, sigma_min, sigma_max))
+            sigma = marginal_kernel_std(1, sigma_min, sigma_max)
             gaussian = norm.pdf(x, 0, sigma)  # Zero mean, std = sigma_t1
             ax.plot(x, gaussian, color='gray', linestyle='dashed', alpha=0.8, label="Prior $p_1(x_1)$", zorder = 2)
             #plt.fill_between(x, gaussian, color='green', alpha=0.2)

@@ -1,5 +1,5 @@
 # @package _global_
-wt_file: checkpoints/1d_trinormal_smax30_unnoised/weights.ckpt
+wt_file: checkpoints/1d_trinormal_smax30/weights.ckpt
 out_dir: results/sample_results/gaussian_1d_smax30
 sample_num: 10000
 tr_type: non_conservative
