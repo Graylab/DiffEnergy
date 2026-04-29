@@ -463,6 +463,8 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def compute_likelihoods(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         # set device
         device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
@@ -527,9 +529,6 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                         device)
 
         ### RUN LIKELIHOOD COMPUTATION
-
-        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
-        self.write_config(self.out_config_file)
                 
         int_type = self.config.integral_type
 
@@ -626,6 +625,8 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main
     def get_forces(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         # set device
         device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
@@ -677,9 +678,6 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main
 
 
         ### RUN FORCES
-
-        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
-        self.write_config(self.out_config_file)
 
         cols = self.offset_trajectory_columns
         scorecols = [f'score:{col}' for col in cols]
@@ -745,7 +743,8 @@ class DFMDockSampler(DFMDockLikelihood):
     def sample(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
-
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         with open_dict(self.config):
             ## Set various sampling/trajectory output config parameters based on sampling parameters:
@@ -854,9 +853,6 @@ class DFMDockSampler(DFMDockLikelihood):
 
 
         ### RUN SAMPLING
-
-        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
-        self.write_config(self.out_config_file)
 
         ## WRITE OUTPUT
         write_samples = self.config.get("write_samples",True)
