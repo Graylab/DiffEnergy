@@ -16,6 +16,7 @@ integrand_types:
   FlowIntegrand:
 prior_fns:
   smax_gaussian
+  receptor_smax_gaussian
 path_type: sde_trajectories
 
 integral_type: 'diff'
