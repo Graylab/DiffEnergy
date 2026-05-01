@@ -269,6 +269,20 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                             res = (prior_log_gaussian_nd(offset[...,:3],sigma_max)[0]) #first three components are always x,y,z. Assume rotational prior is just 0!
                         return res.numpy(force=True) if batched else res.item()
                     priors.append((prior_fn,prior_likelihood_fn)) # pyright: ignore[reportArgumentType]
+                case "receptor_smax_gaussian":
+                    def receptor_centered_likelihood_fn(x:LigDict|Sequence[LigDict],t:float, condition:DFMDict):
+                        offset = self.to_array(x) # pyright: ignore[reportArgumentType] #assume x matches batchness and has been dealt with
+                        rec_cen = torch.mean(condition["rec_pos"], dim=(0, 1))
+                        lig_cen = torch.mean(condition["lig_pos_orig"], dim=(0, 1))
+                        prior_mean = rec_cen-lig_cen
+                        tt = torch.as_tensor(t)
+                        assert torch.allclose(tt,torch.ones_like(tt))
+                        if self.offset_type == "Rotation": #Assume rotational prior is just 0!
+                            res = torch.zeros(offset.shape[:-1],dtype=offset.dtype)
+                        else:
+                            res = prior_log_gaussian_nd(offset[...,:3]-prior_mean,sigma_max)[0]
+                        return res.numpy(force=True) if batched else res.item()
+                    priors.append((prior_fn,receptor_centered_likelihood_fn))
         
         return priors
 
@@ -722,14 +736,13 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main
 
 class DFMDockSampler(DFMDockLikelihood):
 
-    def sample_random_offset(self,rec_pos, lig_pos, sigma:float)->torch.Tensor:
-        device=rec_pos.device
+    def sample_random_offset(self, rec_pos:torch.Tensor, lig_pos:torch.Tensor, sigma:float)->torch.Tensor:
+        device = rec_pos.device
 
         # get center of mass
         rec_cen = torch.mean(rec_pos, dim=(0, 1))
         lig_cen = torch.mean(lig_pos, dim=(0, 1))
 
-        # get rotat update: random rotation vector
         restensors = []
 
         if "Translation" in self.offset_type:
