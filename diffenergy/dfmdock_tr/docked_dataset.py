@@ -27,12 +27,12 @@ class DockedDatum(TypedDict):
 class PDBImporter:
     def __init__(
         self, 
-        esm_model:ESMLanguageModel,
-        esm_alphabet:Alphabet,
+        esm_model:ESMLanguageModel|None,
+        esm_alphabet:Alphabet|None=None,
     ):
         # Path to the data directory 
         self.esm_model = esm_model
-        self.batch_converter = esm_alphabet.get_batch_converter()
+        self.batch_converter = esm_model.alphabet.get_batch_converter() if esm_model is not None else None
 
     def get_pdb(self,pdb_file:str,id:str,out_pdb: bool = False)->DockedDatum:
 
@@ -49,18 +49,22 @@ class PDBImporter:
         rec_pos = rec_pos[:len(rec_seq), :, :]
         lig_pos = lig_pos[:len(lig_seq), :, :]
 
-        # Get esm tokenize
-        rec_x = self.get_tokens(rec_seq).unsqueeze(0)
-        lig_x = self.get_tokens(lig_seq).unsqueeze(0)
-
         if out_pdb:
             test_coords = torch.cat([rec_pos, lig_pos], dim=0)
             test_coords = self.get_full_coords(test_coords)
             save_PDB('test.pdb', test_coords, rec_seq+lig_seq, len(rec_seq)-1)
 
-        # get esm embedding
-        rec_x = self.esm_model(rec_x).squeeze(0) 
-        lig_x = self.esm_model(lig_x).squeeze(0)  
+        if self.esm_model is not None:
+            # Get esm tokenize
+            rec_x = self.get_tokens(rec_seq).unsqueeze(0)
+            lig_x = self.get_tokens(lig_seq).unsqueeze(0)
+
+            # get esm embedding
+            rec_x = self.esm_model(rec_x).squeeze(0) 
+            lig_x = self.esm_model(lig_x).squeeze(0)  
+        else:
+            rec_x = torch.tensor([])
+            lig_x = torch.tensor([])
     
         # get one-hot encodings from openfold
         rec_onehot = torch.from_numpy(residue_constants.sequence_to_onehot(
