@@ -50,6 +50,19 @@ def get_sample_metrics(gt_pdb:str|Path|AtomArray,sample_pdb:str|Path|AtomArray, 
         sample_lig,_ = get_chain_coords(sample_pdb,lig_chain)
     return compute_metrics((torch.as_tensor(sample_rec),torch.as_tensor(sample_lig)),(torch.as_tensor(gt_rec),torch.as_tensor(gt_lig)))
 
+#horrible hack
+A = ParamSpec("A")
+T = TypeVarTuple("T")
+def replicate_fn(f:Callable[A,list[tuple[str,Unpack[T]]]]|Callable[A,list[tuple[list[str],Unpack[T]]]],num_replicates:int)->Callable[A,list[tuple[str,Unpack[T]]]]|Callable[A,list[tuple[list[str],Unpack[T]]]]:
+    @functools.wraps(f)
+    def replicated(*args,**kwargs): 
+        res = []
+        R = f(*args,**kwargs)
+        for i in range(num_replicates):
+            res += [(s+f"_r{i}" if isinstance(s,str) else [si + f"_r{i}" for si in s],*r) for s,*r in R]
+        return res
+    return replicated
+
 class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config)
@@ -516,6 +529,10 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         load_trajectories_fn = lambda: self.load_trajectories(self.config.trajectory_index_file, self.config.pdb_dir, self.config.trajectory_dir, pdb_importer)  # noqa: E731
         get_trajectory_fn = lambda trajectory_file, condition: self.load_trajectory(trajectory_file, self.config.pdb_dir, condition, device=device)  # noqa: E731
 
+        if (replicates := self.config.get("num_replicates",None)):
+            load_samples_fn = replicate_fn(load_samples_fn,replicates)
+            load_trajectories_fn = replicate_fn(load_trajectories_fn,replicates)
+
         diffusion_coeff_fn = functools.partial(
             diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = self.config.get("clamp_diffusion_coefficient",False))
 
@@ -674,6 +691,10 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main
         load_samples_fn = lambda: self.load_samples(self.config.data_samples, self.config.pdb_dir, pdb_importer, device=device, index_col=self.config.get("samples_index_col","index"))  # noqa: E731
         load_trajectories_fn = lambda: self.load_trajectories(self.config.trajectory_index_file, self.config.pdb_dir, self.config.trajectory_dir, pdb_importer)  # noqa: E731
         get_trajectory_fn = lambda trajectory_file,condition: self.load_trajectory(trajectory_file, self.config.pdb_dir, condition, device=device)  # noqa: E731
+
+        if (replicates := self.config.get("num_replicates",None)):
+            load_samples_fn = replicate_fn(load_samples_fn,replicates)
+            load_trajectories_fn = replicate_fn(load_trajectories_fn,replicates)
 
         diffusion_coeff_fn = functools.partial(
             diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = self.config.get("clamp_diffusion_coefficient",False))
