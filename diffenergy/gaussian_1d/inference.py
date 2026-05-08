@@ -42,7 +42,7 @@ def replicate_fn(f:Callable[A,list[tuple[str,Unpack[T]]]]|Callable[A,list[tuple[
         res = []
         R = f(*args,**kwargs)
         for i in range(num_replicates):
-            res += [(s+f"_{i}" if isinstance(s,str) else [si + f"_{i}" for si in s],*r) for s,*r in R]
+            res += [(s+f"_r{i}" if isinstance(s,str) else [si + f"_r{i}" for si in s],*r) for s,*r in R]
         return res
     return replicated
 
