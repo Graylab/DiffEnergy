@@ -20,8 +20,8 @@ import functools
 import itertools
 import math
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Optional, ParamSpec, Sequence
-from typing_extensions import TypeVarTuple, override, Unpack
+from typing import Callable, Iterable, Mapping, Optional, Sequence
+from typing_extensions import TypeVarTuple, ParamSpec, override, Unpack
 
 def batched(iterable, n, *, strict=False):
     # batched('ABCDEFG', 3) → ABC DEF G
