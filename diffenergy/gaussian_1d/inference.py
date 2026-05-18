@@ -6,7 +6,7 @@ from diffenergy.inference import get_integrands, get_paths, unzip
 from diffenergy.gaussian_1d.likelihood_helpers import ModelEval
 from diffenergy.gaussian_1d.network import NegativeGradientMLP, ScoreNetMLP
 from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel
-from diffenergy.helper import MapDataset, SizedIter, diffusion_coeff, marginal_kernel_var, marginal_prob_std, prior_log_gaussian_nd_batched
+from diffenergy.helper import MapDataset, SizeWrappedIter, SizedIter, diffusion_coeff, marginal_kernel_var, marginal_prob_std, prior_log_gaussian_nd_batched
 from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
 
@@ -34,16 +34,27 @@ def batched(iterable, n, *, strict=False):
         yield batch
 
 #horrible hack
-A = ParamSpec("A")
 T = TypeVarTuple("T")
-def replicate_fn(f:Callable[A,list[tuple[str,Unpack[T]]]]|Callable[A,list[tuple[list[str],Unpack[T]]]],num_replicates:int)->Callable[A,list[tuple[str,Unpack[T]]]]|Callable[A,list[tuple[list[str],Unpack[T]]]]:
-    @functools.wraps(f)
-    def replicated(*args,**kwargs): 
-        res = []
-        R = f(*args,**kwargs)
+def replicate_id_generator(gen:Iterable[tuple[str,Unpack[T]]],
+                           num_replicates:int,
+                           copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Iterable[tuple[str,Unpack[T]]]:
+    for S in gen:
+        s = S[0]; r = S[1:]
         for i in range(num_replicates):
-            res += [(s+f"_r{i}" if isinstance(s,str) else [si + f"_r{i}" for si in s],*r) for s,*r in R]
-        return res
+            if copy_fn:
+                r = copy_fn(*r)
+            yield (s+f"_r{i}",*r)
+
+#blegh blegh blegh
+A = ParamSpec("A")
+def replicate_fn(f:Callable[A,list[tuple[str,Unpack[T]]]],
+                 num_replicates:int,
+                 copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Callable[A,SizedIter[tuple[str,Unpack[T]]]]:
+    @functools.wraps(f)
+    def replicated(*args,**kwargs):
+        R = f(*args,**kwargs)
+        total_length = len(R)*num_replicates
+        return SizeWrappedIter(replicate_id_generator(R,num_replicates,copy_fn=copy_fn),total_length)
     return replicated
 
 class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):

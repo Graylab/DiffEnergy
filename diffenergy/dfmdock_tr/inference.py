@@ -50,18 +50,31 @@ def get_sample_metrics(gt_pdb:str|Path|AtomArray,sample_pdb:str|Path|AtomArray, 
         sample_lig,_ = get_chain_coords(sample_pdb,lig_chain)
     return compute_metrics((torch.as_tensor(sample_rec),torch.as_tensor(sample_lig)),(torch.as_tensor(gt_rec),torch.as_tensor(gt_lig)))
 
-#horrible hack
-A = ParamSpec("A")
+
+
 T = TypeVarTuple("T")
-def replicate_fn(f:Callable[A,list[tuple[str,Unpack[T]]]]|Callable[A,list[tuple[list[str],Unpack[T]]]],num_replicates:int)->Callable[A,list[tuple[str,Unpack[T]]]]|Callable[A,list[tuple[list[str],Unpack[T]]]]:
-    @functools.wraps(f)
-    def replicated(*args,**kwargs): 
-        res = []
-        R = f(*args,**kwargs)
+def replicate_id_generator(gen:Iterable[tuple[str,Unpack[T]]],
+                           num_replicates:int,
+                           copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Iterable[tuple[str,Unpack[T]]]:
+    for S in gen:
+        s = S[0]; r = S[1:]
         for i in range(num_replicates):
-            res += [(s+f"_r{i}" if isinstance(s,str) else [si + f"_r{i}" for si in s],*r) for s,*r in R]
-        return res
+            if copy_fn:
+                r = copy_fn(*r)
+            yield (s+f"_r{i}",*r)
+
+#blegh blegh blegh
+A = ParamSpec("A")
+def replicate_fn(f:Callable[A,list[tuple[str,Unpack[T]]]],
+                 num_replicates:int,
+                 copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Callable[A,SizedIter[tuple[str,Unpack[T]]]]:
+    @functools.wraps(f)
+    def replicated(*args,**kwargs):
+        R = f(*args,**kwargs)
+        total_length = len(R)*num_replicates
+        return SizeWrappedIter(replicate_id_generator(R,num_replicates,copy_fn=copy_fn),total_length)
     return replicated
+    
 
 class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def __init__(self, config: DictConfig) -> None:
