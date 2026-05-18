@@ -122,6 +122,19 @@ class DFMDockModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched h
             assert score.ndim == 1 #shape = (3,) or (6,)
             assert offset.ndim == 1
 
+            ## this is only faster when batched
+            # v = torch.eye(offset.shape[0], device=offset.device, dtype=offset.dtype)[:, :]
+
+                # Jacobian = (torch.autograd.grad( #do Jacobian * standard basis vector (e.g. J[i,:]) for each basis vector - e.g. get the jacobian
+                #     outputs=score,
+                #     inputs=offset,
+                #     grad_outputs=v,
+                #     is_grads_batched=True,
+                #     create_graph=False
+                # )[0])
+                # grad_scores = Jv.diag()
+            # trace = torch.trace(Jacobian);
+            
             with torch.profiler.record_function("ModelEval: Divergence: Autograd"):
                 grad_scores = torch.empty(offset.shape,dtype=offset.dtype,device=offset.device)
                 for i in range(offset.shape[0]):
@@ -138,4 +151,40 @@ class DFMDockModelEval(CachedScoreModelEvaluator[LigDict,DFMDict]): #unbatched h
 
 
         
+def hutchinson_trace(
+    score_fn,
+    x,
+    t,
+    n_probe,
+    dist="rademacher",   # or "gaussian"
+    create_graph=False,
+):
+    """
+    Returns per-sample divergence estimate: [B]
+    """
+    x = x.clone().detach().requires_grad_(True)
+    s = score_fn(x, t)  # [B, D]
+    B, D = x.shape
 
+    if dist == "rademacher":
+        v = (torch.randn((n_probe, B, D), device=x.device, dtype=x.dtype)).sign()
+    elif dist == "gaussian":
+        v = torch.randn((n_probe, B, D), device=x.device, dtype=x.dtype)
+    elif dist == "deterministic":
+        v = torch.eye(D, device=x.device, dtype=x.dtype)[:, None, :].expand(-1, B, -1)
+    else:
+        raise ValueError(f"Unknown dist: {dist}")
+    # from IPython import embed; embed()
+    jtv = (torch.autograd.grad(
+        outputs=s,
+        inputs=x,
+        grad_outputs=v,
+        is_grads_batched=True,
+    )[0])
+
+    trace = torch.linalg.vecdot(jtv, v).mean(dim=-2)
+
+    if dist == "deterministic":
+        trace = trace * D
+
+    return trace

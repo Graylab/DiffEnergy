@@ -141,9 +141,11 @@ def plot_sample_result(parent_folder:str|Path,
         if plot_kde:
             sns.kdeplot(samples, color='steelblue', alpha=0.8, label="Sample KDE", zorder = 1, ax=ax, bw_adjust=0.3)
 
-        if plot_samples:
+        if plot_samples or binline:
             probability = np.exp(likelihoods) #this was negative likelihoods in the old data since they calculated nll instead of ll
-            ax.scatter(samples, probability, color=samples_color, label="Learned $p_0(x_0)$", s=2, linewidth=0.1, edgecolors=(0.1, 0.1, 0.1), alpha=0.8, zorder=10 if samples_front else -1)
+            
+            if plot_samples:
+                ax.scatter(samples, probability, color=samples_color, label="Learned $p_0(x_0)$", s=2, linewidth=0.1, edgecolors=(0.1, 0.1, 0.1), alpha=0.8, zorder=10 if samples_front else -1)
             
             if binline:
                 clamp_index = np.where(probability < 0.03)[0]

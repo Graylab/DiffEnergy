@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import functools
 import itertools
 from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Optional, Sequence, Sized, TypeVar, overload
+import warnings
 from numpy.typing import ArrayLike
 from typing_extensions import override
 
@@ -554,8 +555,10 @@ class PiecewiseDifferentiablePath(IntegrablePath[X,C]):
         self.n_interp = n_interp
 
         if 'rtol' not in self.methodargs:
+            warnings.warn("'rtol' not provided, using default of 1e-5")
             self.methodargs['rtol'] = 1e-5
         if 'atol' not in self.methodargs:
+            warnings.warn("'atol' not provided, using default of 1e-5")
             self.methodargs['atol'] = 1e-5
         
         self.pathclass = LinearPath #for forward compatibility

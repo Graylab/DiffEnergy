@@ -5,7 +5,11 @@ from matplotlib.axes import Axes
 from matplotlib.figure import SubFigure
 import numpy as np
 
+import scipy
+import scipy.integrate
+import scipy.special
 from scipy.stats import norm
+import scipy.stats
 
 from diffenergy.helper import marginal_kernel_var
 from figures.shared import get_timed_gt_gaussian, marginal_prob_std
@@ -52,7 +56,9 @@ if __name__ == "__main__":
     #     fig.text(.01, .99, label, ha='left', va='top', transform=fig.transSubfigure,fontdict={"fontsize":"large"})
 
     #going to try using subfigures. Hope this works!
-    def add_comb_row(fig:SubFigure, parent_folder:Path, sigma_min: float, sigma_max:float, integrand:str, title:str, label:str, *subfolders:tuple[str,Path], assumed_prior:str="prior:smax_gaussian", gt_prior:str="prior:convolved_data", data_variance:float|None=None):
+    def add_comb_row(fig:SubFigure, parent_folder:Path, sigma_min: float, sigma_max:float, integrand:str, title:str, label:str, *subfolders:tuple[str,Path], 
+                     assumed_prior:str="prior:smax_gaussian", gt_prior:str="prior:convolved_data", data_variance:float|None=None,
+                     axtitles=False):
         parent_folder = Path(parent_folder)
         axs:list[Axes] = fig.subplots(nrows=1,ncols=1+len(subfolders),squeeze=True)
         priorax,*sampaxs = axs
@@ -60,6 +66,7 @@ if __name__ == "__main__":
         #plot prior
         x = np.linspace(-120,120,500)
 
+        priors = []
         for priortype, prior in zip(("assumed","ground truth"),(assumed_prior,gt_prior)):
             match prior:
                 case "prior:smax_gaussian":
@@ -73,15 +80,26 @@ if __name__ == "__main__":
                     prior_pdf = get_timed_gt_gaussian(x,[1],sigma_min=sigma_min,sigma_max=sigma_max)
                 case _:
                     raise ValueError()
+            priors.append(prior_pdf)
             priorax.plot(x,prior_pdf,label=f"{priortype} prior")
         
-        priorax.legend(fontsize=8)
-        priorax.set_title("Prior")
+        el_kl = scipy.special.rel_entr(*priors);
+        kl = scipy.integrate.simpson(el_kl,x); #we have to integrate to compute the value blegh
+        print(f"sigma_min={sigma_min}, sigma_max={sigma_max}, assumed={assumed_prior}, gt={gt_prior}")
+        print(f"Prior KL Divergence: {np.mean(kl)}")
+        
+
+        priorax.legend(fontsize=8,loc='lower center')
+        if axtitles:
+            priorax.set_title("Prior")
+        priorax.set_ylabel("Density $p_1(x_1)$")
+        priorax.set_xlabel("prior sample $x_1$",labelpad=-1)
 
         #plot samples
         for sampax, (name,subfolder) in zip(sampaxs,subfolders):
             #format plot, plot GT
-            plot_sample_result(parent_folder,subfolder,integrand,"prior:smax_gaussian",binline=False,plot_kde=True,plot_samples=False,
+            print("diffusion" in name.lower())
+            plot_sample_result(parent_folder,subfolder,integrand,assumed_prior,binline="diffusion" in name.lower(),plot_kde=True,plot_samples=False,
                             ax=sampax,save=False,fig_title=False,ax_title=False,plot_p0_gt=True,plot_p1_gt=False,compute_kde=False)
             
             priornames = {"prior:smax_gaussian":"Assumed Prior",
@@ -98,15 +116,19 @@ if __name__ == "__main__":
             convolved_prior_probability = np.exp(convolved_prior_likelihoods)
             sampax.scatter(samples, convolved_prior_probability, color='cyan', label=priornames[gt_prior], s=2, linewidth=0.1, edgecolors=(0.1, 0.1, 0.1), alpha=0.8, zorder=-2)
 
+            sampax.set_ylabel("Density $p_0(x_0)$")
+            sampax.set_xlabel("sample $x_0$",labelpad=-1)
+
             # sampax.legend(fontsize=8,numpoints=10)
-            sampax.set_title(name)
+            if axtitles:
+                sampax.set_title(name)
         
         fig.suptitle(title)
         #add subfigure label
         fig.text(.01, .99, label, ha='left', va='top', transform=fig.transSubfigure,fontdict={"fontsize":"large"})
 
-    f = plt.figure(figsize=(8,7),layout='constrained')
-    subfs:list[SubFigure] = f.subfigures(nrows=3,wspace=0.5,squeeze=True)
+    f = plt.figure(figsize=(9,7.5),layout='constrained')
+    subfs:list[SubFigure] = f.subfigures(nrows=4,wspace=0.5,squeeze=True,height_ratios=[1.03,1,1,1])
 
 
     # add_comb_row(subfs[0],likelihood_dir,0.1,30,Path('gaussian_1d_diff_smax30'),Path('gaussian_1d_flow_smax30'),'integrand:TotalIntegrand','prior:smax_gaussian',r'$\sigma_{max}=30$','(a)')
@@ -116,10 +138,13 @@ if __name__ == "__main__":
     
     data_variance = 898.532 #approximate variance of the training dataset
 
-    add_comb_row(subfs[0],likelihood_dir,0.1,30,'integrand:TotalIntegrand',r'$\sigma_{max}=30$','(a)',("Diffusion", Path('gaussian_1d_diff_smax30')),("Flow",Path('gaussian_1d_flow_smax30')))
-    add_comb_row(subfs[1],likelihood_dir,30,70,'integrand:TotalIntegrand',r'$\sigma_{min}=30$, $\sigma_{max}=70$','(b)',("Diffusion", Path('gaussian_1d_diff_smin30_smax70')),("Flow", Path('gaussian_1d_flow_smin30_smax70')))
-    add_comb_row(subfs[2],likelihood_dir,0.1,30,'integrand:TotalIntegrand',r'$\sigma_{max}=30$ w/ Data Variance','(c)',("Diffusion", Path('gaussian_1d_diff_smax30')),("Flow",Path('gaussian_1d_flow_smax30')),assumed_prior='prior:estimated_data',data_variance=data_variance)
-    # add_comb_row(subfs[3],likelihood_dir,0.1,70,'integrand:TotalIntegrand',r'$\sigma_{max}=70$ w/ Data Variance','(d)',("Diffusion",Path('../gaussian_1d_diff')),("Flow",Path('../gaussian_1d_flow')),assumed_prior='prior:estimated_data',data_variance=data_variance)
+    subit = iter(subfs)
+    labelit = iter(['(a)','(b)','(c)','(d)','(e)'])
+    add_comb_row(next(subit),likelihood_dir,0.1,30,'integrand:TotalIntegrand',r'$\sigma_{min}=0.1$, $\sigma_{max}=30$',next(labelit),("Diffusion", Path('gaussian_1d_diff_smax30')),("Flow",Path('gaussian_1d_flow_smax30')),axtitles=True)
+    add_comb_row(next(subit),likelihood_dir,0.1,70,'integrand:TotalIntegrand',r'$\sigma_{min}=0.1$, $\sigma_{max}=70$',next(labelit),("Diffusion", Path('../gaussian_1d_diff')),("Flow",Path('../gaussian_1d_flow')))
+    add_comb_row(next(subit),likelihood_dir,30,70,'integrand:TotalIntegrand',r'$\sigma_{min}=30$, $\sigma_{max}=70$',next(labelit),("Diffusion", Path('gaussian_1d_diff_smin30_smax70')),("Flow", Path('gaussian_1d_flow_smin30_smax70')))
+    add_comb_row(next(subit),likelihood_dir,0.1,30,'integrand:TotalIntegrand',r'$\sigma_{min}=0.1$, $\sigma_{max}=30$ with Estimated Prior',next(labelit),("Diffusion", Path('gaussian_1d_diff_smax30')),("Flow",Path('gaussian_1d_flow_smax30')),assumed_prior='prior:estimated_data',data_variance=data_variance)
+    # add_comb_row(next(subit),likelihood_dir,0.1,70,'integrand:TotalIntegrand',r'$\sigma_{max}=70$ w/ Data Variance','(d)',("Diffusion",Path('../gaussian_1d_diff')),("Flow",Path('../gaussian_1d_flow')),assumed_prior='prior:estimated_data',data_variance=data_variance)
 
 
     # add_comb_row(subfs[2],likelihood_dir,0.1,70,Path('gaussian_1d_diff_smax30'),Path('gaussian_1d_flow_smax30'),'integrand:TotalIntegrand','prior:convolved_data',r'$\sigma_{max}=30$, "perfect" prior','(c)')
