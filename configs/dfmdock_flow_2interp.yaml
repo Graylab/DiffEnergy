@@ -1,6 +1,6 @@
 # @package _global_
 checkpoint: checkpoints/diffenergy_tr_0.ckpt
-out_dir: results/likelihood/dfmdock_flow
+out_dir: results/likelihood/dfmdock_flow_2interp
 sigma_min: 0.1
 sigma_max: 30
 clamp_diffusion_coefficient: False
@@ -20,7 +20,7 @@ prior_fns:
 path_type: flow_ode
 
 integral_type: 'ode'
-ode_steps: 40
+ode_steps: 80
 
 integration:
   method: rk4
