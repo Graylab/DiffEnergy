@@ -7,14 +7,16 @@ import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
 
-from typing import Any, Iterable, Literal, DefaultDict, Mapping, MutableMapping, Optional, TypeVar
+from typing import Any, Collection, Iterable, Literal, DefaultDict, Mapping, MutableMapping, Optional, TypeVar
 
 
 METRIC_LABELS = {
     'DockQ': 'DockQ',
     'i_rmsd': "Interface RMSD (Å)",
+    'l_rmsd': "Ligand RMSD(Å)",
     'rosetta_Isc': "Rosetta Energy (REU)",
-    'dfmdock_energy': "DFMDock Predicted Energy"
+    'dfmdock_energy': "DFMDock Predicted Energy",
+    'energy': "DFMDock Predicted Energy"
 }
 
 METRIC_LIMITS = {
@@ -25,17 +27,19 @@ METRIC_LIMITS = {
 }
 
 LIKELIHOOD_LABELS = {"flow_nll": "Learned Energy (Flow)",
-                 "diff_nll": "Learned Energy (Diffusion) [Euler]",
-                 "diff_piecewise_ode_nll": "Learned Energy (Diffusion) [Piecewise ODE]",
-                 "diff_trapezoid_nll": "Learned Energy (Diffusion)",
-                 "forwardsde_nll": "Learned Energy (Forward SDE)",
-                 "diff_10interp_nll": "Learned Energy (Diffusion, Interpolated 10x)",
-                 "diff_50interp_nll": "Learned Energy (Diffusion, Interpolated 50x)"}
+                 "diff_nll": "Learned Energy (Diffusion)",
+                 "diff_piecewise_ode_nll": "Learned Energy (Diffusion)\n[Piecewise ODE Integration]",
+                 "diff_trapezoid_nll": "Learned Energy (Diffusion)\n[Trapezoidal Integration]",
+                 "forwardsde_nll": "Learned Energy (Forward SDE)\n[Trapezoidal Integration]",
+                 "diff_10interp_nll": "Learned Energy (Diffusion)\n[Trapezoidal, Interpolated 10x]",
+                 "diff_50interp_nll": "Learned Energy (Diffusion)\n[Trapezoidal, Interpolated 50x]",
+                 "diff_15ensembled_nll": "Learned Energy (Diffusion)\n[Trapezoidal, Ensembled 15x]"}
 
 
 def get_likelihoods(likelihood_file:Path|str,
                     integrand:str="TotalIntegrand",prior:str="smax_gaussian",
-                    index_col:str='id',id_regex:Optional[str|re.Pattern]=None,sequential_sample_index_check=True)->tuple[dict[str,pd.Series],dict[str,pd.Series]]:
+                    index_col:str='id',id_regex:Optional[str|re.Pattern]=None,sequential_sample_index_check=True,
+                    allow_duplicates:bool=True,ensemble_duplicates:bool=False)->tuple[dict[str,pd.Series],dict[str,pd.Series]]:
     """
     Read csv file with data about each sample. Returns a tuple of dicts ({pdb_id:nll_array}, {pdb_id:prior_array}); nll_array
     and prior_array are both pd.Series containing learned negative log-likelihood and prior negative log-likelihood values respectively,
@@ -66,7 +70,7 @@ def get_likelihoods(likelihood_file:Path|str,
     is sequential (e.g. has no gaps from the smallest to the largest value). default: True
     :type sequential_sample_index_check: bool
     """
-    likelihoods_df = load_csv(likelihood_file,index_col=index_col,id_regex=id_regex,sequential_sample_index_check=sequential_sample_index_check)
+    likelihoods_df = load_csv(likelihood_file,index_col=index_col,id_regex=id_regex,sequential_sample_index_check=sequential_sample_index_check,allow_duplicates=allow_duplicates)
     
     nlls:dict[str,pd.Series] = {}
     priors:dict[str,pd.Series] = {}
@@ -75,10 +79,19 @@ def get_likelihoods(likelihood_file:Path|str,
         ## NOTE: / 3 is purely a remnant!!
         nlls[pdb_id] = -(df[f'integrand:{integrand}'] + df[f'prior:{prior}'])/3 
         priors[pdb_id] = -df[f'prior:{prior}']/3
+        
+        if allow_duplicates and ensemble_duplicates:
+            nlls[pdb_id] = nlls[pdb_id].groupby(level=0).mean()
+            priors[pdb_id] = priors[pdb_id].groupby(level=0).mean() # VERY uncertain about what ensembling prior values actually means... but they are never used so don't really matter?? idk
+                
     
     return nlls, priors
 
-def load_csv(samples_csv:str|Path|Iterable[str|Path|pd.DataFrame],index_col:str|list[str]='index',id_regex:Optional[str|re.Pattern]=r'([A-Z0-9]+)_p(\d+)',exclude_cols=[],sequential_sample_index_check=True)->dict[str,pd.DataFrame]:
+def load_csv(csv_file:str|Path|Iterable[str|Path|pd.DataFrame],
+             index_col:str|list[str]='index',id_regex:Optional[str|re.Pattern]=r'([A-Z0-9]+)_p(\d+)',
+             sequential_sample_index_check=True,allow_duplicates=False,
+             exclude_cols=[]
+             )->dict[str,pd.DataFrame]:
     """
     Read csv file(s) with data about each sample. Returns a dict of {pdb_id:DataFrame}, where each dataframe
     is indexed by the specified by 'index_col'. To extract the pdb_id of each sample, either the csv must contain
@@ -91,8 +104,8 @@ def load_csv(samples_csv:str|Path|Iterable[str|Path|pd.DataFrame],index_col:str|
 
     If multiple csvs provided, all will be read and merged by 'index_col' before any other operations take place
     
-    :param samples_csv: Location of csv file to read
-    :type samples_csv: Path|str
+    :param csv_file: Location of csv file to read
+    :type csv_file: Path|str
     :param index_col: Column(s) to use for (multi-)indexing the csv, default: 'index'
     :type index_col: str
     :param id_regex: Regex to parse 'pdb_id' and (optionally) 'sample_index' from the index column. 
@@ -101,31 +114,38 @@ def load_csv(samples_csv:str|Path|Iterable[str|Path|pd.DataFrame],index_col:str|
     :param sequential_sample_index_check: Whether to check that the 'sample_index' column A) exists, B) is integer-valued, and C)
     is sequential (e.g. has no gaps from the smallest to the largest value). default: True
     :type sequential_sample_index_check: bool
+    :param allow_duplicates: Whether to allow duplicate ids in the CSV (e.g. for ensembling). default: False
+    :type allow_duplicates: bool
+    :param exclude_cols: Columns to drop from the csv-loaded DataFrame before returning. default: []
+    :type exclude_cols: Iterable[str]
     """
     
-    samples_df = pd.concat([csv if isinstance(csv,pd.DataFrame) else pd.read_csv(csv,index_col=index_col) for csv in listify(samples_csv)],axis='columns')
-    samples_df['index'] = samples_df.index
+    df = pd.concat([csv if isinstance(csv,pd.DataFrame) else pd.read_csv(csv,index_col=index_col) for csv in listify(csv_file)],axis='columns')
+    df['index'] = df.index
+
+    if not allow_duplicates:
+        assert df['index'].is_unique
 
     if id_regex is not None:
-        match_df = samples_df['index'].str.extract(id_regex,expand=True)
+        match_df = df['index'].str.extract(id_regex,expand=True)
         match_df = match_df.rename(columns={0:'pdb_id',1:'sample_index'})
 
         for key in ['pdb_id','sample_index']:
-            if key not in samples_df and key in match_df:
-                samples_df[key] = match_df[key]
+            if key not in df and key in match_df:
+                df[key] = match_df[key]
 
-    assert 'pdb_id' in samples_df, f"column 'pdb_id' not in {samples_csv} and provided regex {id_regex} could not parse index column to produce it!"
-    unique_ids = np.unique(samples_df['pdb_id'])
+    assert 'pdb_id' in df, f"column 'pdb_id' not in {csv_file} and provided regex {id_regex} could not parse index column to produce it!"
+    unique_ids = np.unique(df['pdb_id'])
 
     if sequential_sample_index_check:
-        assert 'sample_index' in samples_df
-        samples_df['sample_index'] = samples_df['sample_index'].astype(int)
+        assert 'sample_index' in df
+        df['sample_index'] = df['sample_index'].astype(int)
 
-    samples_df = samples_df.sort_values(['pdb_id','sample_index'] if 'sample_index' in samples_df else ['pdb_id'])
+    df = df.sort_values(['pdb_id','sample_index'] if 'sample_index' in df else ['pdb_id'])
 
     results = {}
     for id in unique_ids:
-        iddf = samples_df[samples_df['pdb_id'] == id]
+        iddf = df[df['pdb_id'] == id]
         if sequential_sample_index_check:
             assert np.all(np.diff(iddf['sample_index']) == 1) #make sure no gaps
         results[id] = iddf.drop(columns=exclude_cols)
@@ -289,13 +309,23 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
                        #sample paths
                        sample_likelihoods_sources:Mapping[str,str|Path|Iterable[str|Path]]={
                            'flow_nll':'dfmdock_flow',
-                           'diff_nll':'dfmdock_diff'},
+                           'diff_nll':'dfmdock_diff_piecewise_ode',
+                           'diff_trapezoid_nll':'dfmdock_diff',
+                           'diff_10interp_nll':'dfmdock_diff_interpolated',
+                           'diff_piecewise_ode_nll':'dfmdock_diff_piecewise_ode',
+                           'diff_15ensembled_nll':'dfmdock_forwardsde_ensembled'},
                        sample_metrics_csv:str|Path|Iterable[str|Path]='results/sample_results/dfmdock/metrics.csv',
                        sample_rosetta_csv:Optional[str|Path|Iterable[str|Path]]='results/rosetta/dfmdock/refined_score.csv',
                        #gt paths
-                       gt_likelihoods_sources:Optional[Mapping[str,str|Path|Iterable[str|Path]]]={'flow_nll':'dfmdock_gt_flow'},
+                       gt_likelihoods_sources:Optional[Mapping[str,str|Path|Iterable[str|Path]]]={
+                           'flow_nll':'dfmdock_gt_flow',
+                           'diff_15ensembled_nll':'dfmdock_gt_forwardsde_ensembled'},
                        gt_metrics_csv:Optional[str|Path|Iterable[str|Path]]=None,
                        gt_rosetta_csv:Optional[str|Path|Iterable[str|Path]]='results/rosetta/dfmdock_gt/refined_score.csv',
+                       integrand:str="TotalIntegrand",
+                       prior:str="smax_gaussian",
+                       ensemble_likelihoods:Collection[str]=['diff_15ensembled_nll'],
+                       ensemble_regex:str=r'(.*)_r\d+'
                     ):
     """
     Load likelihoods, rosetta energies, and any other provided metrics csv files (containing e.g. DockQ, interface RMSD, etc) into a combined DataFrame
@@ -365,26 +395,59 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
     
     ### Add Calculated Likelihoods
     labels.update(LIKELIHOOD_LABELS)
-    limits['flow_nll'] = (-1,8)
-    limits['diff_10interp_nll'] = (-4,8)
-    limits['diff_trapezoid_nll'] = (-4,8)
-    limits['diff_piecewise_ode_nll'] = (-4,8)
+    # limits['flow_nll'] = (-1,8)
+    # limits['diff_10interp_nll'] = (-4,8)
+    # limits['diff_trapezoid_nll'] = (-4,8)
+    # limits['diff_piecewise_ode_nll'] = (-4,8)
+    # limits['diff_nll'] = (-4,8)
     
-    default_integrand = 'TotalIntegrand' #TotalIntegrand is always right, no need to mess with total vs flow on different trajectories
-    default_prior = 'smax_gaussian'
+    # default_integrand = 'TotalIntegrand' #TotalIntegrand is always right, no need to mess with total vs flow on different trajectories
+    # default_prior = 'smax_gaussian'
 
     likelihood_id_regex = r'.*?(\w+)_p?(\d+)'
 
     ## Sample Likelihoods
-    sample_nlls = get_newcode_likelihoods(sample_likelihoods_sources,default_integrand,default_prior,srcfolder=likelihoods_folder,id_regex=likelihood_id_regex)[0]
-    for key,nlls in sample_nlls.items():
-        insert_seridict(sample_stats,key,nlls)
+    for key,srcs in sample_likelihoods_sources.items():
+        sample_nlls = merge_sourced_likelihoods(srcs,integrand,prior,id_regex=likelihood_id_regex,srcfolder=likelihoods_folder,
+                                                 allow_duplicates=False,ensemble_duplicates=False,sequential_sample_index_check=key not in ensemble_likelihoods)[0]
+        
+        if key in ensemble_likelihoods:
+            ensemble_nlls:dict[str,pd.Series] = {}
+            for pdb,nll in sample_nlls.items():
+                ensemble_nlls[pdb] = nll.groupby(nll.index.str.extract(ensemble_regex).set_index(nll.index)[0]).mean()
+
+            sample_nlls = ensemble_nlls
+        
+        insert_seridict(sample_stats,key,sample_nlls)
+
+    # sample_nlls = get_newcode_likelihoods(sample_likelihoods_sources,integrand,prior,srcfolder=likelihoods_folder,id_regex=likelihood_id_regex,
+    #                                       allow_duplicates=False,ensemble_duplicates=False,sequential_sample_index_check=True)[0]
+    # for key,nlls in sample_nlls.items():
+    #     ensemble_nlls:dict[str,pd.Series] = {}
+    #     if key in ensemble_likelihoods:
+    #         for pdb,nll in nlls.items():
+    #             ensemble_nlls[pdb] = nll.groupby(nll.index.str.extract(ensemble_regex)[0]).mean()
+    #     insert_seridict(sample_stats,key,nlls)
 
     ## Ground Truth Likelihoods
-    if gt_likelihoods_sources is not None:
-        gt_nlls = get_newcode_likelihoods(gt_likelihoods_sources,default_integrand,default_prior,srcfolder=likelihoods_folder,id_regex=r'(.*)',sequential_sample_index_check=False)[0]
-        for key,nlls in gt_nlls.items():
-            insert_seridict(gt_stats,key,nlls)
+    if gt_likelihoods_sources is None: gt_likelihoods_sources = {}
+    for key, srcs in gt_likelihoods_sources.items():
+        gt_nlls = merge_sourced_likelihoods(srcs,integrand,prior,id_regex=r'([^_]*)',srcfolder=likelihoods_folder,sequential_sample_index_check=False,
+                                            allow_duplicates=False,ensemble_duplicates=False)[0]
+        
+        if key in ensemble_likelihoods:
+            ensemble_nlls:dict[str,pd.Series] = {}
+            for pdb,nll in gt_nlls.items():
+                ensemble_nlls[pdb] = nll.groupby(nll.index.str.extract(ensemble_regex).set_index(nll.index)[0]).mean()
+
+            gt_nlls = ensemble_nlls
+        
+        insert_seridict(gt_stats,key,gt_nlls)
+
+    # if gt_likelihoods_sources is not None:
+    #     gt_nlls = get_newcode_likelihoods(gt_likelihoods_sources,integrand,prior,srcfolder=likelihoods_folder,id_regex=r'(.*)',sequential_sample_index_check=False)[0]
+    #     for key,nlls in gt_nlls.items():
+    #         insert_seridict(gt_stats,key,nlls)
     
     return sample_stats, gt_stats, labels, limits
 
@@ -453,25 +516,25 @@ def load_neighborhood_stats(
     
     return sample_stats, gt_stats, labels, limits
 
-
+def merge_sourced_likelihoods(sources:str|Path|Iterable[str|Path],integrand:str,prior:str,id_regex:Optional[str|re.Pattern]=None,srcfolder:str|Path|Iterable[str|Path]=Path("."),**load_csv_kwargs):
+    nlls = []
+    priors = []
+    for srcf in listify(srcfolder):
+        for src in listify(sources):
+            try:
+                n,p = get_likelihoods(Path(srcf)/src/'likelihood.csv',integrand=integrand,prior=prior,id_regex=id_regex,**load_csv_kwargs)
+                nlls.append(n)
+                priors.append(p)
+            except (FileNotFoundError, pd.errors.EmptyDataError):
+                print(f"missed source: {src}")
+                pass
+    return concat_seridicts(nlls),concat_seridicts(priors)
 
 def get_newcode_likelihoods(sources:Mapping[str,str|Path|Iterable[str|Path]],integrand:str,prior:str,id_regex:Optional[str|re.Pattern]=None,srcfolder:str|Path|Iterable[str|Path]=Path("."),**load_csv_kwargs):
     newcode_nlls:dict[str,dict[str,pd.Series]] = {}
     newcode_priors:dict[str,dict[str,pd.Series]] = {}
     for key,srcs in sources.items():
-        nlls = []
-        priors = []
-        for srcf in listify(srcfolder):
-            for src in listify(srcs):
-                try:
-                    n,p = get_likelihoods(Path(srcf)/src/'likelihood.csv',integrand=integrand,prior=prior,id_regex=id_regex,**load_csv_kwargs)
-                    nlls.append(n)
-                    priors.append(p)
-                except (FileNotFoundError, pd.errors.EmptyDataError):
-                    print(f"missed source: {src}")
-                    pass
-        newcode_nlls[key] = concat_seridicts(nlls)
-        newcode_priors[key] = concat_seridicts(priors)
+        newcode_nlls[key],newcode_priors[key] = merge_sourced_likelihoods(srcs,integrand,prior,id_regex=id_regex,srcfolder=srcfolder,**load_csv_kwargs)
     return newcode_nlls,newcode_priors
 
 def plot_samples(sample_results:Mapping[str,pd.DataFrame], gt_results:Optional[Mapping[str,dict[str,float]]],
@@ -533,9 +596,12 @@ def make_gridplot(sample_results:Mapping[str,pd.DataFrame],gt_results:Optional[M
                   # plot_gt = True will raise an error if the key is not present in gt_results; plot_gt = False prevents plotting altogether.
                   plot_gt:bool|Literal['if_present']='if_present',gt_ytype:Optional[str]=None, 
                   skip_plot_if_missing:bool=True, #if true, will simply skip individual plots whose x or y value is not present in the sample_results dict. Otherwise, will error.
+                  figure_title:str|None=None, #whether to do fig.suptitle
                   save=False,out_file:str|Path='gridplots/gridplot.png'):
     
     fig, axes = plt.subplots(5, 5, figsize=(14, 14),subplot_kw={'projection':'3d' if ztype else None})
+    if figure_title:
+        fig.suptitle(figure_title,fontsize='xx-large')
     axdict = {}
     for i, _id in enumerate(sorted(sample_results.keys())):
         if skip_plot_if_missing and (xtype not in sample_results[_id].columns or ytype not in sample_results[_id].columns): print(f"skipping {_id}"); continue
@@ -562,8 +628,12 @@ def make_gridplot(sample_results:Mapping[str,pd.DataFrame],gt_results:Optional[M
     return fig,axes,axdict
 
 
-def plot_all_grids(sample_stats:Mapping[str,pd.DataFrame],gt_stats:Mapping[str,dict[str,float]],labels:Mapping[str,str|None],limits:Mapping[str,tuple[float|None,float|None]|None],save:bool=True,outdir:Path|None=None,close_plots:bool=False,
-                   y_stats='auto',x_stats='auto',extra_pairs:list[tuple[str,str]]=[]):
+def plot_all_grids(sample_stats:Mapping[str,pd.DataFrame],
+                   gt_stats:Mapping[str,dict[str,float]],
+                   labels:Mapping[str,str|None],limits:Mapping[str,tuple[float|None,float|None]|None],
+                   save:bool=True,outdir:Path|None=None,close_plots:bool=False,
+                   y_stats='auto',x_stats='auto',extra_pairs:list[tuple[str,str]]=[],
+                   title_graphs:bool=False):
     if save and outdir is None:
         raise ValueError("Must specify an output directory if saving gridplots! Standard destination is f\'gridplots/{samples_source}'")
 
@@ -595,10 +665,13 @@ def plot_all_grids(sample_stats:Mapping[str,pd.DataFrame],gt_stats:Mapping[str,d
     for x,y in tqdm(pairs):
         if x == y: continue
         print(x,y)
+        title = f'{labels[y]} vs {labels[x]}'.replace('\n',' ') if title_graphs else None
+        if title: print(title)
         f,axes,axdict = make_gridplot(sample_stats,gt_stats,
                   x,y,
                   custom_xlabel=labels[x],custom_ylabel=labels[y],
                   custom_xlim=limits[x],custom_ylim=limits[y],
+                  figure_title=title,
                   save=True,out_file=Path(outdir)/f'{y}_vs_{x}.png')
         if close_plots:
             plt.close(f)

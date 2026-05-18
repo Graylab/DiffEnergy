@@ -6,7 +6,7 @@ from functools import cached_property
 import itertools
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 import shutil
 from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence
 from typing_extensions import TypeVarTuple, ParamSpec, override, Unpack
@@ -27,6 +27,38 @@ from diffenergy.dfmdock_tr.utils.metrics import METRICS_KEYS, compute_metrics
 from diffenergy.helper import MapDataset, SizeWrappedIter, SizedIter, diffusion_coeff, prior_log_gaussian_nd, prior_log_gaussian_nd_batched
 from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin, get_integrands, get_paths, unzip
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
+
+import sys
+if sys.version_info.minor < 12:
+    def relative_to(self:PurePath, other, /, *_deprecated, walk_up=False):
+        """Return the relative path to another path identified by the passed
+        arguments.  If the operation is not possible (because this is not
+        related to the other path), raise ValueError.
+
+        The *walk_up* parameter controls whether `..` may be used to resolve
+        the path.
+        """
+        if _deprecated:
+            msg = ("support for supplying more than one positional argument "
+                    "to pathlib.PurePath.relative_to() is deprecated and "
+                    "scheduled for removal in Python 3.14")
+            warnings.warn(msg, DeprecationWarning, stacklevel=2)
+            other = self.with_segments(other, *_deprecated)
+        elif not isinstance(other, PurePath):
+            other = self.with_segments(other)
+        for step, path in enumerate(itertools.chain([other], other.parents)):
+            if path == self or path in self.parents:
+                break
+            elif not walk_up:
+                raise ValueError(f"{str(self)!r} is not in the subpath of {str(other)!r}")
+            elif path.name == '..':
+                raise ValueError(f"'..' segment in {str(other)!r} cannot be walked")
+        else:
+            raise ValueError(f"{str(self)!r} and {str(other)!r} have different anchors")
+        parts = ['..'] * step + self._parts[len(path._parts):]
+        return self._from_parsed_parts('', '', parts)
+
+    PurePath.relative_to = relative_to;
 
 from biotite.structure.io import save_structure
 from biotite.structure import AtomArray

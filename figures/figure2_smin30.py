@@ -74,9 +74,9 @@ if __name__ == "__main__":
     setfont()
     
 
-    flow_trajectories = get_trajectories('results/likelihood/gaussian_1d_flow/trajectories','trajectory_index.csv')
-    diff_trajectories = get_trajectories('results/sample_results/gaussian_1d/trajectories','trajectory_index.csv')
-    difftraj_forces = get_forces(Path('results/forces/gaussian_1000'))
+    flow_trajectories = get_trajectories('results/likelihood/noise_schedule_tests/gaussian_1d_flow_smin30_smax70/trajectories','trajectory_index.csv')
+    diff_trajectories = get_trajectories('results/sample_results/gaussian_1d_smin30_smax70/trajectories','trajectory_index.csv')
+    difftraj_forces = get_forces(Path('results/forces/gaussian_smin30_smax70_1000'))
     
     from typing import Iterable
     from typing import Any
@@ -84,7 +84,9 @@ if __name__ == "__main__":
     from matplotlib.axes import Axes
     from matplotlib.figure import SubFigure
 
-    plot_trajs = [0,75,50,100]
+    # plot_trajs = [0,75,50,100]
+    plot_trajs = [0,25,51,101]
+    plot_trajs = [5,25,52,103]
     paircolors = [ #diff,flow
         ('black',     'dimgray',       ),
         ('steelblue', 'cornflowerblue',),
@@ -118,7 +120,7 @@ if __name__ == "__main__":
         # ax.yaxis.tick_right()
 
     make_trajrow(axes[0],'$x_{t}$')
-    vrange = (-150,150)
+    vrange = (-200,200)
     axes[0].set_ylim(*vrange)
 
     #now for the vertical distributions
@@ -162,7 +164,7 @@ if __name__ == "__main__":
     make_row(axes[1],[(difftraj_forces[id]['time'],difftraj_forces[id]['score']) for id in plot_trajs],colors,
             #  r'$s_{\theta} (x_t,t)=\nabla_{x} \log p(x_{t},t)$')
             r'Score $s_{\theta}(x_t,t)$')
-    axes[1].set_ylim(-0.4,0.4)
+    # axes[1].set_ylim(-0.4,0.4)
 
 
 
@@ -185,4 +187,4 @@ if __name__ == "__main__":
 
     # make_row(axes[2],[diff_trajectories[i] for i in plot_trajs],colors,'dum')
 
-    f.savefig('figures/figure_2.png',dpi=600,bbox_inches='tight')
+    f.savefig('figures/figure_2_smin30.png',dpi=600,bbox_inches='tight')
