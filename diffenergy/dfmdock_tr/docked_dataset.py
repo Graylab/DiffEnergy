@@ -1,4 +1,5 @@
 ### inspired from Leeshin Chu's dips_dataset.py
+from pathlib import Path
 from typing import TypedDict
 import warnings
 import torch
@@ -34,7 +35,7 @@ class PDBImporter:
         self.esm_model = esm_model
         self.batch_converter = esm_model.alphabet.get_batch_converter() if esm_model is not None else None
 
-    def get_pdb(self,pdb_file:str,id:str,out_pdb: bool = False)->DockedDatum:
+    def get_pdb(self,pdb_file:str|Path,id:str,out_pdb: bool = False)->DockedDatum:
 
         # Get sequences and coords from files  
         with warnings.catch_warnings():
