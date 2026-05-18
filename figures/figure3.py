@@ -52,8 +52,9 @@ def load_sample_likelihoods(likelihood_folder:str|Path,samples_file:Optional[str
     samples_df = pd.read_csv(samples_file, index_col=0)
     
     # Load likelihoods
-    likelihood_df = pd.read_csv(likelihood_file)
+    likelihood_df = pd.read_csv(likelihood_file,index_col=0)
     likelihoods = likelihood_df[integrand_column] + likelihood_df[prior_column]
+
     
     #only use ids in both likelihoods and samples
     index = samples_df.index.intersection(likelihood_df.index)
@@ -237,35 +238,39 @@ def plot_sample_result(parent_folder:str|Path,
     return fig, ax
 
 
-def plot_comparison(samples_1, samples_2, ax=None):
+def plot_comparison(samples_1, samples_2, ax:Optional[Axes]=None, 
+                    lim:Optional[tuple[float,float]]=(0,0.03),ticks:Optional[list[float]]=[0,0.01,0.02,0.03],
+                    xlabel:Optional[str]="Ground Truth $p_0(x)$",ylabel:Optional[str]="Recovered $p_0(x)$",
+                    title:Optional[str]=None):
     if not ax:
         fig = plt.figure(figsize=(1.5, 1.5))
         ax = fig.add_subplot()
     else:
         fig = None
 
+    ax.scatter(samples_1, samples_2, color='salmon', edgecolors=(0.1, 0.1, 0.1), linewidth=0.2, s=10, label="Scatter", alpha=0.8, zorder=1)
 
-
-    ax.scatter(samples_1, samples_2, color='salmon', edgecolors=(0.1, 0.1, 0.1), linewidth=0.2, s=2, label="Scatter", alpha=0.8, zorder=1)
+    if lim is None:
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        lim = min(xlim + ylim), max(xlim + ylim)
 
     # Draw y = x line
-    ax.plot([0, 1], [0, 1], color='gray', linestyle='--', linewidth=2, label='y = x', zorder=0)
+    ax.plot(lim, lim, color='gray', linestyle='--', linewidth=2, label='y = x', zorder=0)
 
     def line_through_origin(x, a):
         return a * x
 
     # Fit the model
-    params, pcov, infodict, mesg, ier  = curve_fit(line_through_origin, samples_1, samples_2, full_output=True)
-    a = params[0]
+    try:
+        params, pcov, infodict, mesg, ier  = curve_fit(line_through_origin, samples_1, samples_2, full_output=True)
+        a = params[0]
 
-    drange = (0,0.03)
+        #shorter dashes. default '--' dash pattern is (3.7,1.6) according to rcParams
+        ax.plot(lim, [a*min_val, a*max_val], color='k', linestyle='--', dashes=(2,1), label=f'y = {a:.2f}x')
 
-    # Draw y = ax line
-    min_val = drange[0]#min(gaussian_pdf.min(), probability.min())
-    max_val = drange[1]#max(gaussian_pdf.max(), probability.max())
-    
-    #shorter dashes. default '--' dash pattern is (3.7,1.6) according to rcParams
-    ax.plot([min_val, max_val], [a*min_val, a*max_val], color='k', linestyle='--', dashes=(2,1), label=f'y = {a:.2f}x')
+    except:
+        pass
 
 
     # Example
@@ -273,12 +278,13 @@ def plot_comparison(samples_1, samples_2, ax=None):
     print(f"Pearson Correlation: {corr:.4f}")
     print(f"P-value: {p_value:.4e}")
 
-    ax.set_xlim(drange)
-    ax.set_ylim(drange)
-    ax.set_yticks([0, 0.01, 0.02, 0.03])
-    ax.set_xticks([0, 0.01, 0.02, 0.03])
-    ax.set_xlabel("Ground Truth $p_0(x)$")
-    ax.set_ylabel("Recovered $p_0(x)$")
+    if title is not None:  ax.set_title(title)
+    if lim is not None:    ax.set_xlim(lim)
+    if ticks is not None:  ax.set_xticks(ticks)
+    if xlabel is not None: ax.set_xlabel(xlabel)
+    if lim is not None:    ax.set_ylim(lim)
+    if ticks is not None:  ax.set_yticks(ticks)
+    if ylabel is not None: ax.set_ylabel(ylabel)
 
     ax.set_aspect(1.0)
 
