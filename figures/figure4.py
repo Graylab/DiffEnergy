@@ -15,7 +15,7 @@ pinks = (0.73,0.54,1.0,1.0), (0.63,0.65,1.0,1.0), (0.80,0.7,0.95,1.0)
 greens = (0.13,0.54,0.13,1.0), (0.23,0.64,0.23,1.0), (0.03,0.44,0.03,1.0)
 blues = (0.28,0.51,0.71,1.0), (0.38,0.61,0.81,1.0), (0.18,0.41,0.61,1.0)
 
-def get_traj_likelihoods(folders):
+def get_traj_likelihoods(folders,prior:str='smax_gaussian'):
     if isinstance(folders,Path|str):
         folders = (folders,)
 
@@ -29,7 +29,7 @@ def get_traj_likelihoods(folders):
         ids = expanded_id[0]
         single_traj_likelihoods['id'] = ids
         single_traj_likelihoods['timestep'] = times
-        single_traj_likelihoods['nll'] = -(single_traj_likelihoods['prior:smax_gaussian'] + single_traj_likelihoods['integrand:TotalIntegrand'])/3
+        single_traj_likelihoods['nll'] = -(single_traj_likelihoods[f'prior:{prior}'] + single_traj_likelihoods['integrand:TotalIntegrand'])/3
         
         single_traj_likelihoods = single_traj_likelihoods.iloc[::-1,:]
 
@@ -162,7 +162,7 @@ if __name__ == "__main__":
         Path('results/forces/dfmdock'),
     )
     
-    traj_likelihoods = get_traj_likelihoods(traj_likelihoods_folder)
+    traj_likelihoods = get_traj_likelihoods(traj_likelihoods_folder,prior="receptor_smax_gaussian")
     traj_force_dict = read_forces(forces_folder)
     
     ## New Trajectories (generated with deterministic score model)
