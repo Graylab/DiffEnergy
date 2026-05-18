@@ -6,6 +6,7 @@ try:
     from biotite.structure import filter_peptide_backbone
 except ImportError:
     from biotite.structure import filter_backbone as filter_peptide_backbone
+import numpy as np
 import torch
 from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
 from diffenergy.dfmdock_tr.utils.esm_utils import extract_coords_from_structure
@@ -43,7 +44,7 @@ def get_chain_structure(orig:str|Path|AtomArray,chain:str,backbone_only:bool=Fal
     return lig_structure
 
 #same as load_coords from esm_utils, but can take an already loaded atomarray as input to save disk read
-def get_chain_coords(orig:str|Path|AtomArray,chain:str,backbone_only:bool=True):
+def get_chain_coords(orig:str|Path|AtomArray,chain:str,backbone_only:bool=True)->tuple[np.ndarray,str]:
     return extract_coords_from_structure(get_chain_structure(orig,chain,backbone_only=backbone_only))
 
 
