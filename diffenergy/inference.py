@@ -1,13 +1,14 @@
 from __future__ import annotations
 import abc
 import csv
-try:
-    from enum import StrEnum
-except ImportError:
-    from enum import Enum # pre python 3.11 compatibility
-    class StrEnum(str, Enum):
-        pass
+# try:
+#     from enum import StrEnum
+# except ImportError:
+#     from enum import Enum # pre python 3.11 compatibility
+#     class StrEnum(str, Enum):
+#         pass
 
+from enum import Enum
 import functools
 from contextlib import contextmanager
 from csv import DictWriter
@@ -303,15 +304,16 @@ def get_integrands(
 
     return integrands
 
-class SamplesPaths(StrEnum):
+class SamplesPaths(str,Enum):
     FLOW_ODE = "flow_ode"
     STILL = "still"
     LINEARIZED_FLOW = "linearized_flow"
     REVERSE_SDE = "reverse_sde"
     FORWARD_SDE = "forward_sde"
     ENSEMBLED_FORWARD_SDE = "ensembled_forward_sde" 
+    ANCHORED_LINEAR = "anchored_linear"
 
-class TrajectoriesPaths(StrEnum):
+class TrajectoriesPaths(str,Enum):
     SDE_TRAJECTORIES = "sde_trajectories"
     SDE_TRAJECTORIES_UNREVERSED = "sde_trajectories_unreversed"
     PIECEWISE_TRAJECTORIES = "piecewise_trajectories" 
@@ -546,10 +548,30 @@ def get_paths(
                     condition,
                     int_method,
                     int_args))
-                    for id,sample,condition in  (samples)
+                    for id,sample,condition in samples
                 )
             paths = SizeWrappedIter(pathgen,len(samples))
+        
+        case SamplesPaths.ANCHORED_LINEAR:
+            anchor = torch.tensor(config.get("anchor_point",0),device=device) #this is a little sus but maybe it works
 
+            samples = load_samples()
+            pathgen = (
+                (id,LinearPath[X,C](
+                    (sample,0),
+                    (from_array(anchor),1),
+                    ode_times,
+                    to_array,
+                    from_array,
+                    condition,
+                    int_method,
+                    int_args
+                ))
+                for id, sample, condition in samples
+            )
+
+            paths = SizeWrappedIter(pathgen,len(samples))
+            
         case TrajectoriesPaths.DIFF_DATA_TRANSLATION:
             # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
             # Requires a prior function compatible with t0 sampling [e.g. ground truth]
@@ -692,7 +714,7 @@ def get_paths(
     ## Wrap path in PiecewiseDifferentiablePath, allowing for
     # 1) linear interpolation (by setting piecewise_interpolants > 1) and
     # 2) piecewise ODE or diff integration (by specifying piecewise_ode and piecewise_diff respectively)
-    int_type = config.integral_type
+    int_type = config.get("integral_type","") #I guess this method doesn't work great for non-integrated path uses...
     piecewise_int = None
     if int_type.startswith("piecewise_"): 
         piecewise_int = int_type.split("piecewise_")[1]
