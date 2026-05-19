@@ -1,6 +1,6 @@
 from pathlib import Path
 import string
-from typing import Optional
+from typing import Iterable, Optional
 import warnings
 import pandas as pd
 
@@ -18,12 +18,16 @@ except ImportError:
     from figures.figure3 import plot_sample_result, plot_correlation
 
 
-def compare_likelihoods(fig:Figure,label:str,title:str,likelihood_1:str|Path|pd.Series,label_1:str,likelihood_2:str|Path|pd.Series,label_2:str,integrand="integrand:TotalIntegrand",prior="prior:smax_gaussian",
+def compare_likelihoods(fig:Figure,label:str,title:str,likelihood_1:str|Path|pd.Series,label_1:str,likelihood_2:str|Path|pd.Series,label_2:str,integrand:str|Iterable[str]="integrand:TotalIntegrand",prior:str|Iterable[str]="prior:smax_gaussian",
             lim:Optional[tuple[float,float]]=(0,0.03),ticks:Optional[list[float]]=[0,0.01,0.02,0.03],exp=True,
             other_corner=False):
     ax = fig.add_subplot()
-    likelihoods1 = load_sample_likelihoods(likelihood_1,integrand_column=integrand,prior_column=prior)[0] if not isinstance(likelihood_1,pd.Series) else likelihood_1
-    likelihoods2 = load_sample_likelihoods(likelihood_2,integrand_column=integrand,prior_column=prior)[0] if not isinstance(likelihood_2,pd.Series) else likelihood_2
+
+    integrands = [integrand,integrand] if isinstance(integrand,str) else list(integrand)
+    priors = [prior,prior] if isinstance(prior,str) else list(prior)
+
+    likelihoods1 = load_sample_likelihoods(likelihood_1,integrand_column=integrands[0],prior_column=priors[0])[0] if not isinstance(likelihood_1,pd.Series) else likelihood_1
+    likelihoods2 = load_sample_likelihoods(likelihood_2,integrand_column=integrands[1],prior_column=priors[1])[0] if not isinstance(likelihood_2,pd.Series) else likelihood_2
     index = likelihoods1.index.intersection(likelihoods2.index)
     if len(likelihoods1) != len(likelihoods2):
         warnings.warn(f"Missing some samples! L1={len(likelihoods1)}, L2={len(likelihoods2)}")
