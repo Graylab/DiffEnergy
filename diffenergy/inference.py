@@ -76,7 +76,9 @@ X = TypeVar("X") #data type of point
 C = TypeVar("C") #data type of diffusion conditioning
 
 class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
-    def __init__(self,config:DictConfig) -> None:
+    def __init__(self,config:DictConfig|str|Path) -> None:
+        if not isinstance(config,DictConfig):
+            config = OmegaConf.load(config)
         self.config = config
         self._out_dir = None
 
