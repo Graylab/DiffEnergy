@@ -1,5 +1,6 @@
 import itertools
 import re
+import typing
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 import numpy as np
@@ -7,7 +8,7 @@ import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
 
-from typing import Any, Collection, Iterable, Literal, DefaultDict, Mapping, MutableMapping, Optional, TypeVar
+from typing import Any, Callable, Collection, Iterable, Literal, DefaultDict, Mapping, MutableMapping, Optional, TypeVar
 
 
 METRIC_LABELS = {
@@ -293,7 +294,22 @@ def merge_dfdicts(dest:Mapping[str,pd.DataFrame|MutableMapping[str,Any]],keys:Op
                 for k in ks:
                     d[k] = source[id][k]
         
-                
+@typing.overload
+def ensemble(data:pd.Series,ensemble_regex:str|re.Pattern=r'(.*)_r\d+',col:str|None=None,aggregate_func:str|Callable="mean")->pd.Series: ...
+@typing.overload
+def ensemble(data:pd.DataFrame,ensemble_regex:str|re.Pattern=r'(.*)_r\d+',col:str|None=None,aggregate_func:str|Callable="mean")->pd.DataFrame: ...
+
+def ensemble(data:pd.Series|pd.DataFrame,ensemble_regex:str|re.Pattern=r'(.*)_r\d+',col:str|None=None,aggregate_func:str|Callable="mean"):
+    """Ensembles data via groupby. Uses aggregate_func to reduce produced 'groupby' object, so same possible inputs as there."""
+
+    if col is None: #group by str index
+        by = data.index.str.extract(ensemble_regex).set_index(data.index)[0] #set_index because extracting an index resets the index; [0] to get first capturing group
+    else:
+        by = data[col].str.extract(ensemble_regex)[0] #[0] to get first capturing group
+
+    return data.groupby(by).aggregate(aggregate_func)
+
+
 
 T = TypeVar("T")
 def insert_dict(dest:Mapping[str,MutableMapping[str,T]],destkey:str,source:Mapping[str,T]):
@@ -414,7 +430,8 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
         if key in ensemble_likelihoods:
             ensemble_nlls:dict[str,pd.Series] = {}
             for pdb,nll in sample_nlls.items():
-                ensemble_nlls[pdb] = nll.groupby(nll.index.str.extract(ensemble_regex).set_index(nll.index)[0]).mean()
+                ensemble_nlls[pdb] = ensemble(nll,ensemble_regex=ensemble_regex,col=None,aggregate_func="mean")
+                # nll.groupby(nll.index.str.extract(ensemble_regex).set_index(nll.index)[0]).mean()
 
             sample_nlls = ensemble_nlls
         
@@ -438,7 +455,8 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
         if key in ensemble_likelihoods:
             ensemble_nlls:dict[str,pd.Series] = {}
             for pdb,nll in gt_nlls.items():
-                ensemble_nlls[pdb] = nll.groupby(nll.index.str.extract(ensemble_regex).set_index(nll.index)[0]).mean()
+                ensemble_nlls[pdb] = ensemble(nll,ensemble_regex=ensemble_regex,col=None,aggregate_func="mean")
+                # nll.groupby(nll.index.str.extract(ensemble_regex).set_index(nll.index)[0]).mean()
 
             gt_nlls = ensemble_nlls
         
