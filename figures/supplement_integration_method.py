@@ -17,30 +17,6 @@ except ImportError:
     from figures.shared import setfont
     from figures.figure3 import plot_sample_result, plot_correlation
 
-#TODO: reconcile with figure3
-def add_comb_row(fig:SubFigure, label:str, title:str, parent_folder:Path, likelihood_subfolder:Path, integrand:str, prior:str, binline=False, other_corner=False):
-    probax,corax = fig.subplots(nrows=1,ncols=2,width_ratios=[2,1.5])
-
-    plot_sample_result(parent_folder,likelihood_subfolder,integrand,prior,binline=binline,binline_color='purple',
-                    ax=probax,save=False,fig_title=False,ax_title=False)
-    r,pval = plot_correlation(parent_folder,likelihood_subfolder,integrand,prior,ax=corax,save=False,fig_title=False,ax_title=False)
-
-    if "backward" in title.lower():
-        if "interpolated" in title.lower():
-            probax.set_ylim([0,0.04])
-            probax.set_yticks([0,0.01,0.02,0.03,0.04])
-        else:
-            probax.set_ylim([0,0.20])
-            probax.set_yticks([0,0.05,0.10, 0.15, 0.20])
-
-    if other_corner:
-        corax.text(.05,.9, f"$r_p={r:0.2f}$",ha='left',va='center',transform=corax.transAxes)
-    else:    
-        corax.text(.95,.10, f"$r_p={r:0.2f}$",ha='right',va='center',transform=corax.transAxes)
-
-    fig.suptitle(title)
-    #add subfigure label
-    fig.text(.01, .99, label, ha='left', va='top', transform=fig.transSubfigure,fontdict={"fontsize":"large"})
 
 def compare_likelihoods(fig:Figure,label:str,title:str,likelihood_1:str|Path|pd.Series,label_1:str,likelihood_2:str|Path|pd.Series,label_2:str,integrand="integrand:TotalIntegrand",prior="prior:smax_gaussian",
             lim:Optional[tuple[float,float]]=(0,0.03),ticks:Optional[list[float]]=[0,0.01,0.02,0.03],exp=True,

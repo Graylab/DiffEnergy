@@ -5,7 +5,8 @@ from matplotlib import pyplot as plt
 from matplotlib.figure import SubFigure
 
 from figures.shared import setfont
-from figures.supplement_integration_method import add_comb_row, compare_likelihoods
+from figures.figure3 import add_comb_row
+from figures.supplement_integration_method import compare_likelihoods
 
 
 if __name__ == "__main__":
@@ -17,6 +18,15 @@ if __name__ == "__main__":
     #going to try using subfigures. Hope this works!
 
 
+    def add_row(fig:SubFigure, label:str, title:str, parent_folder:Path, likelihood_subfolder:Path, integrand:str, prior:str, binline=False, other_corner=False):
+        probax, corax = add_comb_row(fig,label,title,parent_folder,likelihood_subfolder,integrand,prior,binline=binline,other_corner=other_corner)
+        if "backward" in title.lower():
+            if "interpolated" in title.lower():
+                probax.set_ylim([0,0.04])
+                probax.set_yticks([0,0.01,0.02,0.03,0.04])
+            else:
+                probax.set_ylim([0,0.20])
+                probax.set_yticks([0,0.05,0.10, 0.15, 0.20])
 
 
 
@@ -28,14 +38,14 @@ if __name__ == "__main__":
     
     labelit = iter([f'({l})' for l in string.ascii_lowercase])
 
-    add_comb_row(subfs_grid[0][0],next(labelit),'Forward Euler Integration',likelihood_dir,Path('gaussian_1d_diff_forward_euler'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True, other_corner=True)
-    add_comb_row(subfs_grid[1][0],next(labelit),'Backward Euler Integration',likelihood_dir,Path('gaussian_1d_diff_backward_euler'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
-    add_comb_row(subfs_grid[2][0],next(labelit),'Trapezoidal Integration',likelihood_dir,Path('../noise_schedule_tests/gaussian_1d_diff_smin30_smax70'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
-    add_comb_row(subfs_grid[3][0],next(labelit),'Piewise ODE Integration',likelihood_dir,Path('gaussian_1d_diff_piecewise_ode'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
-    add_comb_row(subfs_grid[0][1],next(labelit),'Forward Euler Integration, 10x Interpolated',likelihood_dir,Path('gaussian_1d_diff_forward_euler_interpolated'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
-    add_comb_row(subfs_grid[1][1],next(labelit),'Backward Euler Integration, 10x Interpolated',likelihood_dir,Path('gaussian_1d_diff_backward_euler_interpolated'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
-    add_comb_row(subfs_grid[2][1],next(labelit),'Trapezoidal Integration, 10x Interpolated',likelihood_dir,Path('gaussian_1d_diff_interpolated'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
-    add_comb_row(subfs_grid[3][1],next(labelit),'Flow Trajectory ODE Integration',likelihood_dir,Path('../noise_schedule_tests/gaussian_1d_flow_smin30_smax70'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
+    add_row(subfs_grid[0][0],next(labelit),'Forward Euler Integration',likelihood_dir,Path('gaussian_1d_diff_forward_euler'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True, other_corner=True)
+    add_row(subfs_grid[1][0],next(labelit),'Backward Euler Integration',likelihood_dir,Path('gaussian_1d_diff_backward_euler'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
+    add_row(subfs_grid[2][0],next(labelit),'Trapezoidal Integration',likelihood_dir,Path('../noise_schedule_tests/gaussian_1d_diff_smin30_smax70'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
+    add_row(subfs_grid[3][0],next(labelit),'Piewise ODE Integration',likelihood_dir,Path('gaussian_1d_diff_piecewise_ode'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
+    add_row(subfs_grid[0][1],next(labelit),'Forward Euler Integration, 10x Interpolated',likelihood_dir,Path('gaussian_1d_diff_forward_euler_interpolated'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
+    add_row(subfs_grid[1][1],next(labelit),'Backward Euler Integration, 10x Interpolated',likelihood_dir,Path('gaussian_1d_diff_backward_euler_interpolated'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
+    add_row(subfs_grid[2][1],next(labelit),'Trapezoidal Integration, 10x Interpolated',likelihood_dir,Path('gaussian_1d_diff_interpolated'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
+    add_row(subfs_grid[3][1],next(labelit),'Flow Trajectory ODE Integration',likelihood_dir,Path('../noise_schedule_tests/gaussian_1d_flow_smin30_smax70'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
 
     subf_bottom = subf_rows[-1]
     subf_bottom.get_constrained_layout()
@@ -47,6 +57,5 @@ if __name__ == "__main__":
     # compare(next(compit),"Trapezoidal\nvs Piecewsise ODE",likelihood_dir/'..'/'noise_schedule_tests/gaussian_1d_diff_smin30_smax70','Original',likelihood_dir/'gaussian_1d_diff_piecewise_ode','Piecewise ODE')
     compare_likelihoods(next(compit),next(labelit),"Trapezoidal\nvs Piecewise ODE",likelihood_dir/'..'/'noise_schedule_tests/gaussian_1d_diff_smin30_smax70','Trapezoidal',likelihood_dir/'gaussian_1d_diff_piecewise_ode','Piecewise ODE')
     compare_likelihoods(next(compit),next(labelit),"Interpolated Trapezoidal\nvs Piecewise ODE",likelihood_dir/'gaussian_1d_diff_interpolated','Interpolated Trapezoidal',likelihood_dir/'gaussian_1d_diff_piecewise_ode','Piecewise ODE')
-
 
     f.savefig("figures/supplement_integration_method_gaussian.png",dpi=600)
