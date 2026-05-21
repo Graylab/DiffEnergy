@@ -9,20 +9,11 @@ import scipy
 import scipy.integrate
 import scipy.special
 from scipy.stats import norm
-import scipy.stats
 
-from diffenergy.helper import marginal_kernel_var
-from figures.shared import get_timed_gt_gaussian, marginal_prob_std
+from diffenergy.helper import marginal_kernel_var, marginal_prob_std
 
-
-
-
-try:
-    from shared import setfont
-    from figure3 import plot_sample_result, load_sample_likelihoods
-except ImportError:
-    from figures.shared import setfont
-    from figures.figure3 import plot_sample_result, load_sample_likelihoods
+from figures.shared import get_timed_gt_gaussian, setfont
+from figures.figure3 import plot_sample_result, load_sample_likelihoods
 
 
 if __name__ == "__main__":

@@ -10,13 +10,6 @@ import numpy as np
 
 from figures.figure3 import load_sample_likelihoods, plot_comparison
 
-try:
-    from shared import setfont
-    from figure3 import plot_sample_result, plot_correlation
-except ImportError:
-    from figures.shared import setfont
-    from figures.figure3 import plot_sample_result, plot_correlation
-
 
 def compare_likelihoods(fig:Figure,label:str,title:str,likelihood_1:str|Path|pd.Series,label_1:str,likelihood_2:str|Path|pd.Series,label_2:str,integrand:str|Iterable[str]="integrand:TotalIntegrand",prior:str|Iterable[str]="prior:smax_gaussian",
             lim:Optional[tuple[float,float]]=(0,0.03),ticks:Optional[list[float]]=[0,0.01,0.02,0.03],exp=True,

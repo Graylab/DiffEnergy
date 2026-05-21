@@ -2,13 +2,8 @@ from pathlib import Path
 from matplotlib import pyplot as plt
 import itertools
 
-#run from either parent directory or figures directory
-try:
-    from shared import setfont
-    from gridplots import load_dfmdock_stats, plot_samples
-except ImportError:
-    from figures.shared import setfont
-    from figures.gridplots import load_dfmdock_stats, plot_samples
+from figures.shared import setfont
+from figures.gridplots import load_dfmdock_stats, plot_samples
 
 if __name__ == "__main__":
     setfont()

@@ -19,11 +19,7 @@ from matplotlib.axes import Axes
 
 from diffenergy.helper import marginal_prob_std
 
-#run from either parent directory or figures directory
-try:
-    from shared import get_gt_gaussian, setfont
-except ImportError:
-    from figures.shared import get_gt_gaussian, setfont
+from figures.shared import get_gt_gaussian, setfont
 
 def get_binline(nbins,x,y):
     prob_mean, bin_edges, binnumber = binned_statistic(x, y, statistic='mean', bins=nbins)
