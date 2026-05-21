@@ -424,7 +424,7 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
     ## Sample Likelihoods
     for key,srcs in sample_likelihoods_sources.items():
         sample_nlls = merge_sourced_likelihoods(srcs,integrand,prior,id_regex=likelihood_id_regex,srcfolder=likelihoods_folder,
-                                                 allow_duplicates=False,ensemble_duplicates=False,sequential_sample_index_check=key not in ensemble_likelihoods)[0]
+                                                 allow_duplicates=False,sequential_sample_index_check=key not in ensemble_likelihoods)[0]
         
         if key in ensemble_likelihoods:
             ensemble_nlls:dict[str,pd.Series] = {}
@@ -437,7 +437,7 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
         insert_seridict(sample_stats,key,sample_nlls)
 
     # sample_nlls = get_newcode_likelihoods(sample_likelihoods_sources,integrand,prior,srcfolder=likelihoods_folder,id_regex=likelihood_id_regex,
-    #                                       allow_duplicates=False,ensemble_duplicates=False,sequential_sample_index_check=True)[0]
+    #                                       allow_duplicates=False,sequential_sample_index_check=True)[0]
     # for key,nlls in sample_nlls.items():
     #     ensemble_nlls:dict[str,pd.Series] = {}
     #     if key in ensemble_likelihoods:
@@ -449,7 +449,7 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
     if gt_likelihoods_sources is None: gt_likelihoods_sources = {}
     for key, srcs in gt_likelihoods_sources.items():
         gt_nlls = merge_sourced_likelihoods(srcs,integrand,prior,id_regex=r'([^_]*)',srcfolder=likelihoods_folder,sequential_sample_index_check=False,
-                                            allow_duplicates=False,ensemble_duplicates=False)[0]
+                                            allow_duplicates=False)[0]
         
         if key in ensemble_likelihoods:
             ensemble_nlls:dict[str,pd.Series] = {}
