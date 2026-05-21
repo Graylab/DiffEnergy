@@ -79,6 +79,7 @@ class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
     def __init__(self,config:DictConfig|str|Path) -> None:
         if not isinstance(config,DictConfig):
             config = OmegaConf.load(config)
+        assert isinstance(config,DictConfig)
         self.config = config
         self._out_dir = None
 
