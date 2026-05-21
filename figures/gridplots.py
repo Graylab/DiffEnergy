@@ -40,7 +40,7 @@ LIKELIHOOD_LABELS = {"flow_nll": "Learned Energy (Flow)",
 def get_likelihoods(likelihood_file:Path|str,
                     integrand:str="TotalIntegrand",prior:str="smax_gaussian",
                     index_col:str='id',id_regex:Optional[str|re.Pattern]=None,sequential_sample_index_check=True,
-                    allow_duplicates:bool=True,ensemble_duplicates:bool=False)->tuple[dict[str,pd.Series],dict[str,pd.Series]]:
+                    divide_by_dim:bool=True)->tuple[dict[str,pd.Series],dict[str,pd.Series]]:
     """
     Read csv file with data about each sample. Returns a tuple of dicts ({pdb_id:nll_array}, {pdb_id:prior_array}); nll_array
     and prior_array are both pd.Series containing learned negative log-likelihood and prior negative log-likelihood values respectively,
@@ -70,21 +70,20 @@ def get_likelihoods(likelihood_file:Path|str,
     :param sequential_sample_index_check: Whether to check that the 'sample_index' column A) exists, B) is integer-valued, and C)
     is sequential (e.g. has no gaps from the smallest to the largest value). default: True
     :type sequential_sample_index_check: bool
+    :param divide_by_dim: Whether to divide returned likelihood and prior values. Has no mathematical backing but normalizes energies
+    per dimension. default: True
+    :type divide_by_dim: bool
     """
-    likelihoods_df = load_csv(likelihood_file,index_col=index_col,id_regex=id_regex,sequential_sample_index_check=sequential_sample_index_check,allow_duplicates=allow_duplicates)
+    likelihoods_df = load_csv(likelihood_file,index_col=index_col,id_regex=id_regex,sequential_sample_index_check=sequential_sample_index_check)
     
     nlls:dict[str,pd.Series] = {}
     priors:dict[str,pd.Series] = {}
 
+    div_factor = 3 if divide_by_dim else 1
+
     for pdb_id, df in likelihoods_df.items():
-        ## NOTE: / 3 is purely a remnant!!
-        nlls[pdb_id] = -(df[f'integrand:{integrand}'] + df[f'prior:{prior}'])/3 
-        priors[pdb_id] = -df[f'prior:{prior}']/3
-        
-        if allow_duplicates and ensemble_duplicates:
-            nlls[pdb_id] = nlls[pdb_id].groupby(level=0).mean()
-            priors[pdb_id] = priors[pdb_id].groupby(level=0).mean() # VERY uncertain about what ensembling prior values actually means... but they are never used so don't really matter?? idk
-                
+        nlls[pdb_id] = -(df[f'integrand:{integrand}'] + df[f'prior:{prior}'])/div_factor
+        priors[pdb_id] = -df[f'prior:{prior}']/div_factor
     
     return nlls, priors
 

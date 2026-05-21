@@ -55,7 +55,7 @@ class MultimodalGaussianGroundTruthScoreModel(CachedScoreModelEvaluator[Tensor,N
                 raise ValueError(currvar.shape) 
 
         intermediates = {
-            "currvar_inv":currvar_inv, #(Sigma_i+int_diff_coeff(t)^2)^-1, for each Sigma_i of the N gaussians. shape: N or Nx3x3
+            "currvar_inv":currvar_inv, #(Sigma_i+int_diff_coeff(t)^2)^-1, for each Sigma_i of the N gaussians. shape: N or NxDxD
             "transf_dx":transf_dx, # currvar_inv[i] @ (x-means[i]). E.g. the z-score of each x in each gaussian. Shape: BxNxD
             "prob":prob, #probability at all B points for all N gaussians at time t. shape: BxN
             "wprobs":wprobs, #w_i*prob_i, batched; shape: BxN

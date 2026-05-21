@@ -73,7 +73,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     plt.scatter(key_sorted_oracle, [min_dockq_flow[key] for key in key_sorted_oracle], label='Learned Energy (Flow)')
     plt.scatter(key_sorted_oracle, [min_dockq_diff[key] for key in key_sorted_oracle], color='green', label='Learned Energy (Diff)')
-    plt.scatter(key_sorted_oracle, [min_dockq_ensembled[key] for key in key_sorted_oracle], color='red', label='Learned Energy (Ensembled)')
+    # plt.scatter(key_sorted_oracle, [min_dockq_ensembled[key] for key in key_sorted_oracle], color='red', label='Learned Energy (Ensembled)')
     plt.scatter(key_sorted_oracle, [min_dockq_rosetta[key] for key in key_sorted_oracle], marker='x', label='Rosetta Energy')
     plt.scatter(key_sorted_oracle, [max_dockq_oracle[key] for key in key_sorted_oracle], marker="1", c='k', label='Oracle', alpha=0.8)
     
