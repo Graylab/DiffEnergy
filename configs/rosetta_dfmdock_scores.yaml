@@ -1,0 +1,9 @@
+# @package _global_
+out_dir: results/rosetta/dfmdock
+pdb_dir: results/sample_results/dfmdock/pdb
+pdb_list: results/sample_results/dfmdock/samples.csv
+
+
+flags_file: scripts/rosetta_refine/score_refine_flags
+flags:
+  nstruct: 1

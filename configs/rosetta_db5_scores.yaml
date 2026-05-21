@@ -1,0 +1,9 @@
+# @package _global_
+out_dir: results/rosetta/dfmdock_gt
+pdb_dir: db5_test
+pdb_list: db5_test/index.csv
+
+
+flags_file: scripts/rosetta_refine/score_refine_flags
+flags:
+  nstruct: 5
