@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 from matplotlib.axes import Axes
 
-from diffenergy.helper import marginal_prob_std, marginal_kernel_std
+from diffenergy.helper import marginal_prob_std
 
 #run from either parent directory or figures directory
 try:
@@ -125,7 +125,7 @@ def plot_sample_result(parent_folder:str|Path,
         if plot_p1_gt:
             sigma_min = config["sigma_min"]
             sigma_max = config["sigma_max"]
-            sigma = marginal_kernel_std(1, sigma_min, sigma_max)
+            sigma = marginal_prob_std(1, sigma_min, sigma_max)
             gaussian = norm.pdf(x, 0, sigma)  # Zero mean, std = sigma_t1
             ax.plot(x, gaussian, color='gray', linestyle='dashed', alpha=0.8, label="Prior $p_1(x_1)$", zorder = 2)
             #plt.fill_between(x, gaussian, color='green', alpha=0.2)
