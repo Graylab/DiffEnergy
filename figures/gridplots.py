@@ -424,7 +424,7 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
     ## Sample Likelihoods
     for key,srcs in sample_likelihoods_sources.items():
         sample_nlls = merge_sourced_likelihoods(srcs,integrand,prior,id_regex=likelihood_id_regex,srcfolder=likelihoods_folder,
-                                                 allow_duplicates=False,sequential_sample_index_check=key not in ensemble_likelihoods)[0]
+                                                 sequential_sample_index_check=key not in ensemble_likelihoods)[0]
         
         if key in ensemble_likelihoods:
             ensemble_nlls:dict[str,pd.Series] = {}
@@ -448,8 +448,7 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
     ## Ground Truth Likelihoods
     if gt_likelihoods_sources is None: gt_likelihoods_sources = {}
     for key, srcs in gt_likelihoods_sources.items():
-        gt_nlls = merge_sourced_likelihoods(srcs,integrand,prior,id_regex=r'([^_]*)',srcfolder=likelihoods_folder,sequential_sample_index_check=False,
-                                            allow_duplicates=False)[0]
+        gt_nlls = merge_sourced_likelihoods(srcs,integrand,prior,id_regex=r'([^_]*)',srcfolder=likelihoods_folder,sequential_sample_index_check=False)[0]
         
         if key in ensemble_likelihoods:
             ensemble_nlls:dict[str,pd.Series] = {}
