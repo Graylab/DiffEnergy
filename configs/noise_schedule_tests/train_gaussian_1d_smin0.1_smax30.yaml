@@ -1,7 +1,7 @@
 # @package _global_
-out_dir: checkpoints/1d_trinormal_smin30_smax70
-sigma_min: 30
-sigma_max: 70
+out_dir: checkpoints/1d_trinormal_smin0.1_smax30
+sigma_min: 0.1
+sigma_max: 30
 n_epochs: 100
 batch_size: 32
 num_samples: 60000
