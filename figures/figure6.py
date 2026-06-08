@@ -33,7 +33,7 @@ if __name__ == "__main__":
 
     min_dockq_flow,_,min_idx_flow = get_ranking_scores('flow_nll')
     min_dockq_diff,_,min_idx_diff = get_ranking_scores('diff_nll')
-    min_dockq_ensembled,_,min_idx_ensembled = get_ranking_scores('diff_15ensembled_nll')
+    # min_dockq_ensembled,_,min_idx_ensembled = get_ranking_scores('diff_15ensembled_nll')
     min_dockq_rosetta,_,min_idx_rosetta = get_ranking_scores('rosetta_Isc')
     max_dockq_oracle,_,max_idx_oracle = get_ranking_scores('DockQ',invert=True)
     
@@ -52,23 +52,28 @@ if __name__ == "__main__":
     # print(f"  Oracle: {max_idx_oracle['2A1A']}")
     
     sample_dir = Path('results/sample_results/dfmdock/pdb/sample_pdbs')
-    copy_files = True
-    keys = [('Flow',min_idx_flow), ('Diffusion',min_idx_diff), ('Ensembled',min_idx_ensembled), ('Rosetta',min_idx_rosetta), ('Oracle',max_idx_oracle)]
+    copy_files = False
+    keys = [('Flow',min_idx_flow,min_dockq_flow), 
+            ('Diffusion',min_idx_diff,min_dockq_diff), 
+            # ('Ensembled',min_idx_ensembled,min_dockq_ensembled), 
+            ('Rosetta',min_idx_rosetta,min_dockq_rosetta), 
+            ('Oracle',max_idx_oracle,max_dockq_oracle)]
     for id in '2SIC', '2A1A':
         outfolder = Path('figures/figure6_ranked_poses')/id
         if copy_files: outfolder.mkdir(parents=True,exist_ok=True)
         
         print(f"====== {id} ranking ======")
-        for k,v in keys:
-            print(f"  {k}: {v[id]}")
+        for k,v,d in keys:
+            print(f"  {k}: {v[id]}; {d[id]}")
             if copy_files: shutil.copy(sample_dir/f"{v[id]}.pdb",outfolder/f"{k}.pdb")
     
     import matplotlib.pyplot as plt
-    plt.scatter(key_sorted_oracle, [min_dockq_flow[key] for key in key_sorted_oracle], label='Learned Energy (Flow)')
-    plt.scatter(key_sorted_oracle, [min_dockq_diff[key] for key in key_sorted_oracle], color='green', label='Learned Energy (Diff)')
+    plt.figure(figsize=(7.5,3))
+    plt.scatter(key_sorted_oracle, [min_dockq_flow[key] for key in key_sorted_oracle], label='Learned Energy (Flow)',linewidths=0,alpha=0.9)
+    plt.scatter(key_sorted_oracle, [min_dockq_diff[key] for key in key_sorted_oracle], color='#ffcb00', label='Learned Energy (Diffusion)',linewidths=0,alpha=0.9)
     # plt.scatter(key_sorted_oracle, [min_dockq_ensembled[key] for key in key_sorted_oracle], color='red', label='Learned Energy (Ensembled)')
-    plt.scatter(key_sorted_oracle, [min_dockq_rosetta[key] for key in key_sorted_oracle], marker='x', label='Rosetta Energy')
-    plt.scatter(key_sorted_oracle, [max_dockq_oracle[key] for key in key_sorted_oracle], marker="1", c='k', label='Oracle', alpha=0.8)
+    plt.scatter(key_sorted_oracle, [min_dockq_rosetta[key] for key in key_sorted_oracle], color='red', marker='x', label='Rosetta Energy',alpha=0.8)
+    plt.scatter(key_sorted_oracle, [max_dockq_oracle[key] for key in key_sorted_oracle], color='black',marker="*", joinstyle='miter', s=10, label='Oracle', alpha=1)
     
     plt.hlines(0.23, xmin=-2, xmax=26, color='gray', linestyle='--', alpha=0.5)
     plt.hlines(0.49, xmin=-2, xmax=26, color='gray', linestyle='--', alpha=0.5)
@@ -83,7 +88,4 @@ if __name__ == "__main__":
     plt.ylabel('DockQ')
     plt.xlim(-2, 26)
     plt.xticks(rotation=45)
-    fig = plt.gcf()
-    fig.set_size_inches(7.5, 3)
-    fig.set_dpi(300)
     plt.savefig('figures/figure6_ranking.png', dpi=600, bbox_inches='tight')
