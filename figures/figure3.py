@@ -246,7 +246,7 @@ def plot_comparison(samples_1, samples_2, ax:Optional[Axes]=None,
     else:
         fig = None
 
-    ax.scatter(samples_1, samples_2, color='salmon', edgecolors=(0.1, 0.1, 0.1), linewidth=0.2, s=10, label="Scatter", alpha=0.8, zorder=1)
+    ax.scatter(samples_1, samples_2, color='salmon', edgecolors=(0.1, 0.1, 0.1), linewidth=0.2, s=2, label="Scatter", alpha=0.8, zorder=1)
 
     if lim is None:
         xlim = ax.get_xlim()
@@ -265,7 +265,7 @@ def plot_comparison(samples_1, samples_2, ax:Optional[Axes]=None,
         a = params[0]
 
         #shorter dashes. default '--' dash pattern is (3.7,1.6) according to rcParams
-        ax.plot(lim, [a*min_val, a*max_val], color='k', linestyle='--', dashes=(2,1), label=f'y = {a:.2f}x')
+        ax.plot(lim, [a*lim[0], a*lim[1]], color='k', linestyle='--', dashes=(2,1), label=f'y = {a:.2f}x')
 
     except:
         pass
@@ -385,7 +385,7 @@ if __name__ == "__main__":
 
     f = plt.figure(figsize=(5,4),layout='constrained')
     subfs:list[SubFigure] = f.subfigures(nrows=2,wspace=0.5,squeeze=True)
-    add_comb_row(subfs[0],'(a)','Diffusion Trajectory',likelihood_dir,Path('gaussian_1d_diff'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
+    add_comb_row(subfs[0],'(a)','Diffusion Trajectory',likelihood_dir,Path('gaussian_1d_diff_trapezoid'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
     add_comb_row(subfs[1],'(b)','Flow Trajectory',likelihood_dir,Path('gaussian_1d_flow'),'integrand:TotalIntegrand','prior:smax_gaussian',binline=True)
 
     f.savefig("figures/figure_3.png",dpi=600)
