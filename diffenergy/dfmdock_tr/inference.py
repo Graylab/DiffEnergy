@@ -720,7 +720,7 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main
         sigma_max = self.config.sigma_max
 
         # set models
-        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False))
+        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False),weights_only=False)
         score_model.freeze()
         score_model.to(device)
 
@@ -885,7 +885,7 @@ class DFMDockSampler(DFMDockLikelihood):
         sigma_max = self.config.sigma_max
 
         # set models
-        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False))
+        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False),weights_only=False)
         score_model.freeze()
         score_model.to(device)
 
