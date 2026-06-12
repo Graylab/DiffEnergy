@@ -71,7 +71,7 @@ if __name__ == "__main__":
     
 
     flow_trajectories = get_trajectories('results/likelihood/gaussian_1d_flow/trajectories','trajectory_index.csv')
-    diff_trajectories = get_trajectories('results/sample_results/gaussian_1d/trajectories','trajectory_index.csv')
+    diff_trajectories = get_trajectories('results/sample_results/gaussian_1d_smin30_smax70/trajectories','trajectory_index.csv')
     difftraj_forces = get_forces(Path('results/forces/gaussian_1000'))
     
     from typing import Iterable
