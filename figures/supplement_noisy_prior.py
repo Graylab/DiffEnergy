@@ -18,35 +18,6 @@ from figures.figure3 import plot_sample_result, load_sample_likelihoods
 
 if __name__ == "__main__":
     setfont()
-
-    # Figure 3
-    likelihood_dir = Path('results/likelihood/noise_schedule_tests')
-
-    # #going to try using subfigures. Hope this works!
-    # def add_comb_row(fig:SubFigure, parent_folder:Path, sigma_min: float, sigma_max:float, diff_subfolder:Path, flow_subfolder:Path, integrand:str, prior:str, title:str, label:str):
-    #     parent_folder = Path(parent_folder)
-    #     priorax,sampax = fig.subplots(nrows=1,ncols=2)
-
-    #     #plot prior
-    #     x = np.linspace(-60,60,500)
-
-    #     sigma = np.sqrt(int_diffusion_coeff_sq(1, sigma_min, sigma_max))
-    #     assumed_smax_prior = norm.pdf(x, 0, sigma)  # Zero mean, std = sigma_t1
-
-    #     #plot samples
-    #     #plot diffusion samples & GT
-    #     plot_sample_result(parent_folder,diff_subfolder,integrand,prior,binline=False,plot_kde=False,
-    #                     ax=sampax,save=False,fig_title=False,ax_title=False,plot_p0_gt=True,plot_p1_gt=False)
-    #     #plot flow samples
-    #     samples, flow_likelihoods = load_sample_likelihoods(parent_folder/flow_subfolder,integrand_column=integrand,prior_column=prior)
-    #     flow_probability = np.exp(flow_likelihoods) #this was negative likelihoods in the old data since they calculated nll instead of ll
-    #     sampax.scatter(samples, flow_probability, color='cyan', label="Flow", s=2, linewidth=0.1, edgecolors=(0.1, 0.1, 0.1), alpha=0.8, zorder=10)
-        
-    #     fig.suptitle(title)
-    #     #add subfigure label
-    #     fig.text(.01, .99, label, ha='left', va='top', transform=fig.transSubfigure,fontdict={"fontsize":"large"})
-
-    #going to try using subfigures. Hope this works!
     def add_comb_row(fig:SubFigure, parent_folder:Path, sigma_min: float, sigma_max:float, integrand:str, title:str, label:str, *subfolders:tuple[str,Path], 
                      assumed_prior:str="prior:smax_gaussian", gt_prior:str="prior:convolved_data", data_variance:float|None=None,
                      axtitles=False):
@@ -89,7 +60,6 @@ if __name__ == "__main__":
         #plot samples
         for sampax, (name,subfolder) in zip(sampaxs,subfolders):
             #format plot, plot GT
-            print("diffusion" in name.lower())
             plot_sample_result(parent_folder,subfolder,integrand,assumed_prior,binline="diffusion" in name.lower(),plot_kde=True,plot_samples=False,
                             ax=sampax,save=False,fig_title=False,ax_title=False,plot_p0_gt=True,plot_p1_gt=False,compute_kde=False)
             
@@ -131,10 +101,11 @@ if __name__ == "__main__":
 
     subit = iter(subfs)
     labelit = iter(['(a)','(b)','(c)','(d)','(e)'])
-    add_comb_row(next(subit),likelihood_dir,0.1,30,'integrand:TotalIntegrand',r'$\sigma_{min}=0.1$, $\sigma_{max}=30$',next(labelit),("Diffusion", Path('gaussian_1d_diff_smax30')),("Flow",Path('gaussian_1d_flow_smax30')),axtitles=True)
-    add_comb_row(next(subit),likelihood_dir,0.1,70,'integrand:TotalIntegrand',r'$\sigma_{min}=0.1$, $\sigma_{max}=70$',next(labelit),("Diffusion", Path('../gaussian_1d_diff')),("Flow",Path('../gaussian_1d_flow')))
-    add_comb_row(next(subit),likelihood_dir,30,70,'integrand:TotalIntegrand',r'$\sigma_{min}=30$, $\sigma_{max}=70$',next(labelit),("Diffusion", Path('gaussian_1d_diff_smin30_smax70')),("Flow", Path('gaussian_1d_flow_smin30_smax70')))
-    add_comb_row(next(subit),likelihood_dir,0.1,30,'integrand:TotalIntegrand',r'$\sigma_{min}=0.1$, $\sigma_{max}=30$ with Estimated Prior',next(labelit),("Diffusion", Path('gaussian_1d_diff_smax30')),("Flow",Path('gaussian_1d_flow_smax30')),assumed_prior='prior:estimated_data',data_variance=data_variance)
+    likelihood_dir = Path('results/likelihood/noise_schedule_tests')
+    add_comb_row(next(subit),likelihood_dir,0.1,30,'integrand:TotalIntegrand',r'$\sigma_{min}=0.1$, $\sigma_{max}=30$',next(labelit),("Diffusion", Path('gaussian_1d_diff_trapezoid_smin0.1_smax30')),("Flow",Path('gaussian_1d_flow_smin0.1_smax30')),axtitles=True)
+    add_comb_row(next(subit),likelihood_dir,0.1,70,'integrand:TotalIntegrand',r'$\sigma_{min}=0.1$, $\sigma_{max}=70$',next(labelit),("Diffusion", Path('gaussian_1d_diff_trapezoid_smin0.1_smax70')),("Flow",Path('gaussian_1d_flow_smin0.1_smax70')))
+    add_comb_row(next(subit),likelihood_dir,30,70,'integrand:TotalIntegrand',r'$\sigma_{min}=30$, $\sigma_{max}=70$',next(labelit),("Diffusion", Path('../gaussian_1d_diff_trapezoid')),("Flow", Path('../gaussian_1d_flow')))
+    add_comb_row(next(subit),likelihood_dir,0.1,30,'integrand:TotalIntegrand',r'$\sigma_{min}=0.1$, $\sigma_{max}=30$ with Estimated Prior',next(labelit),("Diffusion", Path('gaussian_1d_diff_trapezoid_smin0.1_smax30')),("Flow",Path('gaussian_1d_flow_smin0.1_smax30')),assumed_prior='prior:estimated_data',data_variance=data_variance)
     # add_comb_row(next(subit),likelihood_dir,0.1,70,'integrand:TotalIntegrand',r'$\sigma_{max}=70$ w/ Data Variance','(d)',("Diffusion",Path('../gaussian_1d_diff')),("Flow",Path('../gaussian_1d_flow')),assumed_prior='prior:estimated_data',data_variance=data_variance)
 
 
