@@ -19,8 +19,8 @@ def compare_likelihoods(fig:Figure,label:str,title:str,likelihood_1:str|Path|pd.
     integrands = [integrand,integrand] if isinstance(integrand,str) else list(integrand)
     priors = [prior,prior] if isinstance(prior,str) else list(prior)
 
-    likelihoods1 = load_sample_likelihoods(likelihood_1,integrand_column=integrands[0],prior_column=priors[0])[0] if not isinstance(likelihood_1,pd.Series) else likelihood_1
-    likelihoods2 = load_sample_likelihoods(likelihood_2,integrand_column=integrands[1],prior_column=priors[1])[0] if not isinstance(likelihood_2,pd.Series) else likelihood_2
+    likelihoods1 = load_sample_likelihoods(likelihood_1,integrand_column=integrands[0],prior_column=priors[0])[1] if not isinstance(likelihood_1,pd.Series) else likelihood_1
+    likelihoods2 = load_sample_likelihoods(likelihood_2,integrand_column=integrands[1],prior_column=priors[1])[1] if not isinstance(likelihood_2,pd.Series) else likelihood_2
     index = likelihoods1.index.intersection(likelihoods2.index)
     if len(likelihoods1) != len(likelihoods2):
         warnings.warn(f"Missing some samples! L1={len(likelihoods1)}, L2={len(likelihoods2)}")
