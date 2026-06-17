@@ -325,16 +325,16 @@ def load_dfmdock_stats(likelihoods_folder:str|Path|Iterable[str|Path]='results/l
                        sample_likelihoods_sources:Mapping[str,str|Path|Iterable[str|Path]]={
                            'flow_nll':'dfmdock_flow',
                            'diff_nll':'dfmdock_diff_piecewise_ode',
-                           'diff_trapezoid_nll':'dfmdock_diff',
-                           'diff_10interp_nll':'dfmdock_diff_interpolated',
+                           'diff_trapezoid_nll':'dfmdock_integration_methods/dfmdock_diff_trapezoid',
+                           'diff_10interp_nll':'dfmdock_integration_methods/dfmdock_diff_interpolated',
                            'diff_piecewise_ode_nll':'dfmdock_diff_piecewise_ode',
-                           'diff_15ensembled_nll':'dfmdock_forwardsde_ensembled'},
+                           'diff_15ensembled_nll':'additional_paths/dfmdock_forwardsde_ensembled'},
                        sample_metrics_csv:str|Path|Iterable[str|Path]='results/sample_results/dfmdock/metrics.csv',
                        sample_rosetta_csv:Optional[str|Path|Iterable[str|Path]]='results/rosetta/dfmdock/refined_score.csv',
                        #gt paths
                        gt_likelihoods_sources:Optional[Mapping[str,str|Path|Iterable[str|Path]]]={
                            'flow_nll':'dfmdock_gt_flow',
-                           'diff_15ensembled_nll':'dfmdock_gt_forwardsde_ensembled'},
+                           'diff_15ensembled_nll':'additional_paths/dfmdock_gt_forwardsde_ensembled'},
                        gt_metrics_csv:Optional[str|Path|Iterable[str|Path]]=None,
                        gt_rosetta_csv:Optional[str|Path|Iterable[str|Path]]='results/rosetta/dfmdock_gt/refined_score.csv',
                        integrand:str="TotalIntegrand",
