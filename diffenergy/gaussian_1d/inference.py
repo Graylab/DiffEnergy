@@ -35,15 +35,22 @@ def batched(iterable, n, *, strict=False):
 
 #horrible hack
 T = TypeVarTuple("T")
-def replicate_id_generator(gen:Iterable[tuple[str,Unpack[T]]],
+def replicate_id_generator(gen:Iterable[tuple[str|tuple[str,...],Unpack[T]]],
                            num_replicates:int,
-                           copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Iterable[tuple[str,Unpack[T]]]:
+                           copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Iterable[tuple[str|tuple[str,...],Unpack[T]]]:
     for S in gen:
         s = S[0]; r = S[1:]
         for i in range(num_replicates):
             if copy_fn:
                 r = copy_fn(*r)
-            yield (s+f"_r{i}",*r)
+            if isinstance(s,str):
+                yield (s+f"_r{i}",*r)
+            elif isinstance(s,tuple):
+                yield (tuple(si + f"_r{i}" for si in s),*r)
+            elif isinstance(s,list):
+                yield (list(si + f"_r{i}" for si in s),*r)
+            else:
+                raise ValueError()
 
 #blegh blegh blegh
 A = ParamSpec("A")
