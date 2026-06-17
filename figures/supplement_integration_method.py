@@ -25,8 +25,8 @@ def compare_likelihoods(fig:Figure,label:str,title:str,likelihood_1:str|Path|pd.
     if len(likelihoods1) != len(likelihoods2):
         warnings.warn(f"Missing some samples! L1={len(likelihoods1)}, L2={len(likelihoods2)}")
     # from IPython import embed; embed() 
-    prob_1 = likelihoods1[index]
-    prob_2 = likelihoods2[index]
+    prob_1 = likelihoods1.loc[index]
+    prob_2 = likelihoods2.loc[index]
 
     if exp:
         prob_1 = np.exp(prob_1)
