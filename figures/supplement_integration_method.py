@@ -13,6 +13,7 @@ from figures.figure3 import load_sample_likelihoods, plot_comparison
 
 def compare_likelihoods(fig:Figure,label:str,title:str,likelihood_1:str|Path|pd.Series,label_1:str,likelihood_2:str|Path|pd.Series,label_2:str,integrand:str|Iterable[str]="integrand:TotalIntegrand",prior:str|Iterable[str]="prior:smax_gaussian",
             lim:Optional[tuple[float,float]]=(0,0.03),ticks:Optional[list[float]]=[0,0.01,0.02,0.03],exp=True,
+            markersize=2,
             other_corner=False):
     ax = fig.add_subplot()
 
@@ -38,7 +39,7 @@ def compare_likelihoods(fig:Figure,label:str,title:str,likelihood_1:str|Path|pd.
     # prob_2 = prob_2[filter_idx]
 
     try:
-        r,p = plot_comparison(prob_1,prob_2,ax=ax, lim=lim, ticks=ticks, title=title, xlabel=label_1, ylabel=label_2)
+        r,p = plot_comparison(prob_1,prob_2,ax=ax, lim=lim, ticks=ticks, title=title, xlabel=label_1, ylabel=label_2,markersize=markersize)
 
         if other_corner:
             ax.text(.05,.9, f"$r_p={r:0.2f}$",ha='left',va='center',transform=ax.transAxes)

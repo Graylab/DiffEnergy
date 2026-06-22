@@ -239,6 +239,7 @@ def plot_sample_result(parent_folder:str|Path,
 def plot_comparison(samples_1, samples_2, ax:Optional[Axes]=None, 
                     lim:Optional[tuple[float,float]]=(0,0.03),ticks:Optional[list[float]]=[0,0.01,0.02,0.03],
                     xlabel:Optional[str]="Ground Truth $p_0(x)$",ylabel:Optional[str]="Recovered $p_0(x)$",
+                    markersize=2,
                     title:Optional[str]=None):
     if not ax:
         fig = plt.figure(figsize=(1.5, 1.5))
@@ -246,7 +247,7 @@ def plot_comparison(samples_1, samples_2, ax:Optional[Axes]=None,
     else:
         fig = None
 
-    ax.scatter(samples_1, samples_2, color='salmon', edgecolors=(0.1, 0.1, 0.1), linewidth=0.2, s=2, label="Scatter", alpha=0.8, zorder=1)
+    ax.scatter(samples_1, samples_2, color='salmon', edgecolors=(0.1, 0.1, 0.1), linewidth=0.2, s=markersize, label="Scatter", alpha=0.8, zorder=1)
 
     if lim is None:
         xlim = ax.get_xlim()
