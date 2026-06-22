@@ -7,7 +7,7 @@ from typing import Mapping
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
-from diffenergy.inference import handle_overwrite_dir, write_config
+from diffenergy.inference import handle_overwrite_dir, strip_keys, write_config
 from rosetta_refine.score_to_csv import score_to_csv
 import shutil
 
@@ -55,10 +55,11 @@ def main(config:DictConfig):
     if not postprocess_only:
         if out_dir.exists() and not config.get("resume_existing"):
             handle_overwrite_dir(out_dir,config.get("overwrite_output",False))
+        
         out_dir.mkdir(exist_ok=True,parents=True)
 
         print(OmegaConf.to_yaml(config))
-        write_config(config,out_dir/'config.yaml')
+        write_config(config,out_dir/'config.yaml',require_compatible_if_existing=True,extra_ignore_keys=['ROSETTABIN'])
     else:
         assert out_dir.exists()
         assert (out_dir/'config.yaml').exists()

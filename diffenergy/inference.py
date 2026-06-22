@@ -52,14 +52,14 @@ def strip_keys(conf:DictConfig,keys:list[str]):
         for k in keys:
             if k in conf: del conf[k]
 
-def write_config(config:DictConfig,file:str|Path,strip_overwrite:bool=True,require_compatible_if_existing:bool=True):
+def write_config(config:DictConfig,file:str|Path,strip_overwrite:bool=True,require_compatible_if_existing:bool=True,extra_ignore_keys=[]):
     if os.path.exists(file) and require_compatible_if_existing:
         ## here we just say that compatible == must be identical with the exception of the overwriting parameters:
         existing = OmegaConf.load(file)
         new = config.copy()
 
-        strip_keys(existing,["overwrite_output","resume_existing"])
-        strip_keys(new,["overwrite_output","resume_existing"])
+        strip_keys(existing,["overwrite_output","resume_existing",*extra_ignore_keys])
+        strip_keys(new,["overwrite_output","resume_existing",*extra_ignore_keys])
         
         if not existing == new:
             raise ValueError(f"Incompatible existing config found at {file}; if resuming existing task, please ensure configs are the same!")
