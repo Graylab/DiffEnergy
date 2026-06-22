@@ -1,0 +1,25 @@
+checkpoint: checkpoints/diffenergy_tr_0.ckpt
+out_dir: results/likelihood/dfmdock_flow
+sigma_min: 0.1
+sigma_max: 30
+clamp_diffusion_coefficient: false
+pdb_dir: results/sample_results/dfmdock/pdb
+data_samples: results/sample_results/dfmdock/samples.csv
+trajectory_index_file: null
+offset_type: Translation
+tr_type: non_conservative
+integrand_types:
+  TotalIntegrand: null
+  FlowIntegrand: null
+prior_fns: smax_gaussian receptor_smax_gaussian
+path_type: flow_ode
+integral_type: ode
+ode_steps: 40
+integration:
+  method: rk4
+  rtol: 0.0001
+  atol: 0.0001
+save_trajectories: true
+save_trajectory_likelihoods: true
+deterministic_score: true
+resume_existing: true

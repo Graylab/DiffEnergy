@@ -1,0 +1,26 @@
+checkpoint: checkpoints/1d_trinormal_smin30_smax70/weights.ckpt
+out_dir: results/likelihood/additional_paths/gaussian_1d_anchored
+sigma_min: 30
+sigma_max: 70
+clamp_diffusion_coefficient: false
+data_samples: results/sample_results/gaussian_1d_smin30_smax70/samples.csv
+tr_type: non_conservative
+integrand_types:
+  TotalIntegrand: null
+  FlowIntegrand: null
+prior_fns:
+  smax_gaussian: null
+  convolved_data: null
+  estimated_data:
+    data_variance: 898.532
+path_type: anchored_linear
+integral_type: ode
+ode_steps: 100
+integration:
+  method: rk4
+  rtol: 1.0e-05
+  atol: 1.0e-05
+save_trajectories: true
+batched: true
+batch_size: 64
+resume_existing: true
