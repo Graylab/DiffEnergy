@@ -8,7 +8,6 @@ import csv
 #     class StrEnum(str, Enum):
 #         pass
 
-from enum import Enum
 import functools
 from contextlib import contextmanager
 from csv import DictWriter
@@ -28,6 +27,7 @@ import omegaconf
 import torch
 from torch import Tensor
 
+from diffenergy.configuration import DiffEnergyConfig, DiffEnergyLikelihoodConfig, SamplesPath, TrajectoriesPath
 from diffenergy.helper import MapDataset, SizeWrappedIter, SizedIter
 from diffenergy.likelihood import ArrayLike, EnsembledIntegrablePath, FlowEquivalentODEPath, ForwardSDEPath, IntegrablePath, IntegrableSequence, InterpolatedIntegrableSequence, LikelihoodIntegrand, LinearPath, LinearizedFlowPath, PerturbedPath, PiecewiseDifferentiablePath, ReverseSDEPath, ScoreDivDiffIntegrand, SpaceIntegrand, FlowIntegrand, TotalIntegrand
 
@@ -35,7 +35,7 @@ def handle_overwrite_dir(out_dir:Path,overwrite_output:bool,mention_resume:bool=
     if not overwrite_output:
         message = "Pass '++overwrite_output=True' in the command line (recommended over config) or use config.overwrite_output to overwrite existing output."
         if mention_resume:
-            message += "\nAlternatively, if resuming an existing task, pass ++resume_existing=True or set resume_existing=True in the config to append to existing output files."
+            message += "\nAlternatively, if resuming an existing task, pass ++resume_existing=True or set config.resume_existing=True in the config to append to existing output files."
         arg = str(out_dir) + ": " + message
         raise FileExistsError(arg)
     else:
@@ -52,10 +52,11 @@ def strip_keys(conf:DictConfig,keys:list[str]):
         for k in keys:
             if k in conf: del conf[k]
 
-def write_config(config:DictConfig,file:str|Path,strip_overwrite:bool=True,require_compatible_if_existing:bool=True):
+def write_config(config:DiffEnergyConfig,file:str|Path,strip_overwrite:bool=True,require_compatible_if_existing:bool=True):
     if os.path.exists(file) and require_compatible_if_existing:
         ## here we just say that compatible == must be identical with the exception of the overwriting parameters:
         existing = OmegaConf.load(file)
+        assert isinstance(existing,DictConfig)
         new = config.copy()
 
         strip_keys(existing,["overwrite_output","resume_existing"])
@@ -64,21 +65,29 @@ def write_config(config:DictConfig,file:str|Path,strip_overwrite:bool=True,requi
         if not existing == new:
             raise ValueError(f"Incompatible existing config found at {file}; if resuming existing task, please ensure configs are the same!")
 
+    out_config:DictConfig = config
     if strip_overwrite:
-        config = config.copy()
-        strip_keys(config,["overwrite_output"]) #make sure overwrite_output doesn't get propagated to future accesses
+        out_config = config.copy()
+        strip_keys(out_config,["overwrite_output"]) #make sure overwrite_output doesn't get propagated to future accesses
 
     with open(file,"w") as f:
-        f.write(OmegaConf.to_yaml(config))
+        f.write(OmegaConf.to_yaml(out_config))
+
+
+T = TypeVar("T")
+def load_structured_config(config_class:type[T],config_file)->T:
+    schema = OmegaConf.structured(config_class)
+    conf = OmegaConf.load(config_file)
+    return OmegaConf.merge(schema, conf)
 
 
 X = TypeVar("X") #data type of point
 C = TypeVar("C") #data type of diffusion conditioning
 
 class DiffEnergyLikelihood(abc.ABC, Generic[X,C]):
-    def __init__(self,config:DictConfig|str|Path) -> None:
-        if not isinstance(config,DictConfig):
-            config = OmegaConf.load(config)
+    def __init__(self,config:DiffEnergyConfig|str|Path) -> None:
+        if not isinstance(config,(DiffEnergyConfig,DictConfig)):
+            config = load_structured_config(DiffEnergyConfig,config)
         assert isinstance(config,DictConfig)
         self.config = config
         self._out_dir = None
@@ -264,7 +273,7 @@ T = TypeVar("T")
 I = TypeVar("I")  # noqa: E741
 
 def get_integrands(
-        config:DictConfig,
+        config:DiffEnergyLikelihoodConfig,
         from_array:Callable[[ArrayLike],X],
         to_array:Callable[[X],Tensor],
         scorefn:Callable[[X,float,C],Tensor],
@@ -274,7 +283,7 @@ def get_integrands(
 
     ### LOAD INTEGRANDS
     integrands:list[LikelihoodIntegrand[X,C]] = []
-    types:DictConfig = config.integrand_types
+    types = config.integrand_types
     if types is None:
         types = []
     if not isinstance(types,Mapping):
@@ -306,27 +315,6 @@ def get_integrands(
                          To specify an empty mapping, simply include the `ClassName:` line without any subitems below it.""")
 
     return integrands
-
-class SamplesPaths(str,Enum):
-    FLOW_ODE = "flow_ode"
-    STILL = "still"
-    LINEARIZED_FLOW = "linearized_flow"
-    REVERSE_SDE = "reverse_sde"
-    FORWARD_SDE = "forward_sde"
-    ENSEMBLED_FORWARD_SDE = "ensembled_forward_sde" 
-    ANCHORED_LINEAR = "anchored_linear"
-
-class TrajectoriesPaths(str,Enum):
-    SDE_TRAJECTORIES = "sde_trajectories"
-    SDE_TRAJECTORIES_UNREVERSED = "sde_trajectories_unreversed"
-    PIECEWISE_TRAJECTORIES = "piecewise_trajectories" 
-    LINEAR_TRAJECTORIES = "linear_trajectories" #endpoints only
-    
-    DATA_TRANSLATION = "data_translation" #endpoints only
-    DIFF_DATA_TRANSLATION = "diff_data_translation"
-
-    FLOW_ALONG_TRAJECTORY = "flow_along_trajectory"
-
 
 def get_paths(
         config:DictConfig,
@@ -426,7 +414,7 @@ def get_paths(
     # load path and associated dataset
     paths:SizedIter[tuple[I,IntegrablePath[X,C]]]
     match config.path_type: #does string comparison since StrEnum allows direct comparison
-        case SamplesPaths.FLOW_ODE: 
+        case SamplesPath.FLOW_ODE: 
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
             samples = load_samples()
 
@@ -445,7 +433,7 @@ def get_paths(
                 )
             paths = SizeWrappedIter(pathgen,len(samples))
 
-        case TrajectoriesPaths.SDE_TRAJECTORIES:
+        case TrajectoriesPath.SDE_TRAJECTORIES:
             #sde: get paths from diffusion tajectories
             trajectories = load_trajectories()
 
@@ -464,7 +452,7 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case TrajectoriesPaths.SDE_TRAJECTORIES_UNREVERSED:
+        case TrajectoriesPath.SDE_TRAJECTORIES_UNREVERSED:
             #sde: get paths from diffusion tajectories, going from *1 to 0* 
             trajectories = load_trajectories()
 
@@ -483,7 +471,7 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case TrajectoriesPaths.PIECEWISE_TRAJECTORIES: #TODO: remove? since we already have the PiecewiseDifferentiablePath option? Maybe just make this path syntactic sugar for activating the wrapper
+        case TrajectoriesPath.PIECEWISE_TRAJECTORIES: #TODO: remove? since we already have the PiecewiseDifferentiablePath option? Maybe just make this path syntactic sugar for activating the wrapper
             #piecewise sde: linear paths between points on diffusion trajectory
             trajectories = load_trajectories()
 
@@ -500,7 +488,7 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case SamplesPaths.STILL: #same x from time 0 to 1
+        case SamplesPath.STILL: #same x from time 0 to 1
             samples = load_samples()
 
             pathgen = ( #maybe this should be a dataloader or something idk
@@ -518,7 +506,7 @@ def get_paths(
             
             paths = SizeWrappedIter(pathgen,len(samples))
 
-        case TrajectoriesPaths.LINEAR_TRAJECTORIES:
+        case TrajectoriesPath.LINEAR_TRAJECTORIES:
             #linear: take sampled paths, and just make a straight line from start to end
             trajectories = load_trajectories()
 
@@ -536,7 +524,7 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case SamplesPaths.LINEARIZED_FLOW:
+        case SamplesPath.LINEARIZED_FLOW:
             #flow ode: get data samples from diffusion endpoints, run the flow forwards
             samples = load_samples()
 
@@ -555,7 +543,7 @@ def get_paths(
                 )
             paths = SizeWrappedIter(pathgen,len(samples))
         
-        case SamplesPaths.ANCHORED_LINEAR:
+        case SamplesPath.ANCHORED_LINEAR:
             anchor = torch.tensor(config.get("anchor_point",0),device=device) #this is a little sus but maybe it works
 
             samples = load_samples()
@@ -575,7 +563,7 @@ def get_paths(
 
             paths = SizeWrappedIter(pathgen,len(samples))
             
-        case TrajectoriesPaths.DIFF_DATA_TRANSLATION:
+        case TrajectoriesPath.DIFF_DATA_TRANSLATION:
             # Diffusion trajectory solely in data space: like sde_trajectories, but always at time=0. 
             # Requires a prior function compatible with t0 sampling [e.g. ground truth]
 
@@ -597,7 +585,7 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case TrajectoriesPaths.DATA_TRANSLATION:
+        case TrajectoriesPath.DATA_TRANSLATION:
             # *Linear* translation in data space: like linear_trajectories, but always at time=0. 
             # Requires a prior function compatible with t0 sampling [e.g. ground truth]
 
@@ -618,7 +606,7 @@ def get_paths(
             )
             paths = SizeWrappedIter(pathgen,len(trajectories))
 
-        case SamplesPaths.REVERSE_SDE:
+        case SamplesPath.REVERSE_SDE:
             samples = load_samples()
 
             pathgen = (
@@ -636,7 +624,7 @@ def get_paths(
                 for (id,initial,condition) in  (samples))
             paths = SizeWrappedIter(pathgen,len(samples))
 
-        case SamplesPaths.FORWARD_SDE:
+        case SamplesPath.FORWARD_SDE:
             samples = load_samples()
 
             pathgen = (
@@ -653,35 +641,8 @@ def get_paths(
                 for (id,initial,condition) in  (samples))
             paths = SizeWrappedIter(pathgen,len(samples))
 
-        case SamplesPaths.ENSEMBLED_FORWARD_SDE: #TODO: broken?
-            samples = load_samples()
-            n_paths = config.ensemble_num_paths
-            noise_scale = config.get("noise_scale",1)
-            pathgen = (
-                (id,EnsembledIntegrablePath(
-                    (
-                        ForwardSDEPath(diffusion_coeff_fn,
-                                    noise_scale,
-                                    sde_times,
-                                    initial,
-                                    to_array,
-                                    from_array,
-                                    condition,
-                                    int_method,
-                                    int_args)
-                        for _ in range(n_paths)
-                    ),
-                    to_array,
-                    from_array,
-                    condition,
-                    int_method,
-                    int_args,
-                ))
-                for (id,initial,condition) in  (samples)
-            )
-            paths = SizeWrappedIter(pathgen,len(samples))
 
-        case TrajectoriesPaths.FLOW_ALONG_TRAJECTORY: #that is, calculate the flowtime integral from t=0 to t=1 for each point in each diffusion trajectory
+        case TrajectoriesPath.FLOW_ALONG_TRAJECTORY: #that is, calculate the flowtime integral from t=0 to t=1 for each point in each diffusion trajectory
             trajectories = load_trajectories() #each trajectory of N timesteps will produce N flow results
 
             #note we replace each id with a tuple (id,t)
