@@ -15,7 +15,8 @@ import hydra
 from diffenergy.gaussian_1d.dataset import TrimodalGaussianSampler, TrimodalGaussianDataset
 from diffenergy.gaussian_1d.loss import loss_fn
 from diffenergy.gaussian_1d.network import ScoreNetMLP, NegativeGradientMLP
-from diffenergy.helper import marginal_prob_std
+from diffenergy.helper import marginal_kernel_std, marginal_prob_std
+from diffenergy.inference import handle_overwrite_dir, write_config
 
 
 # --------------------------------------------------------------------------------
@@ -35,12 +36,16 @@ def main(config: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # set seed
-    np.random.seed(1)
-    torch.manual_seed(1)
+    seed = config.get("manual_seed",1)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
     sigma_min = config.sigma_min
     sigma_max = config.sigma_max
+    #the total noise at time t including the data variance
     marginal_prob_std_fn = functools.partial(marginal_prob_std, sigma_min = sigma_min, sigma_max = sigma_max)
+    #the noise added from time 0 to time t, excluding the data variance
+    marginal_kernel_std_fn = functools.partial(marginal_kernel_std, sigma_min = sigma_min, sigma_max = sigma_max) 
 
     # noise
     sigma_noise = config.get("sigma_noise",0) #added noise to the original training distribution. You probably just want to leave this as zero.
@@ -49,18 +54,24 @@ def main(config: DictConfig):
     # size of a mini-batch
     batch_size = config.batch_size
     num_workers = config.num_workers
-    # # percentage of data to use as the test set
-    # test_size = config.test_size
-    # # percentage of data to use as the validation set
-    # val_size = config.val_size
+    #how many points to sample from the distribution
+    num_samples = config.num_samples
     # type of training data
     tr_data = config.tr_data
 
     outpath = Path(config.out_dir)
-    if not outpath.exists():
-        outpath.mkdir()
+    if outpath.exists():
+        #TODO: allow resuming? simply continue training epochs until reach max. IDK how to track how many epochs we've done though.
+        #I suppose "resume" in this case could simply be "train for n_epochs more epochs," 
+        #but I feel like ++resume_existing being idempotent; that is, it should have no action on a completed run.
+        handle_overwrite_dir(outpath,config.get("overwrite_output",False),mention_resume=False)
+    outpath.mkdir(parents=True,exist_ok=False)
 
-    # import dataset and split into train and validation sets
+    wt_file = outpath / "weights.ckpt"
+    config_out = outpath / "config.yaml"
+    write_config(config,config_out)
+
+    # import dataset
     if tr_data == 'laplace':
         # # Trimodal laplace sampler
         # sampler = TrimodalLaplaceSampler(mu1=-30, mu2=0, mu3=40, b1=8.0, b2=3.0, b3=10.0, w1=0.4, w2=0.3, w3=0.3)
@@ -69,7 +80,11 @@ def main(config: DictConfig):
         raise NotImplementedError("Laplace dataset is not implemented yet.")
     elif tr_data == 'trimodal_gaussian':
         sampler = TrimodalGaussianSampler(mu1=-30, sigma1=8.0, w1=0.4 , mu2=0, sigma2=5.0, w2=0.3, mu3=40, sigma3=10.0, w3=0.3)
-        dataset = TrimodalGaussianDataset(sampler, noise_std=sigma_noise, num_samples=60000)
+        dataset = TrimodalGaussianDataset(sampler, noise_std=sigma_noise, num_samples=num_samples)
+        if config.get("save_training_samples",False):
+            import pandas as pd
+            d = pd.DataFrame(dataset.noisy_data,columns=['samples'])
+            d.to_csv(outpath/'training_samples.csv',index_label='index')
         train_loader = DataLoader(dataset, batch_size = batch_size, shuffle = True, num_workers = num_workers)
     else:
         raise ValueError(tr_data)
@@ -103,7 +118,7 @@ def main(config: DictConfig):
 
         for sample_data, mean in train_loader:
             sample_data = sample_data.to(device)
-            loss = loss_fn(score_model, sample_data, marginal_prob_std_fn)
+            loss = loss_fn(score_model, sample_data, marginal_kernel_std_fn)
             optimizer.zero_grad()
             loss.backward()
             # Add gradient clipping
@@ -118,8 +133,8 @@ def main(config: DictConfig):
 
         # Print the averaged training loss so far.
         tqdm_epoch.set_description(f'Epoch {epoch+1}/{n_epochs}, Train Loss: {avg_train_loss:.6f}')
+        
         # Update the checkpoint after each epoch of training.
-        wt_file = outpath / config.wt_file
         torch.save(score_model.state_dict(), wt_file)
 
     # Plot the loss curve of training and validation

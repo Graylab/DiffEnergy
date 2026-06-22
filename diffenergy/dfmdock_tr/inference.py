@@ -1,12 +1,15 @@
 from contextlib import contextmanager
 from csv import DictWriter
+import csv
 import functools
 from functools import cached_property
 import itertools
 import math
-from pathlib import Path
+import os
+from pathlib import Path, PurePath
 import shutil
 from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence
+from typing_extensions import TypeVarTuple, ParamSpec, override, Unpack
 import warnings
 
 import numpy as np
@@ -21,12 +24,54 @@ from diffenergy.dfmdock_tr.score_model import Score_Model
 from diffenergy.dfmdock_tr.utils.biotite_utils import get_chain_coords, get_offset_pdb
 from diffenergy.dfmdock_tr.utils.esm_utils import load_coords
 from diffenergy.dfmdock_tr.utils.metrics import METRICS_KEYS, compute_metrics
-from diffenergy.helper import diffusion_coeff, prior_gaussian_nd
-from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin, MapDataset, SizeWrappedIter, get_integrands, get_paths, unzip, SizedIter
+from diffenergy.helper import MapDataset, SizeWrappedIter, SizedIter, diffusion_coeff, prior_log_gaussian_nd, prior_log_gaussian_nd_batched
+from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin, get_integrands, get_paths, unzip
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
+
+import sys
+if sys.version_info.minor < 12:
+    def relative_to(self:PurePath, other, /, *_deprecated, walk_up=False):
+        """Return the relative path to another path identified by the passed
+        arguments.  If the operation is not possible (because this is not
+        related to the other path), raise ValueError.
+
+        The *walk_up* parameter controls whether `..` may be used to resolve
+        the path.
+        """
+        if _deprecated:
+            msg = ("support for supplying more than one positional argument "
+                    "to pathlib.PurePath.relative_to() is deprecated and "
+                    "scheduled for removal in Python 3.14")
+            warnings.warn(msg, DeprecationWarning, stacklevel=2)
+            other = self.with_segments(other, *_deprecated)
+        elif not isinstance(other, PurePath):
+            other = self.with_segments(other)
+        for step, path in enumerate(itertools.chain([other], other.parents)):
+            if path == self or path in self.parents:
+                break
+            elif not walk_up:
+                raise ValueError(f"{str(self)!r} is not in the subpath of {str(other)!r}")
+            elif path.name == '..':
+                raise ValueError(f"'..' segment in {str(other)!r} cannot be walked")
+        else:
+            raise ValueError(f"{str(self)!r} and {str(other)!r} have different anchors")
+        parts = ['..'] * step + self._parts[len(path._parts):]
+        return self._from_parsed_parts('', '', parts)
+
+    PurePath.relative_to = relative_to;
 
 from biotite.structure.io import save_structure
 from biotite.structure import AtomArray
+
+def batched(iterable, n, *, strict=False):
+    # batched('ABCDEFG', 3) → ABC DEF G
+    if n < 1:
+        raise ValueError('n must be at least one')
+    iterator = iter(iterable)
+    while batch := tuple(itertools.islice(iterator, n)):
+        if strict and len(batch) != n:
+            raise ValueError('batched(): incomplete batch')
+        yield batch
 
 def get_sample_metrics(gt_pdb:str|Path|AtomArray,sample_pdb:str|Path|AtomArray, rec_chain:str="A", lig_chain:str="B"):
     with warnings.catch_warnings():
@@ -36,6 +81,32 @@ def get_sample_metrics(gt_pdb:str|Path|AtomArray,sample_pdb:str|Path|AtomArray, 
         sample_rec,_ = get_chain_coords(sample_pdb,rec_chain)
         sample_lig,_ = get_chain_coords(sample_pdb,lig_chain)
     return compute_metrics((torch.as_tensor(sample_rec),torch.as_tensor(sample_lig)),(torch.as_tensor(gt_rec),torch.as_tensor(gt_lig)))
+
+
+
+T = TypeVarTuple("T")
+def replicate_id_generator(gen:Iterable[tuple[str,Unpack[T]]],
+                           num_replicates:int,
+                           copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Iterable[tuple[str,Unpack[T]]]:
+    for S in gen:
+        s = S[0]; r = S[1:]
+        for i in range(num_replicates):
+            if copy_fn:
+                r = copy_fn(*r)
+            yield (s+f"_r{i}",*r)
+
+#blegh blegh blegh
+A = ParamSpec("A")
+def replicate_fn(f:Callable[A,list[tuple[str,Unpack[T]]]],
+                 num_replicates:int,
+                 copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Callable[A,SizedIter[tuple[str,Unpack[T]]]]:
+    @functools.wraps(f)
+    def replicated(*args,**kwargs):
+        R = f(*args,**kwargs)
+        total_length = len(R)*num_replicates
+        return SizeWrappedIter(replicate_id_generator(R,num_replicates,copy_fn=copy_fn),total_length)
+    return replicated
+    
 
 class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def __init__(self, config: DictConfig) -> None:
@@ -86,9 +157,11 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
             "position_matrix": datum["position_matrix"].to(device),
         }
 
+    @override
     def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
         return super().trajectory_index_writers(write_indices,extra_fieldnames=['pdb_file','trajectory_file',*extra_fieldnames])
 
+    @override
     def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[],offset_columns=False):
         return super().sample_index_writer(write_samples,extra_fieldnames=['filename',*(self.offset_trajectory_columns if offset_columns else []),*extra_fieldnames])
     
@@ -102,16 +175,27 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         return self.out_dir/"metrics.csv"
 
     @contextmanager
-    def metrics_writer(self, write_metrics:bool): #TODO: DFMDock Energy support? "energy" is one of the outputs of model(batch), and it just uses the last one
+    def metrics_writer(self, write_metrics:bool,metrics=METRICS_KEYS): #TODO: DFMDock Energy support? "energy" is one of the outputs of model(batch), and it just uses the last one
         if write_metrics:
-            with open(self.metrics_file,'w',newline='') as f:
-                writer = DictWriter(f,fieldnames=['index',*METRICS_KEYS])
-                writer.writeheader()
+            fieldnames=['index',*metrics]
+            file = self.metrics_file
+
+            existing = file.exists()
+            if existing:
+                try:
+                    with open(file,"r",newline='') as f: fieldnames, newnames = next(csv.reader(f)), fieldnames
+                    assert set(fieldnames) == set(newnames)
+                except StopIteration: #file is empty! need to write the header anyway
+                    existing = False
+
+            with open(file,'a',newline='',buffering=1) as f:
+                writer = DictWriter(f,fieldnames=fieldnames)
+                if not existing: writer.writeheader()
                 yield writer
         else:
             yield None
     
-    def load_samples(self, data_file:str|Path, pdb_dir:str|Path, importer:PDBImporter, device:str|torch.device='cuda')->Sequence[tuple[str,LigDict,DFMDict]]|Sequence[tuple[Sequence[str],LigDict,DFMDict]]:
+    def load_samples(self, data_file:str|Path, pdb_dir:str|Path, importer:PDBImporter, device:str|torch.device='cuda', index_col:str="index")->Sequence[tuple[str,LigDict,DFMDict]]|Sequence[tuple[Sequence[str],LigDict,DFMDict]]:
         """Loads pdbs from a CSV file containing filenames. Returns tuples of (id, LigDict, DFMDict),
         where LigDict contains the offset vector for the ligand (zero by default!) and DFMDict contains the
         (NOT 0-CENTERED!) ligand and receptor coordinates as well as the other conditioning information (ESM embeddings, etc)
@@ -119,10 +203,10 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         """
         
         df = pd.read_csv(data_file, header=0)  # Load CSV keeping first column as 'id' and second column as 'samples'
-        ids = df.loc[:, "index"].values  # Extract the first column as ids
+        ids = df.loc[:, index_col].values  # Extract the first column as ids
         paths = df.loc[:, "filename"].values  # Extract the second column as filenames
-        offset_columns = self.offset_trajectory_columns
-        if any([col.startswith("Offset") for col in df.columns]):
+        offset_columns = self.offset_trajectory_columns # Extract offset columns if present
+        if any([col in offset_columns for col in df.columns]):
             offsets = df.loc[:,offset_columns]
         else:
             offsets = None
@@ -165,7 +249,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         unbatched = cls.load_trajectories(trajectory_index_file,pdb_dir,trajectory_dir,pdb_importer,device=device)
         num_batches = math.ceil(len(unbatched)//batch_size)
         #add length hint for progress bar
-        return SizeWrappedIter(((tuple(b[0] for b in batch),tuple(b[1] for b in batch), tuple(b[2] for b in batch)) for batch in itertools.batched(unbatched,batch_size)),num_batches)
+        return SizeWrappedIter(((tuple(b[0] for b in batch),tuple(b[1] for b in batch), tuple(b[2] for b in batch)) for batch in batched(unbatched,batch_size)),num_batches)
 
 
     def load_trajectory(self,data_path:str|Path|tuple[str|Path,...], pdb_dir:str|Path, reference:DFMDict, device:str|torch.device='cuda')->Sequence[tuple[LigDict|tuple[LigDict,...],torch.Tensor]]:
@@ -240,9 +324,23 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                         if self.offset_type == "Rotation": #Assume rotational prior is just 0!
                             res = torch.zeros(offset.shape[:-1],dtype=offset.dtype)
                         else:
-                            res = (prior_gaussian_nd(offset[...,:3],sigma_max)[0]) #first three components are always x,y,z. Assume rotational prior is just 0!
+                            res = (prior_log_gaussian_nd(offset[...,:3],sigma_max)[0]) #first three components are always x,y,z. Assume rotational prior is just 0!
                         return res.numpy(force=True) if batched else res.item()
                     priors.append((prior_fn,prior_likelihood_fn)) # pyright: ignore[reportArgumentType]
+                case "receptor_smax_gaussian":
+                    def receptor_centered_likelihood_fn(x:LigDict|Sequence[LigDict],t:float, condition:DFMDict):
+                        offset = self.to_array(x) # pyright: ignore[reportArgumentType] #assume x matches batchness and has been dealt with
+                        rec_cen = torch.mean(condition["rec_pos"], dim=(0, 1))
+                        lig_cen = torch.mean(condition["lig_pos_orig"], dim=(0, 1))
+                        prior_mean = rec_cen-lig_cen
+                        tt = torch.as_tensor(t)
+                        assert torch.allclose(tt,torch.ones_like(tt))
+                        if self.offset_type == "Rotation": #Assume rotational prior is just 0!
+                            res = torch.zeros(offset.shape[:-1],dtype=offset.dtype)
+                        else:
+                            res = prior_log_gaussian_nd(offset[...,:3]-prior_mean,sigma_max)[0]
+                        return res.numpy(force=True) if batched else res.item()
+                    priors.append((prior_fn,receptor_centered_likelihood_fn))
         
         return priors
 
@@ -437,6 +535,8 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
     def compute_likelihoods(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         # set device
         device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
@@ -454,9 +554,12 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         sigma_max = self.config.sigma_max
 
         # set models
-        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False))
+        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False),weights_only=False)
         score_model.freeze()
         score_model.to(device)
+
+        if self.config.get("reset_seed_each_sample",False):
+            raise ValueError("reset_seed_each_sample deprecated. Either use reset_seed_each_eval (original behavior of reset_seed_each_sample) or reset_seed_each_path.") 
 
         model_eval = DFMDockModelEval(score_model,offset_type=self.offset_type,reset_seed_each_eval=self.config.get("reset_seed_each_eval",False),manual_seed=self.config.get("seed",0))
         
@@ -467,9 +570,13 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         pdb_importer = PDBImporter(esm_model,esm_model.alphabet)
 
         assert batch_size is None
-        load_samples_fn = lambda: self.load_samples(self.config.data_samples, self.config.pdb_dir, pdb_importer, device=device)  # noqa: E731
+        load_samples_fn = lambda: self.load_samples(self.config.data_samples, self.config.pdb_dir, pdb_importer, device=device, index_col=self.config.get("samples_index_col","index"))  # noqa: E731
         load_trajectories_fn = lambda: self.load_trajectories(self.config.trajectory_index_file, self.config.pdb_dir, self.config.trajectory_dir, pdb_importer)  # noqa: E731
         get_trajectory_fn = lambda trajectory_file, condition: self.load_trajectory(trajectory_file, self.config.pdb_dir, condition, device=device)  # noqa: E731
+
+        if (replicates := self.config.get("num_replicates",None)):
+            load_samples_fn = replicate_fn(load_samples_fn,replicates)
+            load_trajectories_fn = replicate_fn(load_trajectories_fn,replicates)
 
         diffusion_coeff_fn = functools.partial(
             diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = self.config.get("clamp_diffusion_coefficient",False))
@@ -498,9 +605,6 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                         device)
 
         ### RUN LIKELIHOOD COMPUTATION
-
-        self.initialize_out_dir()
-        self.write_config(self.out_config_file)
                 
         int_type = self.config.integral_type
 
@@ -512,6 +616,13 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
         sample_save_type = self.config.get("sample_save_type","offset")
         write_metrics = self.config.get("write_sample_metrics",False) and write_samples
+
+        skip_ids = []
+        file = self.out_likelihoods_file
+        if self.config.get("resume_existing",False) and file.exists():
+            try:
+                skip_ids = pd.read_csv(file,usecols=['id'])['id'].values.astype('str')
+            except pd.errors.EmptyDataError: pass
         
         ## WRITE OUTPUT
         acc_trajnum = 0
@@ -525,6 +636,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 self.metrics_writer(write_metrics)                                      as metrics_writer,
             ):
             for (id,path) in tqdm(paths):
+                if str(id) in skip_ids: continue
                 if reset_seed_each_path:
                     torch.manual_seed(seed)
                 if int_type == "ode":
@@ -544,15 +656,7 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                 prior_endpoint:tuple[LigDict,float,DFMDict] = (trajectory[-1], time[-1], condition)
                 prior_result:dict[str,float|list[float]] = {name:torch.Tensor.tolist(torch.as_tensor(prior_fn(*prior_endpoint))) for name,prior_fn in priors}
 
-                if likelihoods_writer:
-                    row = {"id":id,
-                        "prior_position":self.to_array(prior_endpoint[0]).tolist(),
-                            "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
-                            **{f"prior:{name}":val for name,val in prior_result.items()},
-                            **{f"integrand:{name}":val[-1] for name,val in likelihood_result.items()}} #write last accumulated likelihood
-                    likelihoods_writer.writerow(row)
-                    
-                    
+
                 sample_out, traj_out, metrics_out, = self.write_samples(
                     self.out_trajectory_folder,
                     self.out_pdb_folder,
@@ -572,8 +676,8 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                     trajectory_save_type=self.config.get("trajectory_save_type","offset"),
                 )
 
-                if sample_out:
-                    samples_writer.writerow(sample_out) # pyright: ignore[reportOptionalMemberAccess]
+                if metrics_out:
+                    metrics_writer.writerow(metrics_out) # pyright: ignore[reportOptionalMemberAccess]
 
                 if traj_out:
                     for cutoff,writer in trajectory_indices.items():
@@ -581,14 +685,24 @@ class DFMDockLikelihood(DiffEnergyLikelihood[LigDict,DFMDict]):
                             writer.writerow(traj_out)
                     acc_trajnum += 1
                     
-                if metrics_out:
-                    metrics_writer.writerow(metrics_out) # pyright: ignore[reportOptionalMemberAccess]
+                if sample_out:
+                    samples_writer.writerow(sample_out) # pyright: ignore[reportOptionalMemberAccess]
 
+                if likelihoods_writer:
+                    row = {"id":id,
+                        "prior_position":self.to_array(prior_endpoint[0]).tolist(),
+                            "prior_time":torch.as_tensor(prior_endpoint[1]).item(), 
+                            **{f"prior:{name}":val for name,val in prior_result.items()},
+                            **{f"integrand:{name}":val[-1] for name,val in likelihood_result.items()}} #write last accumulated likelihood
+                    likelihoods_writer.writerow(row)
 
-class DFMDockForces(ForcesMixin, DFMDockLikelihood):
+                    
+class DFMDockForces(ForcesMixin, DFMDockLikelihood): #TODO: put this in the main class maybe? depends on how hydra cli should work
     def get_forces(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         # set device
         device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
@@ -606,7 +720,7 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood):
         sigma_max = self.config.sigma_max
 
         # set models
-        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False))
+        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False),weights_only=False)
         score_model.freeze()
         score_model.to(device)
 
@@ -619,9 +733,13 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood):
         pdb_importer = PDBImporter(esm_model,esm_model.alphabet)
 
         assert batch_size is None
-        load_samples_fn = lambda: self.load_samples(self.config.data_samples, self.config.pdb_dir, pdb_importer, device=device)  # noqa: E731
+        load_samples_fn = lambda: self.load_samples(self.config.data_samples, self.config.pdb_dir, pdb_importer, device=device, index_col=self.config.get("samples_index_col","index"))  # noqa: E731
         load_trajectories_fn = lambda: self.load_trajectories(self.config.trajectory_index_file, self.config.pdb_dir, self.config.trajectory_dir, pdb_importer)  # noqa: E731
         get_trajectory_fn = lambda trajectory_file,condition: self.load_trajectory(trajectory_file, self.config.pdb_dir, condition, device=device)  # noqa: E731
+
+        if (replicates := self.config.get("num_replicates",None)):
+            load_samples_fn = replicate_fn(load_samples_fn,replicates)
+            load_trajectories_fn = replicate_fn(load_trajectories_fn,replicates)
 
         diffusion_coeff_fn = functools.partial(
             diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = self.config.get("clamp_diffusion_coefficient",False))
@@ -641,9 +759,6 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood):
 
         ### RUN FORCES
 
-        self.initialize_out_dir()
-        self.write_config(self.out_config_file)
-
         cols = self.offset_trajectory_columns
         scorecols = [f'score:{col}' for col in cols]
         poscols = [f'pos:{col}' for col in cols]
@@ -651,15 +766,22 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood):
         reset_seed_each_path = self.config.get("reset_seed_each_path",False)
         seed = self.config.get("seed",0)
 
+        skip_ids = [] 
+        file = self.forces_index_file
+        if self.config.get("resume_existing",False) and file.exists():
+            try:
+                skip_ids = pd.read_csv(file,usecols=['id'])['id'].values.astype('str')
+            except pd.errors.EmptyDataError: pass
         with self.forces_index_writer() as index_writer:
             for (id,P) in tqdm(paths):
+                if str(id) in skip_ids: continue
                 if reset_seed_each_path:
                     torch.manual_seed(seed)
 
                 c = P.condition
                 forces_csv_file = f'{id}.csv'
                 index_writer.writerow({"id":id,"Forces_CSV":forces_csv_file})
-                with open(self.forces_folder/forces_csv_file,'w',newline='') as f2:
+                with open(self.forces_folder/forces_csv_file,'w',newline='',buffering=1) as f2:
                     forces_writer = DictWriter(f2,fieldnames=['index','timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
                     forces_writer.writeheader()
                     for i,(x,t) in enumerate(P):
@@ -680,14 +802,13 @@ class DFMDockForces(ForcesMixin, DFMDockLikelihood):
 
 class DFMDockSampler(DFMDockLikelihood):
 
-    def sample_random_offset(self,rec_pos, lig_pos, sigma:float)->torch.Tensor:
-        device=rec_pos.device
+    def sample_random_offset(self, rec_pos:torch.Tensor, lig_pos:torch.Tensor, sigma:float)->torch.Tensor:
+        device = rec_pos.device
 
         # get center of mass
         rec_cen = torch.mean(rec_pos, dim=(0, 1))
         lig_cen = torch.mean(lig_pos, dim=(0, 1))
 
-        # get rotat update: random rotation vector
         restensors = []
 
         if "Translation" in self.offset_type:
@@ -701,7 +822,8 @@ class DFMDockSampler(DFMDockLikelihood):
     def sample(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
-
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         with open_dict(self.config):
             ## Set various sampling/trajectory output config parameters based on sampling parameters:
@@ -763,7 +885,7 @@ class DFMDockSampler(DFMDockLikelihood):
         sigma_max = self.config.sigma_max
 
         # set models
-        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False))
+        score_model = Score_Model.load_from_checkpoint(self.config.checkpoint,deterministic=self.config.get("deterministic_score",False),weights_only=False)
         score_model.freeze()
         score_model.to(device)
 
@@ -781,7 +903,7 @@ class DFMDockSampler(DFMDockLikelihood):
 
         assert batch_size is None
         def load_noised_samples()->SizedIter[tuple[str,LigDict,DFMDict]]:
-            dataset = self.load_samples(self.config.data_samples, self.config.pdb_dir, pdb_importer, device=device)
+            dataset = self.load_samples(self.config.data_samples, self.config.pdb_dir, pdb_importer, device=device, index_col=self.config.get("samples_index_col","index"))
 
             def get_noised_sample(id:str,lig:LigDict,cond:DFMDict):
                 assert torch.all(lig["offset"] == 0)
@@ -811,15 +933,19 @@ class DFMDockSampler(DFMDockLikelihood):
 
         ### RUN SAMPLING
 
-        self.initialize_out_dir()
-        self.write_config(self.out_config_file)
-
         ## WRITE OUTPUT
-        write_samples = self.config.get("write_samples",False)
+        write_samples = self.config.get("write_samples",True)
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
         sample_save_type = self.config.get("sample_save_type","offset")
         write_metrics = self.config.get("write_sample_metrics",False) and write_samples
+        
+        skip_ids = [] 
+        file = self.out_samples_file if write_samples else self.out_trajectory_index if write_samples else None
+        if self.config.get("resume_existing",False) and (file is not None and file.exists()):
+            try:
+                skip_ids = pd.read_csv(file,usecols=['index'])['index'].values.astype('str')
+            except pd.errors.EmptyDataError: pass
 
         acc_trajnum = 0
         with (  #open the various global output csv.DictWriters
@@ -829,6 +955,7 @@ class DFMDockSampler(DFMDockLikelihood):
                 self.metrics_writer(write_metrics)                                      as metrics_writer,
             ):
             for (id,path) in tqdm(paths):
+                if str(id) in skip_ids: continue
                 trajectory,time = unzip(path)
                 condition = path.condition
 
@@ -851,8 +978,8 @@ class DFMDockSampler(DFMDockLikelihood):
                     trajectory_save_type=self.config.get("trajectory_save_type","offset"),
                 )
 
-                if sample_out:
-                    samples_writer.writerow(sample_out) # pyright: ignore[reportOptionalMemberAccess]
+                if metrics_out:
+                    metrics_writer.writerow(metrics_out) # pyright: ignore[reportOptionalMemberAccess]
 
                 if traj_out:
                     for cutoff,writer in trajectory_indices.items():
@@ -860,6 +987,6 @@ class DFMDockSampler(DFMDockLikelihood):
                             writer.writerow(traj_out)
                     acc_trajnum += 1
                     
-                if metrics_out:
-                    metrics_writer.writerow(metrics_out) # pyright: ignore[reportOptionalMemberAccess]
+                if sample_out:
+                    samples_writer.writerow(sample_out) # pyright: ignore[reportOptionalMemberAccess]
                     

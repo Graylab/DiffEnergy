@@ -4,11 +4,7 @@ from pathlib import Path
 
 from matplotlib import pyplot as plt
 
-#run from either parent directory or figures directory
-try:
-    from shared import get_gt_gaussian, get_prior_gaussian, setfont
-except ImportError:
-    from figures.sharedshared import get_gt_gaussian, get_prior_gaussian, setfont
+from figures.shared import get_gt_gaussian, get_prior_gaussian, setfont
 
 
 def get_traj_likelihoods(folder:Path):
@@ -75,7 +71,7 @@ if __name__ == "__main__":
     
 
     flow_trajectories = get_trajectories('results/likelihood/gaussian_1d_flow/trajectories','trajectory_index.csv')
-    diff_trajectories = get_trajectories('results/sample_results/gaussian_1d/trajectories','trajectory_index.csv')
+    diff_trajectories = get_trajectories('results/sample_results/gaussian_1d_smin30_smax70/trajectories','trajectory_index.csv')
     difftraj_forces = get_forces(Path('results/forces/gaussian_1000'))
     
     from typing import Iterable

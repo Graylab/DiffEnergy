@@ -1,0 +1,11 @@
+out_dir: checkpoints/1d_trinormal_smin30_smax70
+sigma_min: 30
+sigma_max: 70
+n_epochs: 100
+batch_size: 32
+num_samples: 60000
+num_workers: 4
+sigma_noise: 0
+tr_data: trimodal_gaussian
+tr_type: non_conservative
+save_training_samples: true

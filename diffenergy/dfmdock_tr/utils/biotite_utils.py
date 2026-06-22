@@ -6,9 +6,11 @@ try:
     from biotite.structure import filter_peptide_backbone
 except ImportError:
     from biotite.structure import filter_backbone as filter_peptide_backbone
+import numpy as np
 import torch
 from diffenergy.dfmdock_tr.utils.geometry import axis_angle_to_matrix
 from diffenergy.dfmdock_tr.utils.esm_utils import extract_coords_from_structure
+from diffenergy.torch_decorator import torch_fn
 
 def modify_aa_coords(x, rot, tr):
     center = x.mean(axis=0)
@@ -37,16 +39,17 @@ def get_chain_structure(orig:str|Path|AtomArray,chain:str,backbone_only:bool=Fal
 
     #we can extract just the ligands, modify the structure, then assign it back using this boolean mask
     lig_filter = orig_structure.chain_id == chain #get boolean mask
-    lig_structure = orig_structure[lig_filter]
+    lig_structure:AtomArray = orig_structure[lig_filter]
     
     return lig_structure
 
 #same as load_coords from esm_utils, but can take an already loaded atomarray as input to save disk read
-def get_chain_coords(orig:str|Path|AtomArray,chain:str,backbone_only:bool=True):
+def get_chain_coords(orig:str|Path|AtomArray,chain:str,backbone_only:bool=True)->tuple[np.ndarray,str]:
     return extract_coords_from_structure(get_chain_structure(orig,chain,backbone_only=backbone_only))
 
 
 # load pdb with **all** atoms, not just backbone atoms, and offset specified chain. Defaults to B cause that's the default ligand chain
+@torch_fn
 def get_offset_pdb(
         orig:str|Path|AtomArray,
         offset_tr:None|torch.Tensor,

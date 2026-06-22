@@ -1,14 +1,14 @@
 from csv import DictWriter
+import os
 import warnings
-from diffenergy.inference import MapDataset, get_integrands, get_paths, unzip
+from diffenergy.gaussian_helper import mixture_pdf
+from diffenergy.inference import get_integrands, get_paths, unzip
 from diffenergy.gaussian_1d.likelihood_helpers import ModelEval
 from diffenergy.gaussian_1d.network import NegativeGradientMLP, ScoreNetMLP
-from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel, batched_normpdf_matrix, batched_normpdf_scalar
-from diffenergy.helper import diffusion_coeff, int_diffusion_coeff_sq, marginal_prob_std, prior_gaussian_nd
+from diffenergy.groundtruth_score import MultimodalGaussianGroundTruthScoreModel
+from diffenergy.helper import MapDataset, SizeWrappedIter, SizedIter, diffusion_coeff, marginal_kernel_var, marginal_prob_std, prior_log_gaussian_nd_batched
 from diffenergy.inference import DiffEnergyLikelihood, ForcesMixin
 from diffenergy.likelihood import run_diff_likelihood, run_ode_likelihood
-from diffenergy.inference import SizedIter
-
 
 import numpy as np
 import pandas as pd
@@ -16,15 +16,63 @@ import torch
 from omegaconf import DictConfig, OmegaConf, open_dict
 from tqdm import tqdm
 
-
 import functools
 import itertools
 import math
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Optional, Sequence
+from typing_extensions import TypeVarTuple, ParamSpec, override, Unpack
 
+def batched(iterable, n, *, strict=False):
+    # batched('ABCDEFG', 3) → ABC DEF G
+    if n < 1:
+        raise ValueError('n must be at least one')
+    iterator = iter(iterable)
+    while batch := tuple(itertools.islice(iterator, n)):
+        if strict and len(batch) != n:
+            raise ValueError('batched(): incomplete batch')
+        yield batch
+
+#horrible hack
+T = TypeVarTuple("T")
+def replicate_id_generator(gen:Iterable[tuple[str|tuple[str,...],Unpack[T]]],
+                           num_replicates:int,
+                           copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Iterable[tuple[str|tuple[str,...],Unpack[T]]]:
+    for S in gen:
+        s = S[0]; r = S[1:]
+        for i in range(num_replicates):
+            if copy_fn:
+                r = copy_fn(*r)
+            if isinstance(s,str):
+                yield (s+f"_r{i}",*r)
+            elif isinstance(s,tuple):
+                yield (tuple(si + f"_r{i}" for si in s),*r)
+            elif isinstance(s,list):
+                yield (list(si + f"_r{i}" for si in s),*r)
+            else:
+                raise ValueError()
+
+#blegh blegh blegh
+A = ParamSpec("A")
+def replicate_fn(f:Callable[A,list[tuple[str,Unpack[T]]]],
+                 num_replicates:int,
+                 copy_fn:None|Callable[[Unpack[T]],tuple[Unpack[T]]]=None)->Callable[A,SizedIter[tuple[str,Unpack[T]]]]:
+    @functools.wraps(f)
+    def replicated(*args,**kwargs):
+        R = f(*args,**kwargs)
+        total_length = len(R)*num_replicates
+        return SizeWrappedIter(replicate_id_generator(R,num_replicates,copy_fn=copy_fn),total_length)
+    return replicated
 
 class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
+
+    @override
+    def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[]):
+        return super().sample_index_writer(write_samples,extra_fieldnames=['samples',*extra_fieldnames])
+    
+    @override
+    def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
+        return super().trajectory_index_writers(write_indices,extra_fieldnames=['filename',*extra_fieldnames])
 
     @classmethod
     def to_array(cls,x:torch.Tensor)->torch.Tensor:
@@ -77,7 +125,8 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
             variances = torch.tensor([8.0,5.0,10.0])**2
             weights = torch.tensor([0.4,0.3,0.3])
 
-            model_eval = MultimodalGaussianGroundTruthScoreModel(means,variances,weights,sigma_min,sigma_max,batched=batched)
+            difffn = functools.partial(marginal_kernel_var,sigma_min=sigma_min,sigma_max=sigma_max)
+            model_eval = MultimodalGaussianGroundTruthScoreModel(weights,means,variances,marginal_kernel_var=difffn,batched=batched)
             model_eval.to(device)
         else:
             raise ValueError(tr_type)
@@ -122,14 +171,8 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
 
     @classmethod
     def load_trajectories_batched(cls,index_file:str|Path,batch_size:int):
-        return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch),None) for batch in itertools.batched(cls.load_trajectories(index_file),batch_size)]
+        return [(tuple(b[0] for b in batch),tuple(b[1] for b in batch),None) for batch in batched(cls.load_trajectories(index_file),batch_size)]
     
-    def sample_index_writer(self,write_samples:bool,extra_fieldnames:Iterable[str]=[]):
-        return super().sample_index_writer(write_samples,extra_fieldnames=['samples',*extra_fieldnames])
-    
-    def trajectory_index_writers(self,write_indices:bool,extra_fieldnames:Iterable[str]=[]):
-        return super().trajectory_index_writers(write_indices,extra_fieldnames=['filename',*extra_fieldnames])
-
     @classmethod
     def load_trajectory(cls,data_path:str|Path|tuple[str|Path,...],device:str|torch.device='cuda')->tuple[torch.Tensor,torch.Tensor]:
         batched = isinstance(data_path,tuple)
@@ -176,6 +219,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
             functions = DictConfig({f:{} for f in functions}) #ensure types is a DictConfig of Dicts
 
         for prior_fn,params in functions.items():
+            if params is None: params = DictConfig({})
             match prior_fn:
                 case "convolved_data":
                     means = torch.tensor([[-30.0],[0.0],[40.0]],dtype=torch.float, device=device)
@@ -194,16 +238,12 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
                     def gt_prior_fn(x:torch.Tensor,t:float,condition:None):
                         tt = torch.as_tensor(t)
                         if gt_time is not None: assert torch.allclose(tt, gt_time), t  # pyright: ignore[reportArgumentType] # noqa: E701
-                        currvar = variances + int_diffusion_coeff_sq(tt,sigma_min=sigma_min,sigma_max=sigma_max)
+                        currvar = variances + marginal_kernel_var(tt,sigma_min=sigma_min,sigma_max=sigma_max)
 
                         assert x.ndim == 2,x.shape #BxD
                         assert means.ndim == 2,x.shape #NxD
-                        dx = x[:,None,...] - means[None,...]
-                        if variances.ndim == 1:
-                            probs = batched_normpdf_scalar(dx,currvar) #shape:BxN
-                        else:
-                            probs = batched_normpdf_matrix(dx,currvar) #shape:BxN
-                        logprob = torch.log(torch.sum(weights[None,...]*probs,dim=-1)) #shape:B
+                    
+                        logprob = torch.log(mixture_pdf(x,weights,means,currvar)) #shape:B
 
                         return logprob.squeeze().item() if not batched else logprob.numpy(force=True)
 
@@ -213,18 +253,34 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
 
 
                 case "smax_gaussian":
+                    # Gaussian with std = sigma_max
+                    # Accurate if data variance = sigma_min^2, since *added* noise is sigma_max^2 - sigma_min^2
                     def prior_likelihood_fn(x:torch.Tensor,t:float,condition:None):
-                        tt = torch.as_tensor(t)
+                        tt = torch.as_tensor(t,device=x.device)
                         assert torch.allclose(tt, torch.ones_like(tt)), t #diffeq errors might mean it's not *quite* 1 but that's fine
-                        res = (prior_gaussian_nd(x,sigma_max)[0])
+                        res = (prior_log_gaussian_nd_batched(x,sigma_max))
                         return res.numpy(force=True) if batched else res.item()
                     priors.append((prior_fn,prior_likelihood_fn))
+                
+                case "estimated_data":
+                    # Use provided data variance estimate instead of sigma_min
+                    data_var = params.get("data_variance")
+                    def estimated_prior_likelihood_fn(x:torch.Tensor,t:float,condition:None):
+                        tt = torch.as_tensor(t,device=x.device)
+                        assert torch.allclose(tt, torch.ones_like(tt)), t #diffeq errors might mean it's not *quite* 1 but that's fine
+                        prior_var = data_var + marginal_kernel_var(tt,sigma_min=sigma_min,sigma_max=sigma_max)
+                        res = (prior_log_gaussian_nd_batched(x,sigma=torch.sqrt(prior_var)))
+                        return res.numpy(force=True) if batched else res.item()
+                    priors.append((prior_fn,estimated_prior_likelihood_fn))
+
 
         return priors
 
     def compute_likelihoods(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         # set device
         device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
@@ -247,6 +303,10 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
 
         load_samples_fn = (lambda: self.load_samples(self.config.data_samples, device=device)) if batch_size is None else (lambda: self.load_samples_batched(self.config.data_samples, batch_size=batch_size, device=device))
         load_trajectories_fn = (lambda: self.load_trajectories(self.config.trajectory_index_file)) if batch_size is None else (lambda: self.load_trajectories_batched(self.config.trajectory_index_file,batch_size))
+
+        if (replicates := self.config.get("num_replicates",None)):
+            load_samples_fn = replicate_fn(load_samples_fn,replicates)
+            load_trajectories_fn = replicate_fn(load_trajectories_fn,replicates)
 
         def get_trajectory(path,cond:None)->list[tuple[torch.Tensor,float]]:
             samples,times = self.load_trajectory(path,device=device)
@@ -283,9 +343,6 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
 
         ### RUN LIKELIHOOD COMPUTATION
 
-        self.initialize_out_dir()
-        self.write_config(self.out_config_file)
-
         int_type = self.config.integral_type
 
         reset_seed_each_path = self.config.get("reset_seed_each_path",False)
@@ -295,6 +352,12 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
 
+        skip_ids = [] 
+        file = self.out_likelihoods_file
+        if self.config.get("resume_existing",False) and file.exists():
+            try:
+                skip_ids = pd.read_csv(file,usecols=['id'])['id'].values.astype('str')
+            except pd.errors.EmptyDataError: pass
 
         ## WRITE OUTPUT
         acc_trajnum = 0
@@ -307,6 +370,8 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
             ):
 
             for (id_batch,path) in tqdm(paths):
+                if all([str(id) in skip_ids for id in id_batch]):
+                    continue
                 if reset_seed_each_path:
                     torch.manual_seed(seed)
                 if int_type == "ode":
@@ -347,20 +412,7 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
                     prior_results = [prior_batch]
 
                 for id, trajectory, time, likelihood_result, prior_result in zip(ids,trajectories,times,likelihood_results,prior_results):
-
-                    if likelihoods_writer:
-                        prior_endpoint = trajectory[-1], time[-1]
-                        row = {"id":int(id),
-                            "prior_position":prior_endpoint[0].item(),  #since here we're in 1d, let's make it a scalar w/ item()
-                                "prior_time":torch.as_tensor(prior_endpoint[1]).item(),
-                                **{f"prior:{name}":val for name,val in prior_result.items()},
-                                **{f"integrand:{name}":val[-1] for name,val in likelihood_result.items()}} #save the last accumulated likelihood
-                        likelihoods_writer.writerow(row)
-
-                    if samples_writer:
-                        #TODO: CONFIGURATION FOR WHICH POINT TO SAVE
-                        sample = {"index":id,"samples":trajectory[-1].item()}
-                        samples_writer.writerow(sample)
+                    if str(id) in skip_ids: continue #skip individual ids even if the batch itself isn't skipped
 
                     if save_trajectories: #save trajectory to folder
                         trajectory_name = f"trajectory_{id}.csv"
@@ -379,11 +431,26 @@ class GaussianLikelihood(DiffEnergyLikelihood[torch.Tensor,None]):
                                 writer.writerow({"index":id,"filename":trajectory_name})
                         acc_trajnum += 1
 
+                    if samples_writer:
+                        #TODO: CONFIGURATION FOR WHICH POINT TO SAVE
+                        sample = {"index":id,"samples":trajectory[-1].item()}
+                        samples_writer.writerow(sample)
+
+                    if likelihoods_writer:
+                        prior_endpoint = trajectory[-1], time[-1]
+                        row = {"id":id,
+                            "prior_position":prior_endpoint[0].item(),  #since here we're in 1d, let's make it a scalar w/ item()
+                                "prior_time":torch.as_tensor(prior_endpoint[1]).item(),
+                                **{f"prior:{name}":val for name,val in prior_result.items()},
+                                **{f"integrand:{name}":val[-1] for name,val in likelihood_result.items()}} #save the last accumulated likelihood
+                        likelihoods_writer.writerow(row)
 
 class GaussianForces(ForcesMixin, GaussianLikelihood):
     def get_forces(self):
         # Print the entire configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         # set device
         device = torch.device(self.config.get("device","cuda" if torch.cuda.is_available() else "cpu"))
@@ -406,6 +473,10 @@ class GaussianForces(ForcesMixin, GaussianLikelihood):
 
         load_samples_fn = (lambda: self.load_samples(self.config.data_samples, device=device)) if batch_size is None else (lambda: self.load_samples_batched(self.config.data_samples, batch_size, device=device))
         load_trajectories_fn = (lambda: self.load_trajectories(self.config.trajectory_index_file)) if batch_size is None else (lambda: self.load_trajectories_batched(self.config.trajectory_index_file,batch_size))
+
+        if (replicates := self.config.get("num_replicates",None)):
+            load_samples_fn = replicate_fn(load_samples_fn,replicates)
+            load_trajectories_fn = replicate_fn(load_trajectories_fn,replicates)
 
         def get_trajectory(path,c:None)->list[tuple[torch.Tensor,float]]:
             samples,times = self.load_trajectory(path,device=device)
@@ -430,24 +501,29 @@ class GaussianForces(ForcesMixin, GaussianLikelihood):
 
         ### RUN FORCES
 
-        self.initialize_out_dir()
-        self.write_config(self.out_config_file)
-
         scorecols = ['score']
         poscols = ['pos']
 
         reset_seed_each_path = self.config.get("reset_seed_each_path",False)
         seed = self.config.get("seed",0)
 
+        skip_ids = []
+        file = self.forces_index_file
+        if self.config.get("resume_existing",False) and file.exists():
+            try:
+                skip_ids = pd.read_csv(file,usecols=['id'])['id'].values.astype('str')
+            except pd.errors.EmptyDataError: pass
+
         with self.forces_index_writer() as index_writer:
             for (id,P) in tqdm(paths):
+                if str(id) in skip_ids: continue
                 if reset_seed_each_path:
                     torch.manual_seed(seed)
 
                 c = P.condition
                 forces_csv_file = self.forces_folder/f'{id}.csv'
                 index_writer.writerow({"id":id,"Forces_CSV":forces_csv_file})
-                with open(forces_csv_file,'w',newline='') as f2:
+                with open(forces_csv_file,'w',newline='',buffering=1) as f2:
                     forces_writer = DictWriter(f2,fieldnames=['index','timestep','Diffusion_Coeff','Divergence'] + scorecols + poscols)
                     forces_writer.writeheader()
                     for i,(x,t) in enumerate(P):
@@ -470,6 +546,8 @@ class GaussianSampler(GaussianLikelihood):
     def sample(self):
         # Print the entire self.configuration
         print(OmegaConf.to_yaml(self.config))
+        self.initialize_out_dir(allow_existing=self.config.get("resume_existing",False))
+        self.write_config(self.out_config_file)
 
         with open_dict(self.config):
             ## Set various sampling/trajectory output self.config parameters based on sampling parameters:
@@ -531,6 +609,12 @@ class GaussianSampler(GaussianLikelihood):
             diffusion_coeff, sigma_min = sigma_min, sigma_max = sigma_max, clamp = self.config.get("clamp_diffusion_coefficient",False))
 
 
+        prior_var = marginal_kernel_var(1,sigma_min,sigma_max)
+        if (data_var := self.config.get("data_variance",None)) is not None: #incorporate data variance if provided
+            prior_var += data_var
+        prior_std = torch.sqrt(prior_var)
+
+
         ## SAMPLE DIFFUSION TRAJECTORIES
         def load_noised_samples()->SizedIter[tuple[str|Sequence[str],torch.Tensor,None]]:
             bsize = batch_size or 1
@@ -538,7 +622,7 @@ class GaussianSampler(GaussianLikelihood):
             def getchunk(i:int):
                 ids = [str(id) for id in range(self.config.sample_num)[i*bsize:(i+1)*bsize]]
                 chunksize = len(ids)
-                x = torch.randn(chunksize,1,device=device)*sigma_max
+                x = torch.randn(chunksize,1,device=device)*prior_std
                 if not batched:
                     ids = ids[0]
                 return (ids,x,None)
@@ -563,12 +647,16 @@ class GaussianSampler(GaussianLikelihood):
 
         ### RUN SAMPLING
 
-        self.initialize_out_dir()
-        self.write_config(self.out_config_file)
-
-        write_samples = self.config.get("write_samples",False)
+        write_samples = self.config.get("write_samples",True)
         save_trajectories = self.config.get("save_trajectories",False)
         write_trajectory_index = self.config.get("write_trajectory_index",True) and save_trajectories
+
+        skip_ids = []
+        file = self.out_samples_file if write_samples else self.out_trajectory_index if write_samples else None
+        if self.config.get("resume_existing",False) and (file is not None and file.exists()):
+            try:
+                skip_ids = pd.read_csv(file,usecols=['index'])['index'].values.astype('str')
+            except pd.errors.EmptyDataError: pass
 
         ## WRITE OUTPUT
         acc_trajnum = 0
@@ -577,6 +665,8 @@ class GaussianSampler(GaussianLikelihood):
                 self.trajectory_index_writers(write_trajectory_index)   as trajectory_indices
             ):
             for (id_batch,path) in tqdm(paths): #ids are potentially batched
+                if all([str(id) in skip_ids for id in id_batch]):
+                    continue
 
                 #trajectories are potentially batched
                 trajectory_batch, times = unzip(path)
@@ -593,10 +683,7 @@ class GaussianSampler(GaussianLikelihood):
                     times = itertools.repeat(times)
 
                 for id, trajectory, time in zip(ids, trajectories, times):
-                    if samples_writer:
-                        #TODO: CONFIGURATION FOR WHICH POINT TO SAVE
-                        sample = {"index":id,"samples":trajectory[-1].item()}
-                        samples_writer.writerow(sample)
+                    if str(id) in skip_ids: continue #skip individual ids even if the batch itself isn't skipped
 
                     if save_trajectories: #save trajectory to folder
                         trajectory_name = f"trajectory_{id}.csv"
@@ -613,3 +700,8 @@ class GaussianSampler(GaussianLikelihood):
                             if cutoff is None or acc_trajnum < cutoff:
                                 writer.writerow({"index":id,"filename":trajectory_name})
                         acc_trajnum += 1
+                    
+                    if samples_writer:
+                        #TODO: CONFIGURATION FOR WHICH POINT TO SAVE
+                        sample = {"index":id,"samples":trajectory[-1].item()}
+                        samples_writer.writerow(sample)
