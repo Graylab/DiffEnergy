@@ -182,7 +182,6 @@ outputs/
 logs
 figures/**/*.png
 figures/**/*.pdb
-results
 user_scripts
 
 uv.lock
