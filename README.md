@@ -16,7 +16,9 @@ pip install -e .
 ```
 
 ## Usage
-Scripts for model inference, likelihood calculation, and other tools can be found in the `scripts` folder. `hydra` configs for training, inference, likelihood, and force calcluations are in the `configs` folder. Most scripts directly call classes in `diffenergy/gaussian_1d/inference.py` or `diffenergy/dfmdock/inference.py`. Scripts for generating figure plots are in the `figures` folder. Sampling and likelihood results as used in the paper can be found in the `results` directory, where inference scripts will output and the figure scripts will reference by default.
+Scripts for model inference, likelihood calculation, and other tools can be found in the `scripts` folder. Hydra configs for training, inference, likelihood, and force calcluations are in the `configs` folder. Most scripts directly call classes in `diffenergy/gaussian_1d/inference.py` or `diffenergy/dfmdock/inference.py`. Scripts for generating figure plots are in the `figures` folder. Sampling and likelihood results as used in the paper can be found in the `results` directory, where inference scripts will output and the figure scripts will reference by default.
+
+Most results files as generated for the paper are present in the `results` directory, with notable exception of the large folder containing the DFMDock inference trajectories (`results/sample_results/dfmdock/trajectories`). The complete results folder is hosted at https://zenodo.org/records/20817112.
 
 ### Sampling
 This code allows for sampling from our trimodel Gaussian modal and the modified dfmdock with `python scripts/sample_gaussian_1d.py --config-name=sample_gaussian_1d` and `python scripts/sample_dfmdock.py --config-name=sample_dfmdock` respectively.
